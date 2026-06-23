@@ -91,6 +91,19 @@ SideHustle.API.Register(new GamemodeDescriptor
 Registration replaces by `Id`, so re-registering is safe. Call `ctx.ReturnToHub()` from your
 gamemode when it finishes to return to the menu.
 
+## Roadmap
+
+Side Hustle 1.0.0 covers singleplayer launching. Planned next:
+
+- **Multiplayer launch** - Host / Join for multiplayer and hybrid gamemodes (the buttons are already
+  in the menu, shown disabled).
+- **Server browser** - find and join other players' gamemode lobbies, filtered by gamemode.
+- **World gamemodes** - boot a throwaway session for gamemodes that need the loaded game world.
+
+The public API already exposes the multiplayer and world hooks, so gamemodes can be written against
+them today. See the [wiki](https://github.com/DooDesch-Mods/ScheduleOne-SideHustle/wiki) for the full
+roadmap and API reference.
+
 ## Compatibility
 
 - IL2CPP build only (current Steam public branch).
