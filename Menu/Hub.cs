@@ -12,7 +12,7 @@ namespace SideHustle.Menu
     /// Owns the gamemode-selection panel and the launch flow. The menu button (see <see cref="MenuInjector"/>)
     /// calls <see cref="ToggleHubPanel"/>. Selecting a singleplayer gamemode hides the menu and invokes its
     /// launch callback; the gamemode calls LaunchContext.ReturnToHub when done, which routes back to
-    /// <see cref="OnReturn"/>. Multiplayer host/join are shown but disabled until Phase 2.
+    /// <see cref="OnReturn"/>. Multiplayer host/join are shown but disabled until multiplayer support lands.
     /// </summary>
     internal static class Hub
     {
@@ -147,7 +147,7 @@ namespace SideHustle.Menu
                 LaunchSingleplayer(desc);
         }
 
-        // Multiplayer / hybrid: Singleplayer (if allowed) / Host / Join. Host+Join are Phase 2, shown disabled.
+        // Multiplayer / hybrid: Singleplayer (if allowed) / Host / Join. Host+Join are not available yet, shown disabled.
         private static void ShowModeChoice(GamemodeDescriptor desc)
         {
             if (_listContent == null) return;

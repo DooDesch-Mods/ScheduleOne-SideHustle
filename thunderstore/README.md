@@ -1,0 +1,46 @@
+# Side Hustle - Gamemode Hub for Schedule I
+
+> 🛟 **Need help or found a bug?** Get support at [support.doodesch.de](https://support.doodesch.de).
+
+> **One menu entry for every gamemode.** Side Hustle adds a single button to the main menu that
+> lists every installed gamemode mod and launches it straight from the menu - no savegame required.
+> It is the shared hub that gamemode mods plug into.
+
+![Version](https://img.shields.io/badge/version-1.0.0-blue)
+![Game](https://img.shields.io/badge/game-Schedule%20I-purple)
+![MelonLoader](https://img.shields.io/badge/MelonLoader-0.7.3+-green)
+![S1API](https://img.shields.io/badge/S1API-required-orange)
+
+## What it is
+
+Side Hustle is a **hub**, not a gamemode by itself. On its own it just adds a **Side Hustle** button
+to the main menu. Install gamemode mods that build on it and they appear in the list; pick one and it
+launches immediately in its own self-contained session - gamemodes never load or touch a normal save.
+
+If you installed Side Hustle as a dependency of another mod, there is nothing to do: that mod registers
+itself and shows up under the Side Hustle entry.
+
+## Features
+
+- **One menu entry for every gamemode** - name, description and author, launched from the main menu.
+- **No savegame** - gamemodes run in their own session and never load or alter your saves.
+- **Singleplayer launch** works today; multiplayer host/join and a server browser are shown
+  (disabled) and arrive with a later update.
+- **Load-order independent API** so gamemode mods register whether they load before or after the hub.
+- A single setting to hide the entry without uninstalling.
+
+## Requirements
+
+- **Schedule I** (IL2CPP) with **MelonLoader 0.7.3+**.
+- **S1API** (pulled in as a dependency).
+- Optional: **Mod Manager & Phone App** for the in-game settings UI.
+- One or more **gamemode mods** that use Side Hustle.
+
+## Settings
+
+`Enabled` (default `true`) - show the Side Hustle menu entry. Editable in the Mod Manager & Phone
+App UI or `UserData/MelonPreferences.cfg` under `SideHustle_01_Main`.
+
+## License
+
+MIT. See the included LICENSE.md.

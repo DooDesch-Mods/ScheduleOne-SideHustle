@@ -5,7 +5,7 @@ namespace SideHustle.Config
     /// <summary>
     /// MelonPreferences wrapper. The category id is prefixed with the mod name ("SideHustle_...") so it is
     /// auto-detected by the "Mod Manager &amp; Phone App" settings UI. Side Hustle is a hub, so it only needs
-    /// a couple of toggles; more arrive with the multiplayer phases.
+    /// a couple of toggles; more may arrive with multiplayer support.
     /// </summary>
     internal static class Preferences
     {

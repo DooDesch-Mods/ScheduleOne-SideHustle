@@ -3,8 +3,8 @@ using System;
 namespace SideHustle.Internal
 {
     /// <summary>
-    /// Thin seam between the public API surface (which a consumer mod holds onto) and the menu-side Hub logic
-    /// (built in Phase 1). The Hub installs <see cref="ReturnHandler"/> when the menu scene initializes; until
+    /// Thin seam between the public API surface (which a consumer mod holds onto) and the menu-side Hub logic.
+    /// The Hub installs <see cref="ReturnHandler"/> when the menu scene initializes; until
     /// then <see cref="RequestReturn"/> is a safe no-op. This lets LaunchContext.ReturnToHub compile and work
     /// without the API layer depending on the menu UI.
     /// </summary>

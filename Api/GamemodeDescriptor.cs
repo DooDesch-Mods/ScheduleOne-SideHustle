@@ -46,10 +46,10 @@ namespace SideHustle
         /// <summary>Invoked to start singleplayer. Required for Singleplayer/Hybrid gamemodes.</summary>
         public Action<LaunchContext> OnLaunchSingleplayer;
 
-        /// <summary>Invoked to start hosting a multiplayer session (Phase 2). Optional.</summary>
+        /// <summary>Invoked to start hosting a multiplayer session. Optional.</summary>
         public Action<LaunchContext> OnHostMultiplayer;
 
-        /// <summary>Invoked to join a multiplayer session (Phase 2). Optional.</summary>
+        /// <summary>Invoked to join a multiplayer session. Optional.</summary>
         public Action<LaunchContext> OnJoinMultiplayer;
 
         /// <summary>Invoked when Side Hustle tears the gamemode down (e.g. the player backs out). Optional.</summary>

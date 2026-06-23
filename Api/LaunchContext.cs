@@ -15,7 +15,7 @@ namespace SideHustle
         /// <summary>true = host, false = client, null = singleplayer.</summary>
         public bool? IsHost { get; internal set; }
 
-        /// <summary>Steam lobby id for multiplayer; 0 for singleplayer (Phase 2).</summary>
+        /// <summary>Steam lobby id for multiplayer; 0 for singleplayer.</summary>
         public ulong LobbyId { get; internal set; }
 
         /// <summary>True when this is a singleplayer launch.</summary>

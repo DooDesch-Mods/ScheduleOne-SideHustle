@@ -1,0 +1,108 @@
+# Side Hustle - A Main-Menu Hub for Schedule I Gamemodes
+
+> 🛟 **Need help or found a bug?** Get support at [support.doodesch.de](https://support.doodesch.de).
+
+> Side Hustle adds a single entry to the Schedule I main menu that lists every installed
+> "gamemode" mod and launches it straight from the menu - no savegame required. It is the
+> shared entry point that gamemode mods (like an in-game tattoo editor) plug into. Built on
+> [S1API](https://github.com/ifBars/S1API).
+
+![Version](https://img.shields.io/badge/version-1.0.0-blue)
+![Game](https://img.shields.io/badge/game-Schedule%20I-purple)
+![MelonLoader](https://img.shields.io/badge/MelonLoader-0.7.3+-green)
+![S1API](https://img.shields.io/badge/S1API-required-orange)
+![Status](https://img.shields.io/badge/status-working-brightgreen)
+
+## What it is
+
+Side Hustle is a **hub**, not a gamemode by itself. On its own it just adds a **Side Hustle**
+button to the main menu. Install gamemode mods that build on it and they appear in the list;
+pick one and it launches immediately in its own self-contained session. Gamemodes never load or
+touch a normal savegame, so they stay cleanly separated from your real playthrough.
+
+If you installed Side Hustle as a dependency of another mod, you do not have to do anything - that
+mod registers itself and shows up under the Side Hustle entry.
+
+## Features
+
+- **One menu entry for every gamemode.** A single "Side Hustle" button on the main menu lists all
+  installed gamemode mods with their name, description and author.
+- **No savegame.** Gamemodes launch in their own session and never load or alter your saves.
+- **Singleplayer launch** works today. Multiplayer host/join and a server browser are shown
+  (disabled) and arrive with a later update.
+- **Load-order independent API.** Gamemode mods register themselves whether they load before or
+  after Side Hustle.
+- **Stays out of the way.** A single toggle hides the entry without uninstalling.
+
+## Requirements
+
+| Component | Version / Source |
+|-----------|------------------|
+| Schedule I | IL2CPP (current Steam public build) |
+| MelonLoader | `0.7.3+` |
+| S1API | [ifBars/S1API_Forked](https://thunderstore.io/c/schedule-i/p/ifBars/S1API_Forked/) |
+| Mod Manager & Phone App | [Prowiler, Nexus mods/397](https://www.nexusmods.com/schedule1/mods/397) - optional, for the in-game settings UI |
+
+## Installation
+
+### Recommended: a Thunderstore mod manager
+
+Install with a mod manager (r2modman / Gale) from the Schedule I community; the dependencies
+(MelonLoader, S1API) are pulled in automatically.
+
+### Manual
+
+1. Install **MelonLoader 0.7.3** for Schedule I.
+2. Install **S1API** (its DLLs go in `Mods/` and `Plugins/` per its own instructions).
+3. Drop **`SideHustle.dll`** into your Schedule I `Mods/` folder.
+4. Install one or more gamemode mods that use Side Hustle.
+
+## Configuration
+
+Settings live in the **Mod Manager & Phone App** UI in-game, or in `UserData/MelonPreferences.cfg`
+under `SideHustle_01_Main`.
+
+| Setting | Default | What it does |
+|---|---|---|
+| `Enabled` | `true` | Show the Side Hustle menu entry. Off hides it without uninstalling (return to the main menu to apply). |
+
+## For mod authors
+
+Make your mod show up as a gamemode in a few lines. Reference `SideHustle.dll`, declare it as an
+optional dependency so your mod still loads if Side Hustle is absent, and register from your
+`OnInitializeMelon`:
+
+```csharp
+[assembly: MelonOptionalDependencies("SideHustle")]
+
+SideHustle.API.Register(new GamemodeDescriptor
+{
+    Id = "you.yourmode",                 // stable, unique
+    DisplayName = "Your Mode",
+    Description = "What your gamemode does.",
+    Author = "You",
+    Support = GamemodeSupport.Singleplayer,   // or Multiplayer / Hybrid
+    Surface = GamemodeSurface.MenuSpace,      // overlay on the menu (no save), or World
+    OnLaunchSingleplayer = ctx => { /* start your gamemode */ },
+    OnExitToHub = ctx => { /* clean up when the player backs out */ }
+});
+```
+
+Registration replaces by `Id`, so re-registering is safe. Call `ctx.ReturnToHub()` from your
+gamemode when it finishes to return to the menu.
+
+## Compatibility
+
+- IL2CPP build only (current Steam public branch).
+- Works alongside any other MelonLoader/S1API mod. Side Hustle only adds a main-menu entry and the
+  registration API; it does not touch gameplay or saves.
+
+## Credits
+
+- **DooDesch** - mod author.
+- **[ifBars/S1API](https://github.com/ifBars/S1API)** - the modding API this is built on.
+- **Prowiler** - Mod Manager & Phone App (in-game settings UI).
+
+## License
+
+Provided as-is under the [MIT License](LICENSE.md).

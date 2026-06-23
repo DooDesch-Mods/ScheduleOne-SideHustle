@@ -1,0 +1,13 @@
+{
+  "name": "SideHustle",
+  "version_number": "1.0.0",
+  "website_url": "https://github.com/DooDesch-Mods/ScheduleOne-SideHustle",
+  "description": "A main-menu hub that lists installed gamemode mods and launches them without a savegame.",
+  "dependencies": [
+    "LavaGang-MelonLoader-0.7.3",
+    "ifBars-S1API_Forked-3.0.5"
+  ],
+  "contributors": [
+    "DooDesch"
+  ]
+}
