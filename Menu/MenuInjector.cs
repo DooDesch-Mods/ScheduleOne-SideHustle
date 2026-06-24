@@ -140,7 +140,7 @@ namespace SideHustle.Menu
             Button btn = clone.GetComponent<Button>();
             if (btn == null) { UnityEngine.Object.Destroy(clone); return false; }
             NeutralizeClick(btn);
-            btn.onClick.AddListener((UnityAction)Hub.ToggleHubPanel);
+            btn.onClick.AddListener((UnityAction)Hub.OpenScreen);
             btn.interactable = true;
 
             if (!clone.activeSelf) clone.SetActive(true);
