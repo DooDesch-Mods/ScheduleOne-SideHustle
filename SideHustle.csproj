@@ -1,5 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!-- CI checks out the shared Workspace repo as a SUBFOLDER of this project, so the SDK's default **/*.cs glob
+       would sweep in Workspace/ui, Workspace/build, etc. (uGUI design-system source this mod does not use).
+       This mod compiles only its own source - exclude everything under Workspace. No-op locally, where Workspace
+       is a sibling folder. -->
+  <ItemGroup>
+    <Compile Remove="Workspace/**/*.cs" />
+  </ItemGroup>
+
   <!--
     Side Hustle - MelonLoader IL2CPP gamemode-hub mod for Schedule I.
     Adds a top-level main-menu entry that lists mods which registered themselves as a "gamemode"
