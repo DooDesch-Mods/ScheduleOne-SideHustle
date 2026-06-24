@@ -3,6 +3,12 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.0.1] - 2026-06-24
+
+### Fixed
+- The "Side Hustle" menu entry could be added more than once (showing duplicate entries) when the
+  main menu re-initialised during loading. Injection is now idempotent, so exactly one entry appears.
+
 ## [1.0.0] - 2026-06-24
 
 Initial release.

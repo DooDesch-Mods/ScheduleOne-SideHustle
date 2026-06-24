@@ -18,6 +18,8 @@ namespace SideHustle.Menu
     /// </summary>
     internal static class MenuInjector
     {
+        private const string MenuButtonName = "SideHustle_MenuButton";
+
         private static bool _injectedThisScene;
         private static bool _loggedStructure;
         private static int _retries;
@@ -55,9 +57,23 @@ namespace SideHustle.Menu
                     home.GetComponentsInChildren<Button>(true);
                 if (buttons == null || buttons.Length == 0) return;
 
+                // Idempotency guard: the "Menu" scene can re-initialise during a single menu load (the game fires
+                // OnSceneWasInitialized -> Reset more than once), so injection may run again after our button already
+                // exists. If it does, adopt the existing entry and stop - never add a second "Side Hustle" button.
+                for (int i = 0; i < buttons.Length; i++)
+                {
+                    if (buttons[i] != null && buttons[i].gameObject.name == MenuButtonName)
+                    {
+                        _injectedThisScene = true;
+                        Hub.RememberHome(home);
+                        return;
+                    }
+                }
+
                 if (!_loggedStructure)
                 {
                     _loggedStructure = true;
+#if DEBUG
                     Core.Log?.Msg($"[menu] home screen '{home.name}' has {buttons.Length} button(s):");
                     for (int i = 0; i < buttons.Length; i++)
                     {
@@ -65,6 +81,7 @@ namespace SideHustle.Menu
                         if (b == null) continue;
                         Core.Log?.Msg($"[menu]   #{i} go='{b.gameObject.name}' parent='{(b.transform.parent != null ? b.transform.parent.name : "<none>")}' label='{GetLabel(b.gameObject)}'");
                     }
+#endif
                 }
 
                 Button template = PickTemplate(buttons);
@@ -127,7 +144,7 @@ namespace SideHustle.Menu
             Transform parent = template.transform.parent;
             GameObject clone = UnityEngine.Object.Instantiate(template.gameObject, parent, false).Cast<GameObject>();
             clone.transform.localScale = Vector3.one;
-            clone.name = "SideHustle_MenuButton";
+            clone.name = MenuButtonName;
             // Place it just above the template button in the nav column.
             int idx = template.transform.GetSiblingIndex();
             clone.transform.SetSiblingIndex(idx);
