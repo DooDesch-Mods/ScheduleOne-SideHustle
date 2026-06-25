@@ -3,6 +3,14 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] - 2026-06-25
+
+### Added
+- **Conflict-free mod sets.** A gamemode can declare which other mods it works with (a mod policy). When you
+  launch it, Side Hustle shows exactly which mods it will disable and enable, then - on your confirmation -
+  applies the change and restarts the game into the gamemode. When you leave the gamemode your normal mods are
+  restored. A "Restore my mods" entry is there if you ever need to put everything back yourself.
+
 ## [1.1.0] - 2026-06-25
 
 ### Added

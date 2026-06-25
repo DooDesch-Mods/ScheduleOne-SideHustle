@@ -7,7 +7,7 @@
 > shared entry point that gamemode mods (like an in-game tattoo editor) plug into. Built on
 > [S1API](https://github.com/ifBars/S1API).
 
-![Version](https://img.shields.io/badge/version-1.1.0-blue)
+![Version](https://img.shields.io/badge/version-1.2.0-blue)
 ![Game](https://img.shields.io/badge/game-Schedule%20I-purple)
 ![MelonLoader](https://img.shields.io/badge/MelonLoader-0.7.3+-green)
 ![S1API](https://img.shields.io/badge/S1API-required-orange)
@@ -34,6 +34,10 @@ mod registers itself and shows up under the Side Hustle entry.
   shows its own lobbies. Bigger lobbies are supported (with BiggerLobbies).
 - **World gamemodes.** Gamemodes that need the actual game world get a throwaway session booted for them,
   outside your save slots, so your real saves are never touched.
+- **Conflict-free mod sets (optional).** A gamemode can declare which other mods it works with; Side Hustle
+  disables the rest and enables the ones it needs - after a confirmation that lists exactly what changes - so
+  unrelated mods do not interfere, then restores your normal mods when you leave the gamemode. Applying the
+  change restarts the game (MelonLoader cannot unload a mod at runtime), and Side Hustle restarts for you.
 - **Load-order independent API.** Gamemode mods register themselves whether they load before or after
   Side Hustle.
 - **Stays out of the way.** A single toggle hides the entry without uninstalling.

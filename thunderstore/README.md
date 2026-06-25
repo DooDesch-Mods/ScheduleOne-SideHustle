@@ -6,7 +6,7 @@
 > lists every installed gamemode mod and launches it straight from the menu - no savegame required.
 > It is the shared hub that gamemode mods plug into.
 
-![Version](https://img.shields.io/badge/version-1.1.0-blue)
+![Version](https://img.shields.io/badge/version-1.2.0-blue)
 ![Game](https://img.shields.io/badge/game-Schedule%20I-purple)
 ![MelonLoader](https://img.shields.io/badge/MelonLoader-0.7.3+-green)
 ![S1API](https://img.shields.io/badge/S1API-required-orange)
@@ -29,6 +29,9 @@ itself and shows up under the Side Hustle entry.
   a built-in **public server browser** (filtered per gamemode; bigger lobbies supported with BiggerLobbies).
 - **World gamemodes** - gamemodes that need the loaded game world get a throwaway session, outside your
   save slots, so your real saves are never touched.
+- **Conflict-free mod sets** - a gamemode can declare which mods it works with; Side Hustle disables the
+  rest (after a confirmation listing the changes) and restores your mods when you leave. Applying it restarts
+  the game, which Side Hustle does for you.
 - **Load-order independent API** so gamemode mods register whether they load before or after the hub.
 - A single setting to hide the entry without uninstalling.
 

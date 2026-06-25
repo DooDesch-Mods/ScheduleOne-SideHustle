@@ -1,6 +1,6 @@
 {
   "name": "SideHustle",
-  "version_number": "1.1.0",
+  "version_number": "1.2.0",
   "website_url": "https://github.com/DooDesch-Mods/ScheduleOne-SideHustle",
   "description": "A main-menu hub that lists installed gamemode mods and launches them - singleplayer, host or join via a server browser - without touching your saves.",
   "dependencies": [

@@ -8,9 +8,6 @@ obj/
 *.user
 *.suo
 
-# Deployed copy (PostBuild copies the DLL into the game Mods folder)
-Mods/
-
 # OS
 Thumbs.db
 .DS_Store

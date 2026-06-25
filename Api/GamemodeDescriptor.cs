@@ -55,6 +55,18 @@ namespace SideHustle
         /// <summary>Invoked when Side Hustle tears the gamemode down (e.g. the player backs out). Optional.</summary>
         public Action<LaunchContext> OnExitToHub;
 
+        // --- Mod policy (optional) ---
+
+        /// <summary>
+        /// Optional policy controlling which other mods may stay loaded while this gamemode runs. Null = no
+        /// restriction (default). See <see cref="ModPolicy"/>.
+        /// </summary>
+        public ModPolicy Policy;
+
+        /// <summary>The assembly that registered this descriptor; its DLL is always kept by a mod policy. Set by
+        /// <see cref="API.Register"/>.</summary>
+        internal System.Reflection.Assembly OwnerAssembly;
+
         /// <summary>True when this descriptor can be launched in singleplayer.</summary>
         public bool AllowsSingleplayer => Support == GamemodeSupport.Singleplayer || Support == GamemodeSupport.Hybrid;
 

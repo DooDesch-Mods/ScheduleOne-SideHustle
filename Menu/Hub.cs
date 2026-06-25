@@ -141,6 +141,17 @@ namespace SideHustle.Menu
                 .ToList();
 
             var rows = new List<Row>();
+
+            // If a gamemode policy turned some of your mods off, offer to put them back (and restart).
+            if (Mods.ModSwitcher.HasRestorePending)
+                rows.Add(new Row
+                {
+                    Name = "Restore my mods",
+                    Subtitle = "Re-enable the mods a gamemode turned off, and restart.",
+                    Corner = "Mods",
+                    OnClick = () => Mods.ModSwitcher.RestoreAndRestart()
+                });
+
             foreach (var d in modes)
             {
                 GamemodeDescriptor desc = d;
@@ -357,8 +368,68 @@ namespace SideHustle.Menu
 
         private static void OnSelectGamemode(GamemodeDescriptor desc)
         {
+            // A gamemode with a mod policy: if it would change which mods are loaded, confirm first (and restart).
+            // After the restart the mods are already correct, so the resolver reports no changes and we fall through.
+            if (desc.Policy != null)
+            {
+                var plan = Mods.ModPolicyResolver.Resolve(desc);
+                if (plan.Blocked || plan.HasChanges) { ShowModCheck(desc, plan); return; }
+            }
             if (desc.AllowsMultiplayer) ShowModeChoice(desc);
             else LaunchSelected(desc);
+        }
+
+        /// <summary>Continue into a gamemode after a mod-policy restart (mods are already in the right state).</summary>
+        internal static void ContinueGamemode(string id)
+        {
+            EnsureInit();
+            EnsureClone();
+            if (_cloneScreen == null) return;
+            if (!_cloneScreen.IsOpen) { ShowGamemodeList(); _cloneScreen.Open(closePrevious: true); }
+            var desc = API.Registered.FirstOrDefault(d => d.Id == id);
+            if (desc != null) OnSelectGamemode(desc);
+            else Core.Log?.Warning($"[hub] could not continue into '{id}' after restart (gamemode not registered). " +
+                                   "The gamemode list (with 'Restore my mods') is shown so you are not stuck.");
+        }
+
+        private static void ShowModCheck(GamemodeDescriptor desc, Mods.ModPlan plan)
+        {
+            _mpDesc = desc;
+            _back = ShowGamemodeList;
+            var rows = new List<Row>();
+
+            if (plan.MissingRequired.Count > 0)
+                rows.Add(new Row { Name = "Missing - install first", Subtitle = string.Join(", ", plan.MissingRequired) });
+            if (plan.ToDisable.Count > 0)
+                rows.Add(new Row { Name = $"Will disable ({plan.ToDisable.Count})", Subtitle = FriendlyNames(plan.ToDisable) });
+            if (plan.ToEnable.Count > 0)
+                rows.Add(new Row { Name = $"Will enable ({plan.ToEnable.Count})", Subtitle = string.Join(", ", plan.ToEnable.Select(StripDll)) });
+
+            if (plan.Blocked)
+            {
+                rows.Add(new Row { Name = "Cannot start yet", Subtitle = "Install the missing mod(s), then try again." });
+            }
+            else
+            {
+                rows.Add(new Row
+                {
+                    Name = "Confirm and restart",
+                    Subtitle = "The game restarts to apply these mod changes, then opens this gamemode.",
+                    OnClick = () => { Preferences.RecordLaunch(desc.Id); Mods.ModSwitcher.ApplyPolicyAndRestart(desc, plan); }
+                });
+            }
+            rows.Add(new Row { Name = "Cancel", Subtitle = "Back to the gamemode list.", OnClick = ShowGamemodeList });
+            ShowRows(desc.DisplayName + " - mod check", rows);
+        }
+
+        private static string StripDll(string f) =>
+            f != null && f.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? f.Substring(0, f.Length - 4) : f;
+
+        private static string FriendlyNames(List<string> files)
+        {
+            var loaded = Mods.ModInventory.Loaded();
+            return string.Join(", ", files.Select(f =>
+                loaded.FirstOrDefault(m => string.Equals(m.File, f, StringComparison.OrdinalIgnoreCase))?.Name ?? StripDll(f)));
         }
 
         /// <summary>Launch a gamemode in singleplayer: a MenuSpace overlay, or a World boot for World gamemodes.</summary>

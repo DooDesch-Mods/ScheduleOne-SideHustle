@@ -2,7 +2,7 @@ using MelonLoader;
 using SideHustle.Config;
 using SideHustle.Menu;
 
-[assembly: MelonInfo(typeof(SideHustle.Core), "Side Hustle", "1.1.0", "DooDesch", "https://github.com/DooDesch-Mods/ScheduleOne-SideHustle")]
+[assembly: MelonInfo(typeof(SideHustle.Core), "Side Hustle", "1.2.0", "DooDesch", "https://github.com/DooDesch-Mods/ScheduleOne-SideHustle")]
 [assembly: MelonGame("TVGS", "Schedule I")]
 
 namespace SideHustle
@@ -20,6 +20,7 @@ namespace SideHustle
 
         private bool _inMenu;
         private int _reopenHubFrames;   // >0 = reopen the hub list this many frames after a session returns to Menu
+        private string _continueId;     // a gamemode to continue into after a mod-policy restart
 
         public override void OnInitializeMelon()
         {
@@ -29,11 +30,14 @@ namespace SideHustle
             Preferences.Initialize();
             API.IsReady = true;
 
+            // Keep ticking when the window is unfocused, so a post-restart auto-continue still fires.
+            try { UnityEngine.Application.runInBackground = true; } catch { /* ignore */ }
+
 #if DEBUG
             Dev.StubGamemode.Register();
 #endif
 
-            Log.Msg($"Side Hustle 1.1.0 ready - {API.Registered.Count} gamemode(s) registered so far.");
+            Log.Msg($"Side Hustle 1.2.0 ready - {API.Registered.Count} gamemode(s) registered so far.");
         }
 
         public override void OnSceneWasInitialized(int buildIndex, string sceneName)
@@ -44,9 +48,20 @@ namespace SideHustle
                 MenuInjector.Reset();
                 MenuInjector.TryInject(); // one immediate attempt; OnUpdate retries if the UI isn't ready yet
 
+                // All mods are loaded by the time the menu shows: refresh the mod name->file map for the policy.
+                Mods.ModInventory.RefreshNameMap();
+
+                // After a mod-policy restart, continue straight into the gamemode (mods are now in the right state).
+                string cont = Preferences.PendingContinue;
+                if (!string.IsNullOrEmpty(cont))
+                {
+                    Preferences.PendingContinue = "";
+                    _continueId = cont;
+                    _reopenHubFrames = 90;
+                }
                 // A World/multiplayer session that just ended reloaded the menu scene: reopen the gamemode list
                 // once the menu has laid out (a short delay so the cloned NewGameScreen is available).
-                if (Multiplayer.MultiplayerCoordinator.PendingHubReopen)
+                else if (Multiplayer.MultiplayerCoordinator.PendingHubReopen)
                 {
                     Multiplayer.MultiplayerCoordinator.PendingHubReopen = false;
                     _reopenHubFrames = 90;
@@ -74,7 +89,12 @@ namespace SideHustle
             if (_inMenu)
             {
                 MenuInjector.TickRetry();
-                if (_reopenHubFrames > 0 && --_reopenHubFrames == 0) Hub.OpenScreen();
+                Hub.TickInput();   // right-click steps one view back (mod-check, host/join choice, browser, ...)
+                if (_reopenHubFrames > 0 && --_reopenHubFrames == 0)
+                {
+                    if (!string.IsNullOrEmpty(_continueId)) { var id = _continueId; _continueId = null; Hub.ContinueGamemode(id); }
+                    else Hub.OpenScreen();
+                }
             }
         }
     }
