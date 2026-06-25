@@ -142,12 +142,12 @@ namespace SideHustle.Menu
 
             var rows = new List<Row>();
 
-            // If a gamemode policy turned some of your mods off, offer to put them back (and restart).
+            // While a gamemode profile is running, offer to switch back to the player's full mod set.
             if (Mods.ModSwitcher.HasRestorePending)
                 rows.Add(new Row
                 {
                     Name = "Restore my mods",
-                    Subtitle = "Re-enable the mods a gamemode turned off, and restart.",
+                    Subtitle = "Switch back to your full set of mods (restarts the game).",
                     Corner = "Mods",
                     OnClick = () => Mods.ModSwitcher.RestoreAndRestart()
                 });
@@ -401,9 +401,9 @@ namespace SideHustle.Menu
             if (plan.MissingRequired.Count > 0)
                 rows.Add(new Row { Name = "Missing - install first", Subtitle = string.Join(", ", plan.MissingRequired) });
             if (plan.ToDisable.Count > 0)
-                rows.Add(new Row { Name = $"Will disable ({plan.ToDisable.Count})", Subtitle = FriendlyNames(plan.ToDisable) });
+                rows.Add(new Row { Name = $"Paused for this session ({plan.ToDisable.Count})", Subtitle = FriendlyNames(plan.ToDisable) });
             if (plan.ToEnable.Count > 0)
-                rows.Add(new Row { Name = $"Will enable ({plan.ToEnable.Count})", Subtitle = string.Join(", ", plan.ToEnable.Select(StripDll)) });
+                rows.Add(new Row { Name = $"Enabled for this session ({plan.ToEnable.Count})", Subtitle = string.Join(", ", plan.ToEnable.Select(StripDll)) });
 
             if (plan.Blocked)
             {
@@ -413,8 +413,8 @@ namespace SideHustle.Menu
             {
                 rows.Add(new Row
                 {
-                    Name = "Confirm and restart",
-                    Subtitle = "The game restarts to apply these mod changes, then opens this gamemode.",
+                    Name = "Confirm and launch",
+                    Subtitle = "Restarts into a temporary profile with just these mods, then opens the gamemode. Your installed mods stay untouched.",
                     OnClick = () => { Preferences.RecordLaunch(desc.Id); Mods.ModSwitcher.ApplyPolicyAndRestart(desc, plan); }
                 });
             }

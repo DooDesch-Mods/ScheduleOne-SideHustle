@@ -1,11 +1,12 @@
 namespace SideHustle
 {
     /// <summary>
-    /// An optional per-gamemode policy that controls which OTHER mods may stay loaded while the gamemode runs.
-    /// When a gamemode with a policy is launched, Side Hustle disables every loaded mod that is not allowed and
-    /// enables the ones the gamemode requires, after a confirmation that lists exactly what changes. Applying it
-    /// needs a game restart (MelonLoader cannot cleanly unload a mod at runtime); Side Hustle restarts for you and
-    /// continues into the gamemode, then restores your original mods when you leave it.
+    /// An optional per-gamemode policy that controls which OTHER mods are active while the gamemode runs.
+    /// When a gamemode with a policy is launched, Side Hustle restarts the game into a temporary, isolated profile
+    /// that loads ONLY the allowed mods, after a confirmation that lists exactly what changes, then continues into
+    /// the gamemode; leaving the gamemode restarts back to your full mod set. Your installed mods are never renamed,
+    /// moved or deleted - the profile is a throwaway sandbox - so mod managers stay in sync and a normal launch
+    /// always loads everything.
     ///
     /// Mods are matched by their MelonLoader display name OR their DLL file name (case-insensitive, ".dll" optional).
     /// You never need to list the essentials - they are always kept: MelonLoader, S1API, Side Hustle, this gamemode's

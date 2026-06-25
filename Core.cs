@@ -2,7 +2,7 @@ using MelonLoader;
 using SideHustle.Config;
 using SideHustle.Menu;
 
-[assembly: MelonInfo(typeof(SideHustle.Core), "Side Hustle", "1.2.0", "DooDesch", "https://github.com/DooDesch-Mods/ScheduleOne-SideHustle")]
+[assembly: MelonInfo(typeof(SideHustle.Core), "Side Hustle", "1.3.0", "DooDesch", "https://github.com/DooDesch-Mods/ScheduleOne-SideHustle")]
 [assembly: MelonGame("TVGS", "Schedule I")]
 
 namespace SideHustle
@@ -37,7 +37,7 @@ namespace SideHustle
             Dev.StubGamemode.Register();
 #endif
 
-            Log.Msg($"Side Hustle 1.2.0 ready - {API.Registered.Count} gamemode(s) registered so far.");
+            Log.Msg($"Side Hustle 1.3.0 ready - {API.Registered.Count} gamemode(s) registered so far.");
         }
 
         public override void OnSceneWasInitialized(int buildIndex, string sceneName)
@@ -48,11 +48,21 @@ namespace SideHustle
                 MenuInjector.Reset();
                 MenuInjector.TryInject(); // one immediate attempt; OnUpdate retries if the UI isn't ready yet
 
-                // All mods are loaded by the time the menu shows: refresh the mod name->file map for the policy.
-                Mods.ModInventory.RefreshNameMap();
+                bool policySession = Mods.AltBase.IsAltSession();
+                if (!policySession)
+                {
+                    // Normal launch: capture the full installed mod set for the policy resolver, drop any stale
+                    // policy markers left by a crashed profile session (a plain launch already loads the full set,
+                    // so the player is never stuck), and clean up leftover temporary profile folders.
+                    Mods.ModInventory.RefreshNameMap();
+                    Preferences.ActiveAltBase = "";
+                    Preferences.PendingContinue = "";
+                    Preferences.RestoreModOps = "";   // retire the legacy rename-based field
+                    Mods.AltBase.SweepStale();
+                }
 
-                // After a mod-policy restart, continue straight into the gamemode (mods are now in the right state).
-                string cont = Preferences.PendingContinue;
+                // After relaunching into a gamemode profile, continue straight into the gamemode (mods are curated).
+                string cont = policySession ? Preferences.PendingContinue : "";
                 if (!string.IsNullOrEmpty(cont))
                 {
                     Preferences.PendingContinue = "";
@@ -61,7 +71,7 @@ namespace SideHustle
                 }
                 // A World/multiplayer session that just ended reloaded the menu scene: reopen the gamemode list
                 // once the menu has laid out (a short delay so the cloned NewGameScreen is available).
-                else if (Multiplayer.MultiplayerCoordinator.PendingHubReopen)
+                else if (!policySession && Multiplayer.MultiplayerCoordinator.PendingHubReopen)
                 {
                     Multiplayer.MultiplayerCoordinator.PendingHubReopen = false;
                     _reopenHubFrames = 90;

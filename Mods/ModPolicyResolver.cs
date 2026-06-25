@@ -9,10 +9,11 @@ namespace SideHustle.Mods
     /// <summary>The computed effect of a gamemode's mod policy against the current mod set.</summary>
     internal sealed class ModPlan
     {
-        public List<string> ToDisable = new List<string>();        // loaded .dll files that must be disabled
-        public List<string> ToEnable = new List<string>();         // .dll.disabled files (required) that must be enabled
+        public List<string> ToDisable = new List<string>();        // loaded .dll files that won't be active in the session
+        public List<string> ToEnable = new List<string>();         // .dll.disabled files (required) that will be activated
         public List<string> MissingRequired = new List<string>();  // required tokens with no file installed at all
         public List<string> KeepNames = new List<string>();        // friendly names kept (for the dialog)
+        public List<string> KeepFiles = new List<string>();        // the .dll files that should be ACTIVE = the alt Mods set
 
         public bool HasChanges => ToDisable.Count > 0 || ToEnable.Count > 0;
         public bool Blocked => MissingRequired.Count > 0;
@@ -77,6 +78,12 @@ namespace SideHustle.Mods
             plan.ToEnable = plan.ToEnable.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             plan.MissingRequired = plan.MissingRequired.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             plan.KeepNames = loaded.Where(m => keep.Contains(m.File)).Select(m => m.Name).ToList();
+
+            // The mods that should be ACTIVE in the gamemode session = the kept loaded mods + any required mod that
+            // is currently disabled on disk (it gets activated by linking its file into the curated set).
+            var keepFiles = new HashSet<string>(keep, StringComparer.OrdinalIgnoreCase);
+            foreach (var f in plan.ToEnable) keepFiles.Add(f);
+            plan.KeepFiles = keepFiles.ToList();
             return plan;
         }
 

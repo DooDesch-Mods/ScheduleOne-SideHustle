@@ -25,7 +25,14 @@ namespace SideHustle.Mods
     internal static class ModInventory
     {
         internal static string GameRoot() { try { return Directory.GetParent(Application.dataPath).FullName; } catch { return null; } }
-        internal static string ModsPath() { var r = GameRoot(); return r == null ? null : Path.Combine(r, "Mods"); }
+
+        /// <summary>The Mods folder the running process actually loaded from (= the alt Mods during a policy session,
+        /// the real Mods otherwise), so the policy resolver's "available" set always matches the loaded set.</summary>
+        internal static string ModsPath()
+        {
+            try { var d = MelonLoader.Utils.MelonEnvironment.ModsDirectory; if (!string.IsNullOrEmpty(d)) return d; } catch { /* fall back */ }
+            var r = GameRoot(); return r == null ? null : Path.Combine(r, "Mods");
+        }
 
         internal static IEnumerable<MelonMod> Melons()
         {

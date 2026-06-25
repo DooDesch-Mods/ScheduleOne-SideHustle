@@ -29,9 +29,10 @@ itself and shows up under the Side Hustle entry.
   a built-in **public server browser** (filtered per gamemode; bigger lobbies supported with BiggerLobbies).
 - **World gamemodes** - gamemodes that need the loaded game world get a throwaway session, outside your
   save slots, so your real saves are never touched.
-- **Conflict-free mod sets** - a gamemode can declare which mods it works with; Side Hustle disables the
-  rest (after a confirmation listing the changes) and restores your mods when you leave. Applying it restarts
-  the game, which Side Hustle does for you.
+- **Conflict-free mod sets** - a gamemode can declare which mods it works with; Side Hustle launches it in a
+  temporary, isolated profile with only those mods (after a confirmation listing the changes) and switches back
+  to your full set when you leave. Your installed mods are never disabled, renamed or moved, so your mod manager
+  stays in sync. Applying it restarts the game, which Side Hustle does for you.
 - **Load-order independent API** so gamemode mods register whether they load before or after the hub.
 - A single setting to hide the entry without uninstalling.
 

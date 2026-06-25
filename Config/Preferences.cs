@@ -20,6 +20,7 @@ namespace SideHustle.Config
         private static MelonPreferences_Entry<string> _modNameMap;
         private static MelonPreferences_Entry<string> _pendingContinue;
         private static MelonPreferences_Entry<string> _restoreOps;
+        private static MelonPreferences_Entry<string> _activeAltBase;
 
         internal static void Initialize()
         {
@@ -38,8 +39,10 @@ namespace SideHustle.Config
                 "Internal: a mod name to DLL file map so the mod-policy feature can resolve disabled mods. Managed automatically.");
             _pendingContinue = _category.CreateEntry("PendingContinue", "", "Pending gamemode (internal)",
                 "Internal: a gamemode id to auto-continue into after a mod-policy restart. Managed automatically.");
-            _restoreOps = _category.CreateEntry("RestoreModOps", "", "Restore mod ops (internal)",
-                "Internal: how to put your mods back when a mod-policy gamemode ends. Managed automatically.");
+            _restoreOps = _category.CreateEntry("RestoreModOps", "", "Restore mod ops (legacy, internal)",
+                "Internal: legacy field from an older mod-policy mechanism. No longer used; cleared automatically.");
+            _activeAltBase = _category.CreateEntry("ActiveAltBase", "", "Active gamemode profile (internal)",
+                "Internal: the temporary profile folder a mod-policy gamemode is running from, so it can be cleaned up. Managed automatically.");
         }
 
         internal static bool Enabled => _enabled?.Value ?? true;
@@ -60,11 +63,18 @@ namespace SideHustle.Config
             set { if (_pendingContinue != null) { _pendingContinue.Value = value ?? ""; Save(); } }
         }
 
-        /// <summary>How to restore the player's mods when a mod-policy gamemode ends ("" = nothing to restore).</summary>
+        /// <summary>Legacy field from the older rename-based mechanism; retained only so it can be cleared on upgrade.</summary>
         internal static string RestoreModOps
         {
             get => _restoreOps?.Value ?? "";
             set { if (_restoreOps != null) { _restoreOps.Value = value ?? ""; Save(); } }
+        }
+
+        /// <summary>The temporary profile folder a mod-policy gamemode is running from ("" = no policy session active).</summary>
+        internal static string ActiveAltBase
+        {
+            get => _activeAltBase?.Value ?? "";
+            set { if (_activeAltBase != null) { _activeAltBase.Value = value ?? ""; Save(); } }
         }
 
         /// <summary>The ids of recently launched gamemodes, most recent first.</summary>

@@ -3,13 +3,22 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] - 2026-06-26
+
+### Changed
+- **Conflict-free mod sets are now fully non-destructive.** When a gamemode declares which other mods it works
+  with, Side Hustle launches it in a temporary, isolated profile that loads only those mods - your installed mods
+  are never disabled, renamed, moved or deleted, so your mod manager stays in sync and a normal launch always
+  loads everything. Leaving the gamemode restarts back to your full set. The confirmation still lists exactly what
+  changes before anything happens, and a "Restore my mods" entry returns you to your full set at any time.
+
 ## [1.2.0] - 2026-06-25
 
 ### Added
 - **Conflict-free mod sets.** A gamemode can declare which other mods it works with (a mod policy). When you
-  launch it, Side Hustle shows exactly which mods it will disable and enable, then - on your confirmation -
-  applies the change and restarts the game into the gamemode. When you leave the gamemode your normal mods are
-  restored. A "Restore my mods" entry is there if you ever need to put everything back yourself.
+  launch it, Side Hustle shows exactly which mods it will pause and enable, then - on your confirmation -
+  launches the gamemode in its own mod set. When you leave the gamemode your normal mods are restored. A
+  "Restore my mods" entry is there if you ever need to put everything back yourself.
 
 ## [1.1.0] - 2026-06-25
 

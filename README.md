@@ -35,9 +35,10 @@ mod registers itself and shows up under the Side Hustle entry.
 - **World gamemodes.** Gamemodes that need the actual game world get a throwaway session booted for them,
   outside your save slots, so your real saves are never touched.
 - **Conflict-free mod sets (optional).** A gamemode can declare which other mods it works with; Side Hustle
-  disables the rest and enables the ones it needs - after a confirmation that lists exactly what changes - so
-  unrelated mods do not interfere, then restores your normal mods when you leave the gamemode. Applying the
-  change restarts the game (MelonLoader cannot unload a mod at runtime), and Side Hustle restarts for you.
+  launches it in a temporary, isolated profile that loads only those mods - after a confirmation that lists
+  exactly what changes - so unrelated mods do not interfere. Your installed mods are never disabled, renamed or
+  moved, so your mod manager stays in sync; leaving the gamemode restarts back to your full set, and a normal
+  launch always loads everything. Applying the profile restarts the game, which Side Hustle does for you.
 - **Load-order independent API.** Gamemode mods register themselves whether they load before or after
   Side Hustle.
 - **Stays out of the way.** A single toggle hides the entry without uninstalling.
