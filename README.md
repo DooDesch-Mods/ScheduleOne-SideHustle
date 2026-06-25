@@ -7,7 +7,7 @@
 > shared entry point that gamemode mods (like an in-game tattoo editor) plug into. Built on
 > [S1API](https://github.com/ifBars/S1API).
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue)
+![Version](https://img.shields.io/badge/version-1.1.0-blue)
 ![Game](https://img.shields.io/badge/game-Schedule%20I-purple)
 ![MelonLoader](https://img.shields.io/badge/MelonLoader-0.7.3+-green)
 ![S1API](https://img.shields.io/badge/S1API-required-orange)
@@ -26,12 +26,16 @@ mod registers itself and shows up under the Side Hustle entry.
 ## Features
 
 - **One menu entry for every gamemode.** A single "Side Hustle" button on the main menu lists all
-  installed gamemode mods with their name, description and author.
+  installed gamemode mods with their name, description, author and a Singleplayer / Multiplayer badge.
 - **No savegame.** Gamemodes launch in their own session and never load or alter your saves.
-- **Singleplayer launch** works today. Multiplayer host/join and a server browser are shown
-  (disabled) and arrive with a later update.
-- **Load-order independent API.** Gamemode mods register themselves whether they load before or
-  after Side Hustle.
+- **Singleplayer, host or join.** Singleplayer gamemodes launch instantly; multiplayer gamemodes show
+  a Singleplayer / Host / Join choice, all in the native menu style.
+- **Public server browser.** Find and join open sessions for a gamemode, filtered so each gamemode only
+  shows its own lobbies. Bigger lobbies are supported (with BiggerLobbies).
+- **World gamemodes.** Gamemodes that need the actual game world get a throwaway session booted for them,
+  outside your save slots, so your real saves are never touched.
+- **Load-order independent API.** Gamemode mods register themselves whether they load before or after
+  Side Hustle.
 - **Stays out of the way.** A single toggle hides the entry without uninstalling.
 
 ## Requirements
@@ -88,21 +92,17 @@ SideHustle.API.Register(new GamemodeDescriptor
 });
 ```
 
-Registration replaces by `Id`, so re-registering is safe. Call `ctx.ReturnToHub()` from your
-gamemode when it finishes to return to the menu.
+For a multiplayer gamemode set `Support` to `Multiplayer` or `Hybrid` and add `OnHostMultiplayer` /
+`OnJoinMultiplayer`. Side Hustle creates and tracks the lobby and (for `World` gamemodes) boots the
+session, then hands you a `LaunchContext` with the host/client role, lobby id, player count and the
+host's settings. Registration replaces by `Id`, so re-registering is safe. Call `ctx.ReturnToHub()`
+from your gamemode when it finishes to return to the menu.
 
 ## Roadmap
 
-Side Hustle 1.0.0 covers singleplayer launching. Planned next:
-
-- **Multiplayer launch** - Host / Join for multiplayer and hybrid gamemodes (the buttons are already
-  in the menu, shown disabled).
-- **Server browser** - find and join other players' gamemode lobbies, filtered by gamemode.
-- **World gamemodes** - boot a throwaway session for gamemodes that need the loaded game world.
-
-The public API already exposes the multiplayer and world hooks, so gamemodes can be written against
-them today. See the [wiki](https://github.com/DooDesch-Mods/ScheduleOne-SideHustle/wiki) for the full
-roadmap and API reference.
+Side Hustle 1.1.0 adds multiplayer (Host / Join), the public server browser, and world gamemodes - so
+both singleplayer and multiplayer gamemodes launch straight from the menu. See the
+[wiki](https://github.com/DooDesch-Mods/ScheduleOne-SideHustle/wiki) for the full roadmap and API reference.
 
 ## Compatibility
 

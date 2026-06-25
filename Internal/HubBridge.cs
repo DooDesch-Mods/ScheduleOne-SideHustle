@@ -10,12 +10,21 @@ namespace SideHustle.Internal
     /// </summary>
     internal static class HubBridge
     {
-        /// <summary>Installed by the Hub. Restores the menu and re-shows the gamemode list.</summary>
+        /// <summary>Installed by the Hub. Restores the menu and re-shows the gamemode list (MenuSpace singleplayer).</summary>
         internal static Action<LaunchContext> ReturnHandler;
 
         internal static void RequestReturn(LaunchContext ctx)
         {
-            try { ReturnHandler?.Invoke(ctx); }
+            try
+            {
+                // World gamemodes and any multiplayer session loaded a real world (scene reload), so they return
+                // via the multiplayer coordinator (ExitToMenu + reopen the hub). MenuSpace singleplayer overlays
+                // just restore the menu in place via the Hub's handler.
+                bool worldOrMp = ctx != null && (ctx.IsHost != null
+                                                 || (ctx.Descriptor != null && ctx.Descriptor.Surface == GamemodeSurface.World));
+                if (worldOrMp) SideHustle.Multiplayer.MultiplayerCoordinator.ReturnFromSession(ctx);
+                else ReturnHandler?.Invoke(ctx);
+            }
             catch (Exception e) { Core.Log?.Warning("ReturnToHub failed: " + e.Message); }
         }
     }
