@@ -45,8 +45,8 @@ namespace SideHustle.Multiplayer
             _ctx = null;
             _timer = 0f;
 
-            Core.Log?.Msg($"[mp] hosting '{desc.DisplayName}' (max {_hostOpts.MaxPlayers})...");
-            if (!LobbyCoordinator.CreatePublicLobby(_hostOpts.MaxPlayers)) { AbortToHub("could not create a lobby"); return; }
+            Core.Log?.Msg($"[mp] hosting '{desc.DisplayName}' (max {_hostOpts.MaxPlayers}, {_hostOpts.Visibility})...");
+            if (!LobbyCoordinator.CreateLobby(_hostOpts.MaxPlayers, _hostOpts.Visibility)) { AbortToHub("could not create a lobby"); return; }
             _state = State.HostCreatingLobby;
         }
 

@@ -22,5 +22,34 @@ namespace SideHustle.Multiplayer
 
         /// <summary>Free-form per-gamemode payload the host published (lobby key <c>sh_config</c>); may be null.</summary>
         public string ConfigBlob { get; internal set; }
+
+        /// <summary>Salted hash of the join password (lobby key <c>sh_pwhash</c>); used by the client-side join gate.</summary>
+        internal string PwHash { get; set; }
+
+        // Lazily decoded view of ConfigBlob for the typed getters below (the host's chosen settings,
+        // round-tripped to clients with no extra netcode). Decoded once on first read.
+        private System.Collections.Generic.Dictionary<string, string> _config;
+        private System.Collections.Generic.Dictionary<string, string> Config =>
+            _config ?? (_config = ConfigCodec.Decode(ConfigBlob));
+
+        /// <summary>A host setting value by key (the gamemode's <see cref="SettingDescriptor.Key"/>), or <paramref name="fallback"/>.</summary>
+        public string GetSetting(string key, string fallback = null) =>
+            Config.TryGetValue(key, out var v) ? v : fallback;
+
+        /// <summary>A host setting parsed as an integer (invariant culture), or <paramref name="fallback"/>.</summary>
+        public int GetInt(string key, int fallback = 0) =>
+            int.TryParse(GetSetting(key), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : fallback;
+
+        /// <summary>A host setting parsed as a float (invariant culture), or <paramref name="fallback"/>.</summary>
+        public float GetFloat(string key, float fallback = 0f) =>
+            float.TryParse(GetSetting(key), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : fallback;
+
+        /// <summary>A host setting parsed as a bool ("1"/"true" = true), or <paramref name="fallback"/>.</summary>
+        public bool GetBool(string key, bool fallback = false)
+        {
+            var s = GetSetting(key);
+            if (string.IsNullOrEmpty(s)) return fallback;
+            return s == "1" || string.Equals(s, "true", System.StringComparison.OrdinalIgnoreCase);
+        }
     }
 }

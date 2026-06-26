@@ -63,6 +63,13 @@ namespace SideHustle
         /// </summary>
         public ModPolicy Policy;
 
+        /// <summary>
+        /// Optional host-configurable settings. Side Hustle renders these as a form on the Host screen and ships the
+        /// chosen values to your launch callbacks via <see cref="LaunchContext.Multiplayer"/>'s config blob. Null = none.
+        /// See <see cref="SettingDescriptor"/>.
+        /// </summary>
+        public SettingDescriptor[] HostSettings;
+
         /// <summary>The assembly that registered this descriptor; its DLL is always kept by a mod policy. Set by
         /// <see cref="API.Register"/>.</summary>
         internal System.Reflection.Assembly OwnerAssembly;

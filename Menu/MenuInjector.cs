@@ -20,6 +20,11 @@ namespace SideHustle.Menu
     {
         private const string MenuButtonName = "SideHustle_MenuButton";
 
+        // Let the menu's own UIScreen/UISelectable navigation finish initializing before we clone + reparent a button
+        // into it. Touching the nav while the game is still iterating its selectables can corrupt it and hard-crash
+        // (more likely when another heavy mod loads alongside us and shifts the timing).
+        private const int WarmupFrames = 20;
+
         private static bool _injectedThisScene;
         private static bool _loggedStructure;
         private static int _retries;
@@ -39,7 +44,8 @@ namespace SideHustle.Menu
         internal static void TickRetry()
         {
             if (_injectedThisScene) return;
-            if (_retries++ > 120) return; // ~2s of frames, then stop trying
+            if (++_retries < WarmupFrames) return;       // wait out the menu's own init before touching its UI
+            if (_retries > 120 + WarmupFrames) return;    // ~2s of attempts after the warmup, then stop trying
             TryInject();
         }
 

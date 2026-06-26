@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using DooDesch.UI;
 using Il2CppInterop.Runtime;
 using Il2CppScheduleOne.UI.MainMenu;
 using SideHustle.Config;
@@ -28,6 +29,7 @@ namespace SideHustle.Menu
         // The clone of the vanilla New Game screen + its screen component.
         private static GameObject _clone;
         private static MainMenuScreen _cloneScreen;
+        private static GameObject _formHost;   // the Host-config form overlay (shown instead of the native row list)
 
         // Current view's "back" step (null on the root gamemode list, where back closes the menu) + the gamemode the
         // multiplayer sub-views belong to (for the server-browser refresh callback).
@@ -42,6 +44,7 @@ namespace SideHustle.Menu
         private const float DescOffsetY = -13f;
         private const float PanelChrome = 92f;
         private const float PanelWidth = 800f;
+        private const float FormPanelHeight = 720f;   // fixed height for the scrollable Host-config form
         private const float TextInset = 30f;
         private const float TextInsetWithIcon = 96f;
 
@@ -60,6 +63,7 @@ namespace SideHustle.Menu
             catch { /* ignore */ }
             _clone = null;
             _cloneScreen = null;
+            _formHost = null;
             _activeCtx = null;
             _back = null;
             _mpDesc = null;
@@ -175,81 +179,87 @@ namespace SideHustle.Menu
             var rows = new List<Row>();
             if (desc.AllowsSingleplayer)
                 rows.Add(new Row { Name = "Singleplayer", Subtitle = "Play on your own.", OnClick = () => LaunchSelected(desc) });
-            rows.Add(new Row { Name = "Host", Subtitle = "Open a session others can join.", OnClick = () => ShowHostSizes(desc) });
+            rows.Add(new Row { Name = "Host", Subtitle = "Configure and open a session.", OnClick = () => ShowHostConfig(desc) });
+            // Join goes straight to the browser: the mod policy is the host's decision (made on the host form), and a
+            // client runs the gamemode host-authoritatively, so it keeps its own mods - no client-side mod gate here.
             rows.Add(new Row { Name = "Join", Subtitle = "Browse and join an open session.", OnClick = () => ShowBrowser(desc) });
             rows.Add(new Row { Name = "Back", Subtitle = "Back to the gamemode list.", OnClick = ShowGamemodeList });
             ShowRows(desc.DisplayName, rows);
         }
 
-        private static void ShowHostSizes(GamemodeDescriptor desc)
+        // The Host-config screen: a custom form (player count, visibility/password, optional mod policy, and the
+        // gamemode's declared settings) rendered on the native panel background instead of the row list.
+        private static void ShowHostConfig(GamemodeDescriptor desc)
         {
+            if (_clone == null) return;
             _mpDesc = desc;
             _back = () => ShowModeChoice(desc);
-            var rows = new List<Row>();
-            foreach (int max in new[] { 4, 8, 16 })
-            {
-                int m = max;
-                rows.Add(new Row
-                {
-                    Name = $"{m} players",
-                    Subtitle = m > 4 ? "Bigger lobby (needs BiggerLobbies)." : "Standard lobby size.",
-                    OnClick = () => StartHost(desc, m)
-                });
-            }
-            rows.Add(new Row { Name = "Back", Subtitle = "Back to the options.", OnClick = () => ShowModeChoice(desc) });
-            ShowRows("Host: " + desc.DisplayName, rows);
+            ClearFormHost();
+            SetTmp(_clone.transform, "Title", "Host: " + (desc.DisplayName ?? desc.Id));
+
+            var host = CreateFormHost("SH_HostForm", 560f);
+            var plan = desc.Policy != null ? Mods.ModPolicyResolver.Resolve(desc) : null;
+            HostConfigView.Build(host, desc, plan, LobbyCaps.MaxClients(),
+                () => ShowModeChoice(desc),
+                (opts, policyMode) => StartHostConfigured(desc, opts, policyMode, plan));
+        }
+
+        // Build a custom view-host on the cloned panel (used by the host form + the join browser): size the panel to
+        // formH, hide the native row list, and add a full-width form-host of that height as a layout child. The
+        // container's VerticalLayoutGroup does not control child heights, so the rect is set explicitly (the native
+        // rows do the same); returns its transform for the view to fill.
+        private static Transform CreateFormHost(string name, float formH)
+        {
+            var rootRt = _clone.GetComponent<RectTransform>();
+            if (rootRt != null) rootRt.sizeDelta = new Vector2(PanelWidth, PanelChrome + formH + 24f);
+
+            var container = _clone.transform.Find("Container");
+            if (container != null)
+                for (int i = 0; i < container.childCount; i++) container.GetChild(i).gameObject.SetActive(false);
+
+            _formHost = new GameObject(name);
+            _formHost.transform.SetParent(container != null ? container : _clone.transform, false);
+            var fhrt = _formHost.AddComponent<RectTransform>();
+            fhrt.anchorMin = new Vector2(0, 1); fhrt.anchorMax = new Vector2(1, 1); fhrt.pivot = new Vector2(0.5f, 1);
+            fhrt.sizeDelta = new Vector2(0, formH);
+            var fle = _formHost.AddComponent<LayoutElement>();
+            fle.minHeight = formH; fle.preferredHeight = formH; fle.flexibleWidth = 1;
+            return _formHost.transform;
         }
 
         private static void ShowBrowser(GamemodeDescriptor desc)
         {
+            if (_clone == null) return;
             _mpDesc = desc;
             _back = () => ShowModeChoice(desc);
-            ShowRows("Join: " + desc.DisplayName, BrowserRows(desc, null, "Searching for sessions..."));
+            ClearFormHost();
+            SetTmp(_clone.transform, "Title", "Join: " + (desc.DisplayName ?? desc.Id));
+
+            var host = CreateFormHost("SH_JoinBrowser", 560f);
+            var content = JoinBrowserView.Build(host, () => ShowModeChoice(desc), () => ShowBrowser(desc));
+            JoinBrowserView.SetStatus(content, "Searching for sessions...");
             ServerBrowser.BeginQuery(desc.Id, results =>
             {
-                // Only apply if the browser for this gamemode is still the active view.
-                if (_cloneScreen != null && _cloneScreen.IsOpen && _mpDesc == desc)
-                    ShowRows("Join: " + desc.DisplayName, BrowserRows(desc, results, null));
+                // Only apply if this gamemode's browser is still the active view.
+                if (_cloneScreen != null && _cloneScreen.IsOpen && _mpDesc == desc && _formHost != null)
+                    JoinBrowserView.Populate(content, results, row => StartJoin(desc, row));
             });
-        }
-
-        private static List<Row> BrowserRows(GamemodeDescriptor desc, List<LobbyRow> lobbies, string status)
-        {
-            var rows = new List<Row>();
-            if (status != null)
-            {
-                rows.Add(new Row { Name = status, Subtitle = "" });
-            }
-            else if (lobbies == null || lobbies.Count == 0)
-            {
-                rows.Add(new Row { Name = "No open sessions", Subtitle = "Host one, or refresh to look again." });
-            }
-            else
-            {
-                foreach (var l in lobbies.Take(8))
-                {
-                    LobbyRow row = l;
-                    string host = string.IsNullOrEmpty(row.HostName) ? "Session" : row.HostName;
-                    string cap = row.MaxPlayers > 0 ? $"{row.Members} / {row.MaxPlayers} players" : $"{row.Members} player(s)";
-                    rows.Add(new Row
-                    {
-                        Name = host + (row.HasPassword ? "  (locked)" : ""),
-                        Subtitle = cap,
-                        Corner = "Join",
-                        OnClick = () => StartJoin(desc, row)
-                    });
-                }
-            }
-            rows.Add(new Row { Name = "Refresh", Subtitle = "Look for sessions again.", OnClick = () => ShowBrowser(desc) });
-            rows.Add(new Row { Name = "Back", Subtitle = "Back to the options.", OnClick = () => ShowModeChoice(desc) });
-            return rows;
         }
 
         // --- render a row set into the cloned screen's slots ---
 
+        // Destroy the Host-config form overlay (if any) and re-show the native row container before a row view renders.
+        private static void ClearFormHost()
+        {
+            if (_formHost != null) { try { UnityEngine.Object.Destroy(_formHost); } catch { /* ignore */ } _formHost = null; }
+            var container = _clone != null ? _clone.transform.Find("Container") : null;
+            if (container != null) container.gameObject.SetActive(true);
+        }
+
         private static void ShowRows(string title, List<Row> rows)
         {
             if (_clone == null) return;
+            ClearFormHost();
             try
             {
                 SetTmp(_clone.transform, "Title", title);
@@ -368,28 +378,41 @@ namespace SideHustle.Menu
 
         private static void OnSelectGamemode(GamemodeDescriptor desc)
         {
-            // A gamemode with a mod policy: if it would change which mods are loaded, confirm first (and restart).
-            // After the restart the mods are already correct, so the resolver reports no changes and we fall through.
+            // Multiplayer gamemodes choose whether to apply the policy on the Host form (and gate it on Join), so the
+            // policy is NOT forced here - go straight to the mode choice.
+            if (desc.AllowsMultiplayer) { ShowModeChoice(desc); return; }
+
+            // Singleplayer with a mod policy: confirm + restart first; after the restart the resolver reports no changes.
             if (desc.Policy != null)
             {
                 var plan = Mods.ModPolicyResolver.Resolve(desc);
                 if (plan.Blocked || plan.HasChanges) { ShowModCheck(desc, plan); return; }
             }
-            if (desc.AllowsMultiplayer) ShowModeChoice(desc);
-            else LaunchSelected(desc);
+            LaunchSelected(desc);
         }
 
-        /// <summary>Continue into a gamemode after a mod-policy restart (mods are already in the right state).</summary>
-        internal static void ContinueGamemode(string id)
+        /// <summary>Continue into a gamemode after a mod-policy restart (mods are already in the right state). When a
+        /// host payload is present (the restart was triggered from the Host form), host directly with those options.</summary>
+        internal static void ContinueGamemode(string id, string hostPayload = "")
         {
             EnsureInit();
             EnsureClone();
             if (_cloneScreen == null) return;
             if (!_cloneScreen.IsOpen) { ShowGamemodeList(); _cloneScreen.Open(closePrevious: true); }
             var desc = API.Registered.FirstOrDefault(d => d.Id == id);
-            if (desc != null) OnSelectGamemode(desc);
-            else Core.Log?.Warning($"[hub] could not continue into '{id}' after restart (gamemode not registered). " +
-                                   "The gamemode list (with 'Restore my mods') is shown so you are not stuck.");
+            if (desc == null)
+            {
+                Core.Log?.Warning($"[hub] could not continue into '{id}' after restart (gamemode not registered). " +
+                                  "The gamemode list (with 'Restore my mods') is shown so you are not stuck.");
+                return;
+            }
+            if (!string.IsNullOrEmpty(hostPayload))
+            {
+                CloseHubScreen();
+                MultiplayerCoordinator.StartHost(desc, DecodeHostIntent(hostPayload));
+                return;
+            }
+            OnSelectGamemode(desc);
         }
 
         private static void ShowModCheck(GamemodeDescriptor desc, Mods.ModPlan plan)
@@ -447,14 +470,70 @@ namespace SideHustle.Menu
             }
         }
 
-        private static void StartHost(GamemodeDescriptor desc, int maxPlayers)
+        private static void StartHostConfigured(GamemodeDescriptor desc, HostOptions opts, int policyMode, Mods.ModPlan plan)
         {
+            // "Required mods only" + the plan actually changes the set -> build the curated profile and relaunch,
+            // carrying the chosen host options across so the post-relaunch continue hosts directly. Else host in place.
+            if (policyMode == 1 && plan != null && plan.HasChanges && !plan.Blocked)
+            {
+                Preferences.RecordLaunch(desc.Id);
+                Mods.ModSwitcher.ApplyPolicyAndRestart(desc, plan, EncodeHostIntent(opts));
+                return;
+            }
             Preferences.RecordLaunch(desc.Id);
             CloseHubScreen();
-            MultiplayerCoordinator.StartHost(desc, new HostOptions { MaxPlayers = maxPlayers });
+            MultiplayerCoordinator.StartHost(desc, opts);
+        }
+
+        // Encode/decode the host's chosen lobby options so they survive a mod-policy relaunch (the relaunch is local,
+        // so the raw password is fine here). Nesting is safe: ConfigCodec escapes the already-encoded ConfigBlob.
+        private static string EncodeHostIntent(HostOptions o) => ConfigCodec.Encode(new[]
+        {
+            new KeyValuePair<string, string>("max", o.MaxPlayers.ToString()),
+            new KeyValuePair<string, string>("vis", o.Visibility == LobbyVisibility.Private ? "1" : "0"),
+            new KeyValuePair<string, string>("pw", o.Password ?? ""),
+            new KeyValuePair<string, string>("cfg", o.ConfigBlob ?? "")
+        });
+
+        private static HostOptions DecodeHostIntent(string s)
+        {
+            var m = ConfigCodec.Decode(s);
+            int.TryParse(m.TryGetValue("max", out var mx) ? mx : "4", out int max);
+            return new HostOptions
+            {
+                MaxPlayers = Math.Max(2, max),
+                Visibility = (m.TryGetValue("vis", out var v) && v == "1") ? LobbyVisibility.Private : LobbyVisibility.Public,
+                Password = m.TryGetValue("pw", out var pw) && pw.Length > 0 ? pw : null,
+                ConfigBlob = m.TryGetValue("cfg", out var c) && c.Length > 0 ? c : null
+            };
         }
 
         private static void StartJoin(GamemodeDescriptor desc, LobbyRow row)
+        {
+            // A locked lobby: prompt for the password and verify it (client-side hash compare against the lobby's
+            // advertised hash - a casual gate, not strong) before joining. Open lobbies join straight away.
+            if (row != null && row.HasPassword && !string.IsNullOrEmpty(row.PwHash))
+            {
+                var canvas = _clone != null ? _clone.GetComponentInParent<Canvas>() : null;
+                Transform root = canvas != null ? canvas.transform : (_clone != null ? _clone.transform : null);
+                if (root != null)
+                {
+                    Components.PromptDialog(root, "Password required",
+                        $"Enter the password for {(string.IsNullOrEmpty(row.HostName) ? "this" : row.HostName + "'s")} lobby.",
+                        "password", "Join",
+                        entered => string.Equals(LobbyCoordinator.HashPassword(entered ?? ""), row.PwHash, StringComparison.Ordinal)
+                                   ? JoinAndAccept(desc, row)
+                                   : "Incorrect password.");
+                    return;
+                }
+            }
+            JoinNow(desc, row);
+        }
+
+        // PromptDialog success path: start the join and return null so the dialog closes.
+        private static string JoinAndAccept(GamemodeDescriptor desc, LobbyRow row) { JoinNow(desc, row); return null; }
+
+        private static void JoinNow(GamemodeDescriptor desc, LobbyRow row)
         {
             Preferences.RecordLaunch(desc.Id);
             CloseHubScreen();

@@ -1,12 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!-- CI checks out the shared Workspace repo as a SUBFOLDER of this project, so the SDK's default **/*.cs glob
-       would sweep in Workspace/ui, Workspace/build, etc. (uGUI design-system source this mod does not use).
-       This mod compiles only its own source - exclude everything under Workspace. No-op locally, where Workspace
-       is a sibling folder. -->
+       would sweep in everything under Workspace (s1api-src, etc.). Remove that sweep FIRST, then re-include ONLY
+       the DooDesch.UI design-system source via the props import below (it Includes Workspace/ui/*.cs once). Order
+       matters: the Remove must precede the import so it does not strip the props' includes, and so the default glob
+       can't double-include the ui sources on CI. No-op locally, where Workspace is a sibling folder. -->
   <ItemGroup>
     <Compile Remove="Workspace/**/*.cs" />
   </ItemGroup>
+
+  <!-- Shared DooDesch.UI in-game design-system layer (tokens, controls, states, toasts/banners) - linked source.
+       Local: Workspace is a sibling (../Workspace). CI checks it out as a subfolder (./Workspace). Import whichever exists. -->
+  <Import Project="$(MSBuildThisFileDirectory)../Workspace/build/DooDeschUI.props" Condition="Exists('$(MSBuildThisFileDirectory)../Workspace/build/DooDeschUI.props')" />
+  <Import Project="$(MSBuildThisFileDirectory)Workspace/build/DooDeschUI.props" Condition="Exists('$(MSBuildThisFileDirectory)Workspace/build/DooDeschUI.props')" />
 
   <!--
     Side Hustle - MelonLoader IL2CPP gamemode-hub mod for Schedule I.
@@ -27,9 +33,9 @@
     <RootNamespace>SideHustle</RootNamespace>
     <AssemblyName>SideHustle</AssemblyName>
     <NeutralLanguage>en-US</NeutralLanguage>
-    <Version>1.3.0</Version>
-    <AssemblyVersion>1.3.0.0</AssemblyVersion>
-    <FileVersion>1.3.0.0</FileVersion>
+    <Version>1.4.0</Version>
+    <AssemblyVersion>1.4.0.0</AssemblyVersion>
+    <FileVersion>1.4.0.0</FileVersion>
     <!-- Suppress MSB3277/MSB3245 noise from il2cpp interop transitive refs -->
     <NoWarn>$(NoWarn);MSB3277;MSB3245</NoWarn>
 

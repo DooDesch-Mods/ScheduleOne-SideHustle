@@ -6,7 +6,7 @@
 > lists every installed gamemode mod and launches it straight from the menu - no savegame required.
 > It is the shared hub that gamemode mods plug into.
 
-![Version](https://img.shields.io/badge/version-1.3.0-blue)
+![Version](https://img.shields.io/badge/version-1.4.0-blue)
 ![Game](https://img.shields.io/badge/game-Schedule%20I-purple)
 ![MelonLoader](https://img.shields.io/badge/MelonLoader-0.7.3+-green)
 ![S1API](https://img.shields.io/badge/S1API-required-orange)
@@ -25,14 +25,19 @@ itself and shows up under the Side Hustle entry.
 - **One menu entry for every gamemode** - name, description, author and a Singleplayer / Multiplayer
   badge, launched from the main menu.
 - **No savegame** - gamemodes run in their own session and never load or alter your saves.
-- **Singleplayer, host or join** - multiplayer gamemodes show a Singleplayer / Host / Join choice with
-  a built-in **public server browser** (filtered per gamemode; bigger lobbies supported with BiggerLobbies).
+- **Singleplayer, host or join** - multiplayer gamemodes show a Singleplayer / Host / Join choice.
+- **Configure before you host** - a native-style setup form for the exact player count, a public or private
+  (friends-only) lobby with an optional password, and any settings the gamemode exposes (sliders, toggles,
+  choices, text), all passed to the gamemode at launch.
+- **Public server browser** - browse open lobbies as cards (host, player count, a lock for password-protected
+  ones), filtered per gamemode; bigger lobbies supported with BiggerLobbies.
 - **World gamemodes** - gamemodes that need the loaded game world get a throwaway session, outside your
   save slots, so your real saves are never touched.
-- **Conflict-free mod sets** - a gamemode can declare which mods it works with; Side Hustle launches it in a
-  temporary, isolated profile with only those mods (after a confirmation listing the changes) and switches back
-  to your full set when you leave. Your installed mods are never disabled, renamed or moved, so your mod manager
-  stays in sync. Applying it restarts the game, which Side Hustle does for you.
+- **Conflict-free mod sets (optional, the host's choice)** - a gamemode can declare which mods it works with. When
+  hosting, you keep your full set ("Current installed mods", default) or run only the gamemode's mods ("Required
+  mods only") in a temporary, isolated profile (after a confirmation listing the changes), switching back when you
+  leave. Nothing in your real Mods folder is ever disabled, renamed, moved or deleted (junctions/hardlinks, no
+  admin), so your mod manager stays in sync.
 - **Load-order independent API** so gamemode mods register whether they load before or after the hub.
 - A single setting to hide the entry without uninstalling.
 

@@ -21,6 +21,7 @@ namespace SideHustle.Config
         private static MelonPreferences_Entry<string> _pendingContinue;
         private static MelonPreferences_Entry<string> _restoreOps;
         private static MelonPreferences_Entry<string> _activeAltBase;
+        private static MelonPreferences_Entry<string> _pendingHostOptions;
 
         internal static void Initialize()
         {
@@ -43,6 +44,8 @@ namespace SideHustle.Config
                 "Internal: legacy field from an older mod-policy mechanism. No longer used; cleared automatically.");
             _activeAltBase = _category.CreateEntry("ActiveAltBase", "", "Active gamemode profile (internal)",
                 "Internal: the temporary profile folder a mod-policy gamemode is running from, so it can be cleaned up. Managed automatically.");
+            _pendingHostOptions = _category.CreateEntry("PendingHostOptions", "", "Pending host options (internal)",
+                "Internal: the host's chosen lobby options to apply after a mod-policy restart, so it hosts directly. Managed automatically.");
         }
 
         internal static bool Enabled => _enabled?.Value ?? true;
@@ -75,6 +78,13 @@ namespace SideHustle.Config
         {
             get => _activeAltBase?.Value ?? "";
             set { if (_activeAltBase != null) { _activeAltBase.Value = value ?? ""; Save(); } }
+        }
+
+        /// <summary>Encoded host options to apply after a mod-policy restart so the gamemode hosts directly ("" = none).</summary>
+        internal static string PendingHostOptions
+        {
+            get => _pendingHostOptions?.Value ?? "";
+            set { if (_pendingHostOptions != null) { _pendingHostOptions.Value = value ?? ""; Save(); } }
         }
 
         /// <summary>The ids of recently launched gamemodes, most recent first.</summary>

@@ -9,5 +9,6 @@ namespace SideHustle.Multiplayer
         public int Members;
         public int MaxPlayers;
         public bool HasPassword;
+        public string PwHash;   // hash of the host's password (sh_pwhash) - the client compares its entry before joining
     }
 }

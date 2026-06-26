@@ -2,7 +2,7 @@ using MelonLoader;
 using SideHustle.Config;
 using SideHustle.Menu;
 
-[assembly: MelonInfo(typeof(SideHustle.Core), "Side Hustle", "1.3.0", "DooDesch", "https://github.com/DooDesch-Mods/ScheduleOne-SideHustle")]
+[assembly: MelonInfo(typeof(SideHustle.Core), "Side Hustle", "1.4.0", "DooDesch", "https://github.com/DooDesch-Mods/ScheduleOne-SideHustle")]
 [assembly: MelonGame("TVGS", "Schedule I")]
 
 namespace SideHustle
@@ -21,6 +21,7 @@ namespace SideHustle
         private bool _inMenu;
         private int _reopenHubFrames;   // >0 = reopen the hub list this many frames after a session returns to Menu
         private string _continueId;     // a gamemode to continue into after a mod-policy restart
+        private string _continueHost;   // encoded host options to host directly after a Host-triggered policy restart
 
         public override void OnInitializeMelon()
         {
@@ -37,7 +38,7 @@ namespace SideHustle
             Dev.StubGamemode.Register();
 #endif
 
-            Log.Msg($"Side Hustle 1.3.0 ready - {API.Registered.Count} gamemode(s) registered so far.");
+            Log.Msg($"Side Hustle 1.4.0 ready - {API.Registered.Count} gamemode(s) registered so far.");
         }
 
         public override void OnSceneWasInitialized(int buildIndex, string sceneName)
@@ -45,8 +46,7 @@ namespace SideHustle
             if (sceneName == "Menu")
             {
                 _inMenu = true;
-                MenuInjector.Reset();
-                MenuInjector.TryInject(); // one immediate attempt; OnUpdate retries if the UI isn't ready yet
+                MenuInjector.Reset();   // OnUpdate injects after a short warmup, once the menu's own UI has settled
 
                 bool policySession = Mods.AltBase.IsAltSession();
                 if (!policySession)
@@ -57,6 +57,7 @@ namespace SideHustle
                     Mods.ModInventory.RefreshNameMap();
                     Preferences.ActiveAltBase = "";
                     Preferences.PendingContinue = "";
+                    Preferences.PendingHostOptions = "";
                     Preferences.RestoreModOps = "";   // retire the legacy rename-based field
                     Mods.AltBase.SweepStale();
                 }
@@ -65,8 +66,11 @@ namespace SideHustle
                 string cont = policySession ? Preferences.PendingContinue : "";
                 if (!string.IsNullOrEmpty(cont))
                 {
+                    string host = Preferences.PendingHostOptions;
                     Preferences.PendingContinue = "";
+                    Preferences.PendingHostOptions = "";
                     _continueId = cont;
+                    _continueHost = host;
                     _reopenHubFrames = 90;
                 }
                 // A World/multiplayer session that just ended reloaded the menu scene: reopen the gamemode list
@@ -102,7 +106,7 @@ namespace SideHustle
                 Hub.TickInput();   // right-click steps one view back (mod-check, host/join choice, browser, ...)
                 if (_reopenHubFrames > 0 && --_reopenHubFrames == 0)
                 {
-                    if (!string.IsNullOrEmpty(_continueId)) { var id = _continueId; _continueId = null; Hub.ContinueGamemode(id); }
+                    if (!string.IsNullOrEmpty(_continueId)) { var id = _continueId; var host = _continueHost; _continueId = null; _continueHost = null; Hub.ContinueGamemode(id, host); }
                     else Hub.OpenScreen();
                 }
             }

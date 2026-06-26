@@ -3,6 +3,23 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.4.0] - 2026-06-26
+
+### Added
+- **Host configuration screen.** Hosting a multiplayer gamemode now opens a native-style setup form: pick the
+  exact player count (up to the lobby cap), a public or private (friends-only) lobby with an optional password,
+  and any settings the gamemode itself exposes - sliders, toggles, choices and text fields - all handed to the
+  gamemode at launch.
+- **Restyled server browser.** The Join screen lists open lobbies as cards (host, player count, gamemode, and a
+  lock for password-protected lobbies); a locked lobby asks for the password before joining.
+
+### Changed
+- **The mod policy is now a per-session choice on the host form.** When you host a gamemode that declares which
+  other mods it works with, the setup form offers "Current installed mods" (the default - keep your full set) or
+  "Required mods only" (run just the gamemode's mods in an isolated profile, after a confirmation listing the
+  changes). Nothing in your real Mods folder is ever renamed, moved or deleted (junctions/hardlinks, no admin
+  needed), so your mod manager stays in sync. Joining a session never changes your mods - that is the host's choice.
+
 ## [1.3.0] - 2026-06-26
 
 ### Changed

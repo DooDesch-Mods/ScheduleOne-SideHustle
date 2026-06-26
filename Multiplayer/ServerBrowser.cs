@@ -66,7 +66,8 @@ namespace SideHustle.Multiplayer
                         HostName = info.HostName,
                         Members = members,
                         MaxPlayers = info.MaxPlayers,
-                        HasPassword = info.HasPassword
+                        HasPassword = info.HasPassword,
+                        PwHash = info.PwHash
                     });
                 }
                 Core.Log?.Msg($"[mp] server browser: {rows.Count} lobby(ies) found.");

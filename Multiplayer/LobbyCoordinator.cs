@@ -22,6 +22,8 @@ namespace SideHustle.Multiplayer
         internal const string KeyPassword = "sh_pw";
         internal const string KeyHostName = "sh_host_name";
         internal const string KeyConfig = "sh_config";
+        internal const string KeyVisibility = "sh_vis";
+        internal const string KeyPwHash = "sh_pwhash";
 
         private static Lobby LobbyOrNull()
         {
@@ -55,16 +57,18 @@ namespace SideHustle.Multiplayer
             get { try { return SteamMatchmaking.GetNumLobbyMembers(new CSteamID(CurrentLobbyId)); } catch { return -1; } }
         }
 
-        /// <summary>Ask Steam to create a public lobby. The game's global LobbyCreated callback flips the singleton
-        /// shortly after (poll <see cref="IsInLobby"/>). Leaves any existing lobby first.</summary>
-        internal static bool CreatePublicLobby(int maxPlayers)
+        /// <summary>Ask Steam to create a lobby (Public = browser-listed, Private = friends-only). The game's global
+        /// LobbyCreated callback flips the singleton shortly after (poll <see cref="IsInLobby"/>). Leaves any existing
+        /// lobby first.</summary>
+        internal static bool CreateLobby(int maxPlayers, LobbyVisibility visibility)
         {
             var l = LobbyOrNull();
             if (l == null) { Core.Log?.Warning("[mp] Lobby singleton unavailable; cannot host."); return false; }
             try
             {
                 if (l.IsInLobby) l.LeaveLobby();
-                SteamMatchmaking.CreateLobby(ELobbyType.k_ELobbyTypePublic, Math.Max(2, maxPlayers));
+                var type = visibility == LobbyVisibility.Private ? ELobbyType.k_ELobbyTypeFriendsOnly : ELobbyType.k_ELobbyTypePublic;
+                SteamMatchmaking.CreateLobby(type, Math.Max(2, maxPlayers));
                 return true;
             }
             catch (Exception e) { Core.Log?.Warning("[mp] CreateLobby failed: " + e.Message); return false; }
@@ -79,13 +83,16 @@ namespace SideHustle.Multiplayer
             try
             {
                 CSteamID sid = l.LobbySteamID;
-                SteamMatchmaking.SetLobbyType(sid, ELobbyType.k_ELobbyTypePublic);
+                bool priv = opts.Visibility == LobbyVisibility.Private;
+                SteamMatchmaking.SetLobbyType(sid, priv ? ELobbyType.k_ELobbyTypeFriendsOnly : ELobbyType.k_ELobbyTypePublic);
                 SteamMatchmaking.SetLobbyJoinable(sid, true);
                 SteamMatchmaking.SetLobbyMemberLimit(sid, Math.Max(2, opts.MaxPlayers));
                 SteamMatchmaking.SetLobbyData(sid, KeyGamemode, desc.Id ?? "");
                 SteamMatchmaking.SetLobbyData(sid, KeyGamemodeName, desc.DisplayName ?? desc.Id ?? "");
                 SteamMatchmaking.SetLobbyData(sid, KeyMax, opts.MaxPlayers.ToString());
+                SteamMatchmaking.SetLobbyData(sid, KeyVisibility, priv ? "priv" : "pub");
                 SteamMatchmaking.SetLobbyData(sid, KeyPassword, opts.HasPassword ? "1" : "0");
+                SteamMatchmaking.SetLobbyData(sid, KeyPwHash, opts.HasPassword ? HashPassword(opts.Password) : "");
                 SteamMatchmaking.SetLobbyData(sid, KeyHostName, LocalPersonaName());
                 if (!string.IsNullOrEmpty(opts.ConfigBlob))
                     SteamMatchmaking.SetLobbyData(sid, KeyConfig, opts.ConfigBlob);
@@ -124,6 +131,7 @@ namespace SideHustle.Multiplayer
                 info.GamemodeName = SteamMatchmaking.GetLobbyData(sid, KeyGamemodeName);
                 info.HostName = SteamMatchmaking.GetLobbyData(sid, KeyHostName);
                 info.HasPassword = SteamMatchmaking.GetLobbyData(sid, KeyPassword) == "1";
+                info.PwHash = SteamMatchmaking.GetLobbyData(sid, KeyPwHash);
                 info.ConfigBlob = SteamMatchmaking.GetLobbyData(sid, KeyConfig);
                 int.TryParse(SteamMatchmaking.GetLobbyData(sid, KeyMax), out int max);
                 info.MaxPlayers = max;
@@ -135,6 +143,21 @@ namespace SideHustle.Multiplayer
         internal static string LocalPersonaName()
         {
             try { return SteamFriends.GetPersonaName(); } catch { return "Host"; }
+        }
+
+        /// <summary>A stable salted hash of a join password, stored on the lobby so a joining client can verify the
+        /// password it was given locally (a casual gate to keep randoms out, not strong cryptography).</summary>
+        internal static string HashPassword(string pw)
+        {
+            if (string.IsNullOrEmpty(pw)) return "";
+            try
+            {
+                var bytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("sidehustle:" + pw));
+                var sb = new System.Text.StringBuilder(bytes.Length * 2);
+                foreach (var b in bytes) sb.Append(b.ToString("x2"));
+                return sb.ToString();
+            }
+            catch { return "h" + (("sidehustle:" + pw).GetHashCode() & 0x7fffffff); }   // fallback gate
         }
     }
 }

@@ -22,8 +22,9 @@ namespace SideHustle.Mods
         /// <summary>True while a gamemode profile is live (the process was launched into an alt base) - leaving restores.</summary>
         internal static bool HasRestorePending => AltBase.IsAltSession();
 
-        /// <summary>Build the gamemode's curated profile and relaunch into it, continuing into the gamemode.</summary>
-        internal static void ApplyPolicyAndRestart(GamemodeDescriptor desc, ModPlan plan)
+        /// <summary>Build the gamemode's curated profile and relaunch into it, continuing into the gamemode. An optional
+        /// <paramref name="pendingHostPayload"/> (encoded host options) makes the post-relaunch continue host directly.</summary>
+        internal static void ApplyPolicyAndRestart(GamemodeDescriptor desc, ModPlan plan, string pendingHostPayload = null)
         {
             if (_inFlight) { Core.Log?.Msg("[modpolicy] a relaunch is already in progress; ignoring."); return; }
             _inFlight = true;
@@ -44,6 +45,7 @@ namespace SideHustle.Mods
 
                 // Persist only after a confirmed relaunch, so a failure never leaves stale state with no restart.
                 Preferences.PendingContinue = desc.Id;
+                Preferences.PendingHostOptions = pendingHostPayload ?? "";
                 Preferences.ActiveAltBase = altPath;
                 Core.Log?.Msg($"[modpolicy] launching '{desc.DisplayName}' with {plan.KeepFiles.Count} mod(s); relaunching.");
                 Application.Quit();
