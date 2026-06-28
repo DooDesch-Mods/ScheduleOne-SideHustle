@@ -47,6 +47,7 @@ namespace SideHustle.Mods
                 Preferences.PendingContinue = desc.Id;
                 Preferences.PendingHostOptions = pendingHostPayload ?? "";
                 Preferences.ActiveAltBase = altPath;
+                Preferences.ActiveGamemodeId = desc.Id;
                 Core.Log?.Msg($"[modpolicy] launching '{desc.DisplayName}' with {plan.KeepFiles.Count} mod(s); relaunching.");
                 Application.Quit();
             }
@@ -66,6 +67,7 @@ namespace SideHustle.Mods
                 // Clear the session markers; the leftover profile folder is swept by the next normal launch.
                 Preferences.PendingContinue = "";
                 Preferences.ActiveAltBase = "";
+                Preferences.ActiveGamemodeId = "";
                 Core.Log?.Msg("[modpolicy] restoring your full mod set; relaunching.");
                 Application.Quit();
             }

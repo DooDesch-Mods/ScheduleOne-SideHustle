@@ -44,6 +44,7 @@ namespace SideHustle.Multiplayer
             _hostOpts = opts ?? new HostOptions();
             _ctx = null;
             _timer = 0f;
+            GamemodeHygiene.Apply(desc);   // skip-intro / block-quests must be active before the world loads
 
             Core.Log?.Msg($"[mp] hosting '{desc.DisplayName}' (max {_hostOpts.MaxPlayers}, {_hostOpts.Visibility})...");
             if (!LobbyCoordinator.CreateLobby(_hostOpts.MaxPlayers, _hostOpts.Visibility)) { AbortToHub("could not create a lobby"); return; }
@@ -62,6 +63,7 @@ namespace SideHustle.Multiplayer
             _joinLobbyId = row.LobbyId;
             _ctx = null;
             _timer = 0f;
+            GamemodeHygiene.Apply(desc);   // active before the host's world streams in (the client also runs PlayerLoaded)
 
             Core.Log?.Msg($"[mp] joining '{desc.DisplayName}' lobby {row.LobbyId}...");
             LobbyCoordinator.JoinLobby(row.LobbyId);
@@ -80,6 +82,7 @@ namespace SideHustle.Multiplayer
             _desc = desc;
             _ctx = null;
             _timer = 0f;
+            GamemodeHygiene.Apply(desc);
             Core.Log?.Msg($"[mp] booting singleplayer world for '{desc.DisplayName}'...");
             if (!WorldBoot.BootHostWorld(SessionOrgName())) { AbortToHub("world boot failed"); return; }
             _state = State.SpBootingWorld;
@@ -198,6 +201,7 @@ namespace SideHustle.Multiplayer
                 PendingHubReopen = true;       // reopen the hub when the Menu scene re-initializes
             }
 
+            GamemodeHygiene.Clear();
             WorldBoot.CleanupScratch();
             _state = State.Idle;
             _ctx = null;
@@ -219,6 +223,7 @@ namespace SideHustle.Multiplayer
             LobbyCoordinator.Unlist();
             bool wasInGame = WorldBoot.IsInGame;
             if (wasInGame) { WorldBoot.ExitToMenu(); PendingHubReopen = true; }
+            GamemodeHygiene.Clear();
             WorldBoot.CleanupScratch();
             _state = State.Idle;
             _ctx = null;

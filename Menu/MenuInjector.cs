@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Il2CppScheduleOne.UI.MainMenu;
 using SideHustle.Config;
 using UnityEngine;
@@ -19,6 +20,14 @@ namespace SideHustle.Menu
     internal static class MenuInjector
     {
         private const string MenuButtonName = "SideHustle_MenuButton";
+
+        // The direct main-menu entry for the gamemode a profile session is running (e.g. "PropHunt"), shown only
+        // while that profile is live. Clicking it is identical to opening Side Hustle and picking the gamemode.
+        private const string GamemodeButtonName = "SideHustle_GamemodeButton";
+
+        // Vanilla home-screen entries that start/continue a normal campaign. They make no sense inside a curated
+        // gamemode profile (a stripped mod set, no campaign save), so we hide them there and offer the gamemode instead.
+        private static readonly string[] HiddenInProfileLabels = { "continue", "new game" };
 
         // Let the menu's own UIScreen/UISelectable navigation finish initializing before we clone + reparent a button
         // into it. Touching the nav while the game is still iterating its selectables can corrupt it and hard-crash
@@ -72,6 +81,7 @@ namespace SideHustle.Menu
                     {
                         _injectedThisScene = true;
                         Hub.RememberHome(home);
+                        if (Mods.AltBase.IsAltSession()) ApplyProfileMenu(home);
                         return;
                     }
                 }
@@ -97,6 +107,7 @@ namespace SideHustle.Menu
                 {
                     _injectedThisScene = true;
                     Hub.RememberHome(home);
+                    if (Mods.AltBase.IsAltSession()) ApplyProfileMenu(home);
                     Core.Log?.Msg("[menu] Side Hustle entry injected.");
                 }
             }
@@ -147,27 +158,110 @@ namespace SideHustle.Menu
 
         private static bool BuildEntry(MainMenuScreen home, Button template)
         {
+            // Place the Side Hustle entry just above the template button in the nav column.
+            int idx = template.transform.GetSiblingIndex();
+            return CloneNavButton(template, MenuButtonName, "Side Hustle", (UnityAction)Hub.OpenScreen, idx) != null;
+        }
+
+        /// <summary>Clone a nav button for styling, relabel it, rewire its click to <paramref name="onClick"/> (dropping
+        /// every inherited listener so the template's original action does not also fire) and slot it at
+        /// <paramref name="siblingIndex"/>. Returns the new GameObject, or null on failure.</summary>
+        private static GameObject CloneNavButton(Button template, string name, string label, UnityAction onClick, int siblingIndex)
+        {
             Transform parent = template.transform.parent;
             GameObject clone = UnityEngine.Object.Instantiate(template.gameObject, parent, false).Cast<GameObject>();
             clone.transform.localScale = Vector3.one;
-            clone.name = MenuButtonName;
-            // Place it just above the template button in the nav column.
-            int idx = template.transform.GetSiblingIndex();
-            clone.transform.SetSiblingIndex(idx);
+            clone.name = name;
+            clone.transform.SetSiblingIndex(siblingIndex);
 
-            // Relabel (TMP first, then legacy Text).
-            SetLabel(clone, "Side Hustle");
+            SetLabel(clone, label);
 
-            // Rewire the click: drop every inherited listener (runtime + inspector-wired persistent) so the
-            // template's original action (e.g. open Settings) does not also fire, then add ours.
             Button btn = clone.GetComponent<Button>();
-            if (btn == null) { UnityEngine.Object.Destroy(clone); return false; }
+            if (btn == null) { UnityEngine.Object.Destroy(clone); return null; }
             NeutralizeClick(btn);
-            btn.onClick.AddListener((UnityAction)Hub.OpenScreen);
+            btn.onClick.AddListener(onClick);
             btn.interactable = true;
 
             if (!clone.activeSelf) clone.SetActive(true);
-            return true;
+            return clone;
+        }
+
+        /// <summary>
+        /// While a gamemode profile is running, reshape the home screen: hide the vanilla "Continue"/"New Game"
+        /// entries and put a direct entry for the running gamemode in their place. Clicking it opens the same
+        /// Singleplayer / Host / Join choice as picking the gamemode from the Side Hustle list. The Side Hustle
+        /// entry stays, so the full list (and "Restore my mods") is still reachable. Idempotent: safe to re-run on
+        /// every menu (re)initialisation - it adopts an existing gamemode entry and re-hides the campaign buttons.
+        /// </summary>
+        private static void ApplyProfileMenu(MainMenuScreen home)
+        {
+            try
+            {
+                Il2CppInterop.Runtime.InteropTypes.Arrays.Il2CppArrayBase<Button> buttons =
+                    home.GetComponentsInChildren<Button>(true);
+                if (buttons == null || buttons.Length == 0) return;
+
+                Button template = PickTemplate(buttons);   // Settings, for styling (never one of the hidden entries)
+
+                // Hide the campaign entries and remember the topmost slot they occupied, so the gamemode entry can
+                // take that spot. Never touch our own injected buttons.
+                Button existing = null;
+                int topIdx = int.MaxValue;
+                for (int i = 0; i < buttons.Length; i++)
+                {
+                    Button b = buttons[i];
+                    if (b == null) continue;
+                    string n = b.gameObject.name;
+                    if (n == GamemodeButtonName) { existing = b; continue; }
+                    if (n == MenuButtonName) continue;
+                    if (MatchesAny(GetLabel(b.gameObject), HiddenInProfileLabels))
+                    {
+                        topIdx = Math.Min(topIdx, b.transform.GetSiblingIndex());
+                        if (b.gameObject.activeSelf) b.gameObject.SetActive(false);
+                    }
+                }
+
+                GamemodeDescriptor desc = ActiveProfileGamemode();
+                if (desc == null) return;   // gamemode mod not registered (missing DLL); the Side Hustle entry recovers it
+
+                int slot = topIdx == int.MaxValue ? 0 : topIdx;
+                if (existing == null)
+                {
+                    if (template == null) return;
+                    if (CloneNavButton(template, GamemodeButtonName, desc.DisplayName,
+                            (UnityAction)(() => Hub.OpenGamemode(desc)), slot) != null)
+                        Core.Log?.Msg($"[menu] in-profile gamemode entry '{desc.DisplayName}' injected.");
+                }
+                else
+                {
+                    // Adopt the existing entry: refresh its label and click target (the registered descriptor instance
+                    // can differ after a reload) and make sure it is visible.
+                    SetLabel(existing.gameObject, desc.DisplayName);
+                    NeutralizeClick(existing);
+                    existing.onClick.AddListener((UnityAction)(() => Hub.OpenGamemode(desc)));
+                    existing.interactable = true;
+                    if (!existing.gameObject.activeSelf) existing.gameObject.SetActive(true);
+                }
+            }
+            catch (Exception e) { Core.Log?.Warning("[menu] profile menu failed: " + e.Message); }
+        }
+
+        /// <summary>The gamemode whose profile the current process is running, or null (no policy session, or its mod
+        /// is not registered in this session).</summary>
+        private static GamemodeDescriptor ActiveProfileGamemode()
+        {
+            if (!Mods.AltBase.IsAltSession()) return null;
+            string id = Preferences.ActiveGamemodeId;
+            if (string.IsNullOrEmpty(id)) return null;
+            return API.Registered.FirstOrDefault(d => d != null && d.Id == id);
+        }
+
+        private static bool MatchesAny(string label, string[] wants)
+        {
+            if (string.IsNullOrEmpty(label)) return false;
+            for (int i = 0; i < wants.Length; i++)
+                if (label.IndexOf(wants[i], StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            return false;
         }
 
         private static void NeutralizeClick(Button btn)

@@ -92,6 +92,19 @@ namespace SideHustle.Menu
             _cloneScreen.Open(closePrevious: true);
         }
 
+        /// <summary>Open the gamemode menu and jump straight to one gamemode's selection - identical to opening
+        /// Side Hustle and picking it. Used by the direct main-menu entry shown while that gamemode's profile is
+        /// running (so the player lands on the same Singleplayer / Host / Join choice).</summary>
+        internal static void OpenGamemode(GamemodeDescriptor desc)
+        {
+            if (desc == null) { OpenScreen(); return; }
+            EnsureInit();
+            EnsureClone();
+            if (_cloneScreen == null) { Core.Log?.Warning("[hub] gamemode screen unavailable."); return; }
+            if (!_cloneScreen.IsOpen) { ShowGamemodeList(); _cloneScreen.Open(closePrevious: true); }
+            OnSelectGamemode(desc);
+        }
+
         internal static void EnsureClone()
         {
             if (_clone != null && _cloneScreen != null) return;

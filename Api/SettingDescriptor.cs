@@ -60,4 +60,23 @@ namespace SideHustle
         /// <summary>Stored value per option, parallel to <see cref="Options"/>. When null the option label is stored.</summary>
         public string[] Values;
     }
+
+    /// <summary>
+    /// A named bundle of host-setting values a gamemode can offer as a one-click preset (e.g. "Classic Hunt").
+    /// Side Hustle shows a preset picker above the settings form; selecting one CASCADES its <see cref="Values"/>
+    /// into the matching controls (matched by <see cref="SettingDescriptor.Key"/>), which the host can then still
+    /// tweak. Values use the same wire format as the controls: a Slider's number, a Toggle's "1"/"0", a Segmented's
+    /// stored value. Keys with no matching control are ignored (forward-compatible with not-yet-built settings).
+    /// </summary>
+    public sealed class SettingPreset
+    {
+        /// <summary>Display name shown in the picker (e.g. "Classic Hunt"). Required.</summary>
+        public string Name;
+
+        /// <summary>Optional one-line description shown under the picker while this preset is selected.</summary>
+        public string Hint;
+
+        /// <summary>The setting values this preset applies, keyed by <see cref="SettingDescriptor.Key"/>.</summary>
+        public System.Collections.Generic.Dictionary<string, string> Values;
+    }
 }

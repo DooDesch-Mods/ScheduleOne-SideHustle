@@ -56,6 +56,7 @@ namespace SideHustle
                     // so the player is never stuck), and clean up leftover temporary profile folders.
                     Mods.ModInventory.RefreshNameMap();
                     Preferences.ActiveAltBase = "";
+                    Preferences.ActiveGamemodeId = "";
                     Preferences.PendingContinue = "";
                     Preferences.PendingHostOptions = "";
                     Preferences.RestoreModOps = "";   // retire the legacy rename-based field

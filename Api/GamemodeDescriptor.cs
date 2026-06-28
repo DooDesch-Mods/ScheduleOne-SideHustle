@@ -41,6 +41,22 @@ namespace SideHustle
         /// <summary>Whether the gamemode runs as a menu overlay or needs the game world.</summary>
         public GamemodeSurface Surface = GamemodeSurface.MenuSpace;
 
+        // --- World hygiene flags (opt-in; only meaningful for Surface == World) ---
+
+        /// <summary>When true, Side Hustle blocks every vanilla quest from starting for the duration of the session
+        /// (a Harmony prefix on Quest.Begin). Keeps a clean slate - no tutorial/dealer quest chains, phone prompts,
+        /// or NPC waypoints fighting the gamemode. Quests are host-authoritative so this matters on the host. Default false.</summary>
+        public bool BlockVanillaQuests = false;
+
+        /// <summary>When true, Side Hustle skips the new-game intro cutscene + character-creator (sets the player's
+        /// HasCompletedIntro before the intro gate runs), so players drop straight into the world. Default false.</summary>
+        public bool SkipIntro = false;
+
+        /// <summary>When true, the gamemode always runs as a fresh new game. Side Hustle ALREADY boots a clean scratch
+        /// world (clears the scratch folder + copies DefaultSave) on every launch, so this is currently a declarative
+        /// no-op documenting that intent; it never overwrites a real save slot. Default false.</summary>
+        public bool ForceNewGame = false;
+
         // --- Launch callbacks ---
 
         /// <summary>Invoked to start singleplayer. Required for Singleplayer/Hybrid gamemodes.</summary>
@@ -69,6 +85,13 @@ namespace SideHustle
         /// See <see cref="SettingDescriptor"/>.
         /// </summary>
         public SettingDescriptor[] HostSettings;
+
+        /// <summary>
+        /// Optional one-click presets for <see cref="HostSettings"/>. Side Hustle shows a picker above the form;
+        /// selecting a preset cascades its values into the matching controls (the host can still tweak after).
+        /// Null/empty = no picker. See <see cref="SettingPreset"/>.
+        /// </summary>
+        public SettingPreset[] Presets;
 
         /// <summary>The assembly that registered this descriptor; its DLL is always kept by a mod policy. Set by
         /// <see cref="API.Register"/>.</summary>

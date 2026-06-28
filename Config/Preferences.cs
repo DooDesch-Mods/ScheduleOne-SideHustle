@@ -21,6 +21,7 @@ namespace SideHustle.Config
         private static MelonPreferences_Entry<string> _pendingContinue;
         private static MelonPreferences_Entry<string> _restoreOps;
         private static MelonPreferences_Entry<string> _activeAltBase;
+        private static MelonPreferences_Entry<string> _activeGamemodeId;
         private static MelonPreferences_Entry<string> _pendingHostOptions;
 
         internal static void Initialize()
@@ -44,6 +45,8 @@ namespace SideHustle.Config
                 "Internal: legacy field from an older mod-policy mechanism. No longer used; cleared automatically.");
             _activeAltBase = _category.CreateEntry("ActiveAltBase", "", "Active gamemode profile (internal)",
                 "Internal: the temporary profile folder a mod-policy gamemode is running from, so it can be cleaned up. Managed automatically.");
+            _activeGamemodeId = _category.CreateEntry("ActiveGamemodeId", "", "Active gamemode (internal)",
+                "Internal: the id of the gamemode whose profile is currently running, so the main menu can offer it directly. Managed automatically.");
             _pendingHostOptions = _category.CreateEntry("PendingHostOptions", "", "Pending host options (internal)",
                 "Internal: the host's chosen lobby options to apply after a mod-policy restart, so it hosts directly. Managed automatically.");
         }
@@ -78,6 +81,15 @@ namespace SideHustle.Config
         {
             get => _activeAltBase?.Value ?? "";
             set { if (_activeAltBase != null) { _activeAltBase.Value = value ?? ""; Save(); } }
+        }
+
+        /// <summary>The id of the gamemode whose profile is currently running ("" = no policy session active). Unlike
+        /// <see cref="PendingContinue"/> this is durable for the whole session, so the main menu can offer the gamemode
+        /// directly even after the auto-continue has already fired (or the player has returned from a session).</summary>
+        internal static string ActiveGamemodeId
+        {
+            get => _activeGamemodeId?.Value ?? "";
+            set { if (_activeGamemodeId != null) { _activeGamemodeId.Value = value ?? ""; Save(); } }
         }
 
         /// <summary>Encoded host options to apply after a mod-policy restart so the gamemode hosts directly ("" = none).</summary>

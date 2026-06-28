@@ -28,6 +28,8 @@ namespace SideHustle.Menu
 
             var values = new Dictionary<string, string>();
             var textInputs = new List<KeyValuePair<string, InputField>>();
+            var setters = new Dictionary<string, Action<string>>();   // per-key control setters, for preset cascade
+            Action applyPresetDefault = null;
             InputField passwordField = null;
             GameObject passwordRow = null;
 
@@ -44,6 +46,11 @@ namespace SideHustle.Menu
             var srt = scrollArea.GetComponent<RectTransform>();
             srt.anchorMin = new Vector2(0, 0); srt.anchorMax = new Vector2(1, 1); srt.offsetMin = new Vector2(Pad, 64); srt.offsetMax = new Vector2(-Pad, 0);
             var content = Components.ScrollList(scrollArea.transform, out _, 6f);
+
+            // --- gamemode preset picker (cascades its values into the controls below; the host can still tweak
+            //     every individual setting afterwards). Applied once the controls + setters exist (see end). ---
+            if (desc.Presets != null && desc.Presets.Length > 0)
+                BuildPresetPicker(content, desc.Presets, setters, out applyPresetDefault);
 
             // --- Players ---
             Components.FormRow(content, "Players", $"2 to {cap}.", out var pSlot);
@@ -80,9 +87,12 @@ namespace SideHustle.Menu
                 {
                     if (s == null || string.IsNullOrEmpty(s.Key)) continue;
                     values[s.Key] = s.Default ?? "";
-                    BuildSettingRow(content, s, values, textInputs);
+                    BuildSettingRow(content, s, values, textInputs, setters);
                 }
             }
+
+            // Now the controls + their setters exist: apply the default preset so the form opens configured to it.
+            applyPresetDefault?.Invoke();
 
             // --- footer: Back / Start ---
             var (backGO, backBtn, _b) = UIFactory.ButtonWithLabel("Back", "Back", footer.transform, Theme.Button, 140, 40);
@@ -110,8 +120,9 @@ namespace SideHustle.Menu
 
         // --- control builders ---
 
-        private static void BuildSettingRow(Transform content, SettingDescriptor s, Dictionary<string, string> values, List<KeyValuePair<string, InputField>> textInputs)
+        private static void BuildSettingRow(Transform content, SettingDescriptor s, Dictionary<string, string> values, List<KeyValuePair<string, InputField>> textInputs, Dictionary<string, Action<string>> setters)
         {
+            var ci = System.Globalization.CultureInfo.InvariantCulture;
             switch (s.Type)
             {
                 case SettingType.Slider:
@@ -119,9 +130,11 @@ namespace SideHustle.Menu
                     Components.FormRow(content, s.Label, s.Hint, out var slot);
                     float val = ParseFloat(s.Default, s.Min);
                     float step = s.Step > 0f ? s.Step : (s.WholeNumbers ? 1f : 0f);
-                    BuildSlider(slot, s.Min, s.Max, val, s.WholeNumbers, step, s.Unit, v =>
-                        values[s.Key] = s.WholeNumbers ? Mathf.RoundToInt(v).ToString(System.Globalization.CultureInfo.InvariantCulture)
-                                                       : v.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
+                    var slider = BuildSlider(slot, s.Min, s.Max, val, s.WholeNumbers, step, s.Unit, v =>
+                        values[s.Key] = s.WholeNumbers ? Mathf.RoundToInt(v).ToString(ci)
+                                                       : v.ToString("0.##", ci));
+                    // preset cascade: set the slider value (its onValueChanged updates the readout + the blob).
+                    setters[s.Key] = v => { if (float.TryParse(v, System.Globalization.NumberStyles.Float, ci, out var f)) slider.value = Mathf.Clamp(f, s.Min, s.Max); };
                     break;
                 }
                 case SettingType.Toggle:
@@ -130,6 +143,7 @@ namespace SideHustle.Menu
                     bool on = s.Default == "1" || string.Equals(s.Default, "true", StringComparison.OrdinalIgnoreCase);
                     var tg = Components.Toggle(slot, on, v => values[s.Key] = v ? "1" : "0");
                     var trt = tg.GetComponent<RectTransform>(); trt.anchorMin = new Vector2(1, 0.5f); trt.anchorMax = new Vector2(1, 0.5f); trt.pivot = new Vector2(1, 0.5f); trt.anchoredPosition = new Vector2(-2, 0);
+                    setters[s.Key] = v => tg.isOn = v == "1" || string.Equals(v, "true", StringComparison.OrdinalIgnoreCase);
                     break;
                 }
                 case SettingType.Segmented:
@@ -138,8 +152,14 @@ namespace SideHustle.Menu
                     string[] vals = s.Values ?? opts;
                     int active = Math.Max(0, Array.IndexOf(vals, s.Default));
                     Components.FormRow(content, s.Label, s.Hint, out var slot, stacked: opts.Length > 2);
-                    var seg = Components.Segmented(slot, opts, active, i => values[s.Key] = i >= 0 && i < vals.Length ? vals[i] : opts[i], out _);
+                    var seg = Components.Segmented(slot, opts, active, i => values[s.Key] = i >= 0 && i < vals.Length ? vals[i] : opts[i], out var segButtons);
                     Fill(seg);
+                    setters[s.Key] = v =>
+                    {
+                        int idx = Array.IndexOf(vals, v); if (idx < 0) idx = 0;
+                        Components.SetSegmentedActive(segButtons, idx);
+                        values[s.Key] = idx < vals.Length ? vals[idx] : opts[idx];
+                    };
                     break;
                 }
                 case SettingType.Text:
@@ -148,15 +168,71 @@ namespace SideHustle.Menu
                     var input = Components.TextInput(slot, s.Default ?? "", null, null, 64);
                     Fill(input.gameObject, 6f);
                     textInputs.Add(new KeyValuePair<string, InputField>(s.Key, input));
+                    setters[s.Key] = v => input.text = v ?? "";
                     break;
                 }
             }
         }
 
+        /// <summary>
+        /// The gamemode preset picker: a "&lt; Name &gt;" cycler with a live description, shown above the settings.
+        /// Selecting a preset cascades its values into the matching controls via <paramref name="setters"/> (the
+        /// controls stay fully editable afterwards). <paramref name="applyInitial"/> is invoked by the caller AFTER
+        /// the setting rows are built, so the form opens configured to the first preset.
+        /// </summary>
+        private static void BuildPresetPicker(Transform content, SettingPreset[] presets, Dictionary<string, Action<string>> setters, out Action applyInitial)
+        {
+            int index = 0;
+            int n = presets.Length;
+
+            var block = new GameObject("presetPicker"); block.transform.SetParent(content, false); block.AddComponent<RectTransform>();
+            var ble = block.AddComponent<LayoutElement>(); ble.minHeight = 98; ble.preferredHeight = 98; ble.flexibleWidth = 1;
+            var bv = block.AddComponent<VerticalLayoutGroup>(); bv.spacing = 4; bv.childControlWidth = true; bv.childControlHeight = true; bv.childForceExpandWidth = true; bv.childForceExpandHeight = false; bv.childAlignment = TextAnchor.UpperLeft;
+
+            var title = UIFactory.Text("title", "Game mode preset", block.transform, Theme.Label, TextAnchor.MiddleLeft, FontStyle.Bold);
+            title.color = Theme.TextPrimary; title.raycastTarget = false;
+            var tle = title.gameObject.AddComponent<LayoutElement>(); tle.minHeight = 20; tle.preferredHeight = 20;
+
+            var row = new GameObject("row"); row.transform.SetParent(block.transform, false); row.AddComponent<RectTransform>();
+            var rle = row.AddComponent<LayoutElement>(); rle.minHeight = 36; rle.preferredHeight = 36; rle.flexibleWidth = 1;
+            var rh = row.AddComponent<HorizontalLayoutGroup>(); rh.spacing = 8; rh.childControlWidth = true; rh.childControlHeight = true; rh.childForceExpandHeight = true; rh.childAlignment = TextAnchor.MiddleCenter;
+
+            var (prevGO, prevBtn, _p) = UIFactory.ButtonWithLabel("prev", "<", row.transform, Theme.Button, 44, 36);
+            var ple = prevGO.AddComponent<LayoutElement>(); ple.minWidth = 44; ple.preferredWidth = 44; ple.flexibleWidth = 0;
+
+            var nameTxt = UIFactory.Text("name", presets[0].Name ?? "", row.transform, Theme.H3, TextAnchor.MiddleCenter, FontStyle.Bold);
+            nameTxt.color = Theme.Accent; nameTxt.raycastTarget = false;
+            var nle = nameTxt.gameObject.AddComponent<LayoutElement>(); nle.flexibleWidth = 1; nle.minWidth = 120;
+
+            var (nextGO, nextBtn, _nx) = UIFactory.ButtonWithLabel("next", ">", row.transform, Theme.Button, 44, 36);
+            var nxle = nextGO.AddComponent<LayoutElement>(); nxle.minWidth = 44; nxle.preferredWidth = 44; nxle.flexibleWidth = 0;
+
+            var descTxt = UIFactory.Text("desc", presets[0].Hint ?? "", block.transform, Theme.Caption, TextAnchor.UpperLeft);
+            descTxt.color = Theme.TextMuted; descTxt.raycastTarget = false;
+            descTxt.horizontalOverflow = HorizontalWrapMode.Wrap; descTxt.verticalOverflow = VerticalWrapMode.Truncate;
+            var dle = descTxt.gameObject.AddComponent<LayoutElement>(); dle.minHeight = 32; dle.preferredHeight = 32; dle.flexibleWidth = 1;
+
+            void Apply(int i)
+            {
+                index = ((i % n) + n) % n;
+                var p = presets[index];
+                nameTxt.text = p.Name ?? "";
+                descTxt.text = p.Hint ?? "";
+                if (p.Values != null)
+                    foreach (var kv in p.Values)
+                        if (setters.TryGetValue(kv.Key, out var set)) { try { set(kv.Value); } catch { } }
+            }
+
+            prevBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => Apply(index - 1)));
+            nextBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => Apply(index + 1)));
+
+            applyInitial = () => Apply(0);
+        }
+
         // A slider that fills the slot but reserves a value readout on the right. When step > 0 the underlying slider
         // is driven in whole "step units" so the handle snaps to each step (e.g. 5s round time); the readout and the
         // callback always get the real value.
-        private static void BuildSlider(Transform slot, float min, float max, float value, bool whole, float step, string unit, Action<float> onChange)
+        private static Slider BuildSlider(Transform slot, float min, float max, float value, bool whole, float step, string unit, Action<float> onChange)
         {
             var val = UIFactory.Text("val", Fmt(value, whole, unit), slot, Theme.Label, TextAnchor.MiddleRight);
             val.color = Theme.TextPrimary; val.raycastTarget = false;
@@ -169,6 +245,7 @@ namespace SideHustle.Menu
             srt.offsetMin = new Vector2(0, -4); srt.offsetMax = new Vector2(-58, 4);
 
             val.text = Fmt(slider.value, whole, unit);   // reflect the snapped initial value
+            return slider;
         }
 
         // --- small helpers ---
