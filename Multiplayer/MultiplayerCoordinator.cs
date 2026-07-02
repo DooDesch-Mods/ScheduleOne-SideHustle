@@ -148,6 +148,8 @@ namespace SideHustle.Multiplayer
                 {
                     MaxPlayers = _hostOpts.MaxPlayers,
                     GamemodeName = _desc.DisplayName,
+                    LobbyName = string.IsNullOrEmpty(_hostOpts.LobbyName) ? LobbyCoordinator.LocalPersonaName() : _hostOpts.LobbyName,
+                    Mode = _hostOpts.ModeLabel,
                     HostName = LobbyCoordinator.LocalPersonaName(),
                     HasPassword = _hostOpts.HasPassword,
                     ConfigBlob = _hostOpts.ConfigBlob
@@ -173,6 +175,16 @@ namespace SideHustle.Multiplayer
             };
             _state = State.InSession;
             Core.Log?.Msg($"[mp] JOINED: '{_desc.DisplayName}' lobby {_ctx.LobbyId}, {_ctx.PlayerCount} player(s).");
+
+            // Version parity: warn (don't block) when the host runs a different build of this gamemode. A build
+            // mismatch is the classic "everyone must be on the same version" bug; catching it here surfaces it for
+            // ALL gamemodes without each one rolling its own check.
+            string localBuild = LobbyCoordinator.BuildIdOf(_desc);
+            if (!string.IsNullOrEmpty(info.BuildId) && !string.IsNullOrEmpty(localBuild)
+                && !string.Equals(info.BuildId, localBuild, StringComparison.Ordinal))
+                Core.Log?.Warning($"[mp] VERSION MISMATCH: host runs a different build of '{_desc.DisplayName}' " +
+                                  $"(host {Short(info.BuildId)} vs local {Short(localBuild)}). Everyone must use the same version - expect bugs.");
+
             SafeInvoke(_desc.OnJoinMultiplayer, _ctx);
         }
 
@@ -234,6 +246,10 @@ namespace SideHustle.Multiplayer
         {
             return _desc != null ? (_desc.DisplayName ?? "Side Hustle") + " Session" : "Side Hustle Session";
         }
+
+        // First 8 hex of a build fingerprint - enough to read in a log without dumping the full 32-char MVID.
+        private static string Short(string buildId) =>
+            string.IsNullOrEmpty(buildId) ? "?" : (buildId.Length > 8 ? buildId.Substring(0, 8) : buildId);
 
         private static void SafeInvoke(Action<LaunchContext> cb, LaunchContext ctx)
         {

@@ -12,7 +12,7 @@ namespace SideHustle.Multiplayer
     /// FishySteamworks host transport then binds because <c>Lobby.IsInLobby &amp;&amp; Lobby.IsHost</c> is true.
     ///
     /// Namespaced lobby metadata (so the browser can filter and clients can read host options):
-    ///   sh_gamemode (filter key) · sh_gamemode_name · sh_max · sh_pw · sh_host_name · sh_config
+    ///   sh_gamemode (filter key) · sh_gamemode_name · sh_max · sh_pw · sh_host_name · sh_config · sh_build
     /// </summary>
     internal static class LobbyCoordinator
     {
@@ -21,9 +21,12 @@ namespace SideHustle.Multiplayer
         internal const string KeyMax = "sh_max";
         internal const string KeyPassword = "sh_pw";
         internal const string KeyHostName = "sh_host_name";
+        internal const string KeyLobbyName = "sh_name";
+        internal const string KeyMode = "sh_mode";
         internal const string KeyConfig = "sh_config";
         internal const string KeyVisibility = "sh_vis";
         internal const string KeyPwHash = "sh_pwhash";
+        internal const string KeyBuild = "sh_build";
 
         private static Lobby LobbyOrNull()
         {
@@ -94,8 +97,11 @@ namespace SideHustle.Multiplayer
                 SteamMatchmaking.SetLobbyData(sid, KeyPassword, opts.HasPassword ? "1" : "0");
                 SteamMatchmaking.SetLobbyData(sid, KeyPwHash, opts.HasPassword ? HashPassword(opts.Password) : "");
                 SteamMatchmaking.SetLobbyData(sid, KeyHostName, LocalPersonaName());
+                SteamMatchmaking.SetLobbyData(sid, KeyLobbyName, string.IsNullOrEmpty(opts.LobbyName) ? LocalPersonaName() : opts.LobbyName);
+                if (!string.IsNullOrEmpty(opts.ModeLabel)) SteamMatchmaking.SetLobbyData(sid, KeyMode, opts.ModeLabel);
                 if (!string.IsNullOrEmpty(opts.ConfigBlob))
                     SteamMatchmaking.SetLobbyData(sid, KeyConfig, opts.ConfigBlob);
+                SteamMatchmaking.SetLobbyData(sid, KeyBuild, BuildIdOf(desc));
             }
             catch (Exception e) { Core.Log?.Warning("[mp] TagLobby failed: " + e.Message); }
         }
@@ -129,10 +135,13 @@ namespace SideHustle.Multiplayer
             {
                 CSteamID sid = new CSteamID(lobbyId);
                 info.GamemodeName = SteamMatchmaking.GetLobbyData(sid, KeyGamemodeName);
+                info.LobbyName = SteamMatchmaking.GetLobbyData(sid, KeyLobbyName);
+                info.Mode = SteamMatchmaking.GetLobbyData(sid, KeyMode);
                 info.HostName = SteamMatchmaking.GetLobbyData(sid, KeyHostName);
                 info.HasPassword = SteamMatchmaking.GetLobbyData(sid, KeyPassword) == "1";
                 info.PwHash = SteamMatchmaking.GetLobbyData(sid, KeyPwHash);
                 info.ConfigBlob = SteamMatchmaking.GetLobbyData(sid, KeyConfig);
+                info.BuildId = SteamMatchmaking.GetLobbyData(sid, KeyBuild);
                 int.TryParse(SteamMatchmaking.GetLobbyData(sid, KeyMax), out int max);
                 info.MaxPlayers = max;
             }
@@ -143,6 +152,16 @@ namespace SideHustle.Multiplayer
         internal static string LocalPersonaName()
         {
             try { return SteamFriends.GetPersonaName(); } catch { return "Host"; }
+        }
+
+        /// <summary>A stable build fingerprint for a gamemode's DLL: the module's ModuleVersionId (MVID), which the
+        /// compiler regenerates on every build. Written to the lobby (<c>sh_build</c>) by the host and compared by a
+        /// joining client so a version mismatch ("everyone must run the same build") is caught at the join layer for
+        /// ALL gamemodes. Empty string if the owner assembly is unknown.</summary>
+        internal static string BuildIdOf(GamemodeDescriptor desc)
+        {
+            try { return desc?.OwnerAssembly?.ManifestModule?.ModuleVersionId.ToString("N") ?? ""; }
+            catch { return ""; }
         }
 
         /// <summary>A stable salted hash of a join password, stored on the lobby so a joining client can verify the

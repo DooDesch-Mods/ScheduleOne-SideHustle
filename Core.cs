@@ -104,6 +104,7 @@ namespace SideHustle
             if (_inMenu)
             {
                 MenuInjector.TickRetry();
+                DooDesch.UI.SmoothScroll.Tick();   // smooth wheel glide for menu lists (host-config form, etc.)
                 Hub.TickInput();   // right-click steps one view back (mod-check, host/join choice, browser, ...)
                 if (_reopenHubFrames > 0 && --_reopenHubFrames == 0)
                 {

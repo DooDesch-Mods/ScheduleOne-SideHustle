@@ -5,10 +5,13 @@ namespace SideHustle.Multiplayer
     {
         public ulong LobbyId;
         public string GamemodeName;
+        public string LobbyName;   // host-chosen lobby name (sh_name); browser card title, falls back to HostName
+        public string Mode;        // selected mode/preset label (sh_mode), e.g. "Custom - Infection"
         public string HostName;
         public int Members;
         public int MaxPlayers;
         public bool HasPassword;
         public string PwHash;   // hash of the host's password (sh_pwhash) - the client compares its entry before joining
+        public string BuildId;  // host's gamemode build fingerprint (sh_build) - the browser flags a version mismatch
     }
 }

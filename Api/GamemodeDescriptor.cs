@@ -48,6 +48,10 @@ namespace SideHustle
         /// or NPC waypoints fighting the gamemode. Quests are host-authoritative so this matters on the host. Default false.</summary>
         public bool BlockVanillaQuests = false;
 
+        /// <summary>Quest titles EXEMPT from <see cref="BlockVanillaQuests"/> - e.g. a gamemode's own guide quest.
+        /// Their <c>Quest.Begin</c> is allowed through even while vanilla quests are blocked. Default none.</summary>
+        public string[] AllowedQuestTitles;
+
         /// <summary>When true, Side Hustle skips the new-game intro cutscene + character-creator (sets the player's
         /// HasCompletedIntro before the intro gate runs), so players drop straight into the world. Default false.</summary>
         public bool SkipIntro = false;
@@ -56,6 +60,25 @@ namespace SideHustle
         /// world (clears the scratch folder + copies DefaultSave) on every launch, so this is currently a declarative
         /// no-op documenting that intent; it never overwrites a real save slot. Default false.</summary>
         public bool ForceNewGame = false;
+
+        /// <summary>When true, Side Hustle blocks every vanilla save (both SaveManager.Save overloads) for the duration
+        /// of the session. A gamemode runs on a throwaway scratch world and mutates transient state (teleports, locked
+        /// doors, swapped appearances); persisting that to disk would corrupt the save. The Save button still appears
+        /// but does nothing. Saving works normally again once the session ends. Default false.</summary>
+        public bool BlockSaveDuringSession = false;
+
+        /// <summary>When true, Side Hustle stops NPCs from reacting to hunter/player GUNFIRE for the session (no
+        /// panic/flee/cover, no civilian police-call, no WANTED pursuit, no bystander weapon-impact) - so a gamemode
+        /// can fire weapons without derailing the NPC schedule. Purely subtractive (prefixes on NPCAwareness
+        /// NoiseEvent/VisionEvent for the gunshot/discharge cases, NPC.SendImpact, and the ranged-weapon aim scan);
+        /// every other NPC awareness (footsteps, deals, vandalism) is untouched. Default false.</summary>
+        public bool SuppressNpcCombatReactions = false;
+
+        /// <summary>When true, Side Hustle cancels all vanilla PLAYER death for the session (prefix on
+        /// PlayerHealth.TakeDamage + SendDie) - players cannot die to real weapon damage while the session runs.
+        /// Use this when elimination is the gamemode's own concern (e.g. a host-validated catch) and vanilla death +
+        /// medical-centre respawn would eject a player from the play area. Damage to NPCs/props is untouched. Default false.</summary>
+        public bool DisableVanillaPlayerDeath = false;
 
         // --- Launch callbacks ---
 

@@ -255,7 +255,7 @@ namespace SideHustle.Menu
             {
                 // Only apply if this gamemode's browser is still the active view.
                 if (_cloneScreen != null && _cloneScreen.IsOpen && _mpDesc == desc && _formHost != null)
-                    JoinBrowserView.Populate(content, results, row => StartJoin(desc, row));
+                    JoinBrowserView.Populate(content, results, row => StartJoin(desc, row), LobbyCoordinator.BuildIdOf(desc));
             });
         }
 

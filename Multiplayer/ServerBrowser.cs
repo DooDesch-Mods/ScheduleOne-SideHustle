@@ -16,6 +16,10 @@ namespace SideHustle.Multiplayer
         private static Action<List<LobbyRow>> _onResults;
         private static bool _querying;
 
+        // Diagnostic only: a second, UNFILTERED probe fired when the filtered query finds nothing.
+        private static CallResult<LobbyMatchList_t> _diagResult;
+        private static bool _diagInFlight;
+
         internal static bool IsQuerying => _querying;
 
         /// <summary>Issue a filtered lobby-list request. <paramref name="onResults"/> fires once on the main thread.</summary>
@@ -63,11 +67,14 @@ namespace SideHustle.Multiplayer
                     {
                         LobbyId = id.m_SteamID,
                         GamemodeName = info.GamemodeName,
+                        LobbyName = info.LobbyName,
+                        Mode = info.Mode,
                         HostName = info.HostName,
                         Members = members,
                         MaxPlayers = info.MaxPlayers,
                         HasPassword = info.HasPassword,
-                        PwHash = info.PwHash
+                        PwHash = info.PwHash,
+                        BuildId = info.BuildId
                     });
                 }
                 Core.Log?.Msg($"[mp] server browser: {rows.Count} lobby(ies) found.");
@@ -76,6 +83,48 @@ namespace SideHustle.Multiplayer
 
             try { _onResults?.Invoke(rows); }
             catch (Exception e) { Core.Log?.Warning("[mp] server-browser callback threw: " + e.Message); }
+
+            if (rows.Count == 0) DiagnoseUnfiltered();   // distinguish a Goldberg sharing gap from a filter/tag bug
+        }
+
+        /// <summary>Diagnostic: when the gamemode-filtered query found nothing, fire ONE unfiltered query and log
+        /// every lobby Steam/Goldberg returns plus its sh_gamemode/sh_name/sh_vis. If this also returns 0 the lobby
+        /// isn't being shared at all (Goldberg/env); if it returns the host lobby with a matching sh_gamemode then the
+        /// string filter is the culprit. Temporary - remove before shipping.</summary>
+        private static void DiagnoseUnfiltered()
+        {
+            if (_diagInFlight) return;
+            try
+            {
+                if (_diagResult == null)
+                    _diagResult = CallResult<LobbyMatchList_t>.Create((CallResult<LobbyMatchList_t>.APIDispatchDelegate)OnDiag);
+                SteamMatchmaking.AddRequestLobbyListDistanceFilter(ELobbyDistanceFilter.k_ELobbyDistanceFilterWorldwide);
+                SteamAPICall_t call = SteamMatchmaking.RequestLobbyList();
+                _diagResult.Set(call, (CallResult<LobbyMatchList_t>.APIDispatchDelegate)OnDiag);
+                _diagInFlight = true;
+            }
+            catch (Exception e) { Core.Log?.Warning("[mp][diag] unfiltered probe failed: " + e.Message); }
+        }
+
+        private static void OnDiag(LobbyMatchList_t result, bool ioFailure)
+        {
+            _diagInFlight = false;
+            try
+            {
+                int n = 0;
+                for (int i = 0; i < 50; i++)
+                {
+                    CSteamID id = SteamMatchmaking.GetLobbyByIndex(i);
+                    if (id.m_SteamID == 0UL) break;
+                    n++;
+                    string gm = SteamMatchmaking.GetLobbyData(id, LobbyCoordinator.KeyGamemode);
+                    string nm = SteamMatchmaking.GetLobbyData(id, LobbyCoordinator.KeyLobbyName);
+                    string vis = SteamMatchmaking.GetLobbyData(id, LobbyCoordinator.KeyVisibility);
+                    Core.Log?.Msg($"[mp][diag] raw lobby {id.m_SteamID}: sh_gamemode='{gm}' sh_name='{nm}' sh_vis='{vis}'");
+                }
+                Core.Log?.Msg($"[mp][diag] UNFILTERED lobby count = {n}  (filtered found 0; if this is also 0 Goldberg isn't sharing the lobby, if >0 with a matching sh_gamemode the string filter is at fault).");
+            }
+            catch (Exception e) { Core.Log?.Warning("[mp][diag] parse error: " + e.Message); }
         }
     }
 }

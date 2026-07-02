@@ -14,6 +14,13 @@ namespace SideHustle.Multiplayer
         /// <summary>Display name of the gamemode (lobby key <c>sh_gamemode_name</c>).</summary>
         public string GamemodeName { get; internal set; }
 
+        /// <summary>Host-chosen lobby name (lobby key <c>sh_name</c>); may be empty.</summary>
+        public string LobbyName { get; internal set; }
+
+        /// <summary>The mode/preset label the host selected (lobby key <c>sh_mode</c>), e.g. "Infection" or
+        /// "Custom - Infection"; may be null when the gamemode has no presets.</summary>
+        public string Mode { get; internal set; }
+
         /// <summary>Steam persona of the host (lobby key <c>sh_host_name</c>).</summary>
         public string HostName { get; internal set; }
 
@@ -22,6 +29,10 @@ namespace SideHustle.Multiplayer
 
         /// <summary>Free-form per-gamemode payload the host published (lobby key <c>sh_config</c>); may be null.</summary>
         public string ConfigBlob { get; internal set; }
+
+        /// <summary>The host's gamemode build fingerprint (lobby key <c>sh_build</c>; the DLL's ModuleVersionId).
+        /// Side Hustle compares this to the joining client's local build at join time and warns on mismatch. May be empty.</summary>
+        public string BuildId { get; internal set; }
 
         /// <summary>Salted hash of the join password (lobby key <c>sh_pwhash</c>); used by the client-side join gate.</summary>
         internal string PwHash { get; set; }

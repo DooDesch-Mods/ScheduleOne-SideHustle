@@ -10,7 +10,10 @@ namespace SideHustle
         /// <summary>A small set of choices shown as a button group; stored as the chosen <see cref="SettingDescriptor.Values"/>.</summary>
         Segmented,
         /// <summary>A free-text field; stored verbatim (escaped in the blob).</summary>
-        Text
+        Text,
+        /// <summary>A single choice from <see cref="SettingDescriptor.Options"/>/<see cref="SettingDescriptor.Values"/>,
+        /// rendered as a compact "&lt; Name &gt;" cycler (a dropdown selector). Stored as the chosen value.</summary>
+        Dropdown
     }
 
     /// <summary>
@@ -31,6 +34,10 @@ namespace SideHustle
 
         /// <summary>Optional one-line help shown under the label.</summary>
         public string Hint;
+
+        /// <summary>Optional category name. The host form renders a section header whenever the category changes
+        /// between consecutive settings, so order settings by category. Null/empty = no header for that setting.</summary>
+        public string Category;
 
         /// <summary>The control to render.</summary>
         public SettingType Type = SettingType.Toggle;
@@ -78,5 +85,25 @@ namespace SideHustle
 
         /// <summary>The setting values this preset applies, keyed by <see cref="SettingDescriptor.Key"/>.</summary>
         public System.Collections.Generic.Dictionary<string, string> Values;
+
+        /// <summary>When true the picker marks this preset as experimental (a badge + sorted to the back) -
+        /// use it for presets whose headline mechanic is not fully built yet.</summary>
+        public bool Experimental;
+
+        /// <summary>Optional human-readable player-count recommendation shown in the picker (e.g. "Best for 2-6").</summary>
+        public string Recommended;
+
+        /// <summary>Player-count range this preset suits best. When the lobby size falls in
+        /// [<see cref="MinPlayers"/>, <see cref="MaxPlayers"/>] the form may auto-select it on open. 0 = unspecified.</summary>
+        public int MinPlayers;
+        public int MaxPlayers;
+
+        /// <summary>Canonical "mode" this preset represents (e.g. "Infection"). When the host tweaks a preset, the
+        /// effective mode shown to joiners becomes "Custom - {Mode}". Defaults to <see cref="Name"/> when null.</summary>
+        public string Mode;
+
+        /// <summary>When true the form opens on this preset, overriding the player-count best-fit. Used for a saved
+        /// "Custom" preset that should be pre-selected next time the host opens the form.</summary>
+        public bool DefaultSelected;
     }
 }
