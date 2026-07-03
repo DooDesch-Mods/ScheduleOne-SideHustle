@@ -3,6 +3,28 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.5.0] - 2026-07-03
+
+### Added
+- **Gamemode presets.** Gamemodes can now ship named presets (like "Classic Hunt") that show up as a picker at
+  the top of the host setup form. Pick one and it fills in all the settings for you - you can still tweak anything
+  afterwards. The form auto-selects whichever preset best fits your lobby size, a preset can suggest a player
+  count, and one whose headline mechanic isn't finished yet is flagged EXPERIMENTAL so you know what you're getting.
+- **Name your lobby.** The host form has a lobby name field now, and that name (plus the mode you picked) shows on
+  the server-browser cards, so joiners can tell sessions apart at a glance.
+- **Session-hygiene flags for gamemode authors.** A gamemode can opt into a handful of world-cleanup switches
+  instead of reinventing them: skip the new-game intro and character creator, stop vanilla quests from
+  auto-starting (with an allow-list for your own guide quest), block saving for the session so a throwaway world
+  never overwrites a real save, keep NPCs from reacting to gunfire, and turn off vanilla player death when the
+  gamemode runs its own elimination. All opt-in, all off by default.
+- **A heads-up when versions don't match.** When you join a session, Side Hustle compares your build of the
+  gamemode against the host's and warns you - in the log and right on the browser card - if they differ. It's the
+  classic "we're all on different versions" bug, now easy to spot. It only warns; it never stops you joining.
+
+### Changed
+- **Host form polish.** Settings can be grouped under section headers, there's a new compact dropdown for
+  one-of-many choices, and the settings list scrolls with a smooth mouse-wheel glide.
+
 ## [1.4.0] - 2026-06-26
 
 ### Added
