@@ -35,7 +35,14 @@ namespace SideHustle.Multiplayer
         [DllImport(Steam, CallingConvention = CallingConvention.Cdecl)]
         private static extern void SteamAPI_ISteamNetworkingUtils_InitRelayNetworkAccess(IntPtr self);
 
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate void SteamNetDebugOutput(int nType, IntPtr pszMsg);
+
+        [DllImport(Steam, CallingConvention = CallingConvention.Cdecl)]
+        private static extern void SteamAPI_ISteamNetworkingUtils_SetDebugOutputFunction(IntPtr self, int eDetailLevel, IntPtr pfnFunc);
+
         private static bool _applied;
+        private static SteamNetDebugOutput _debugSink;   // kept alive so the native side keeps a valid function pointer
 
         /// <summary>Globally allow all P2P ICE candidate types + warm up relay so non-friend public joins can connect.
         /// Idempotent; defers (retries on the next host/join) until Steam's networking interface is up.</summary>
@@ -52,6 +59,7 @@ namespace SideHustle.Multiplayer
                 }
                 bool ok = SteamAPI_ISteamNetworkingUtils_SetGlobalConfigValueInt32(utils, P2P_Transport_ICE_Enable, ICE_Enable_All);
                 try { SteamAPI_ISteamNetworkingUtils_InitRelayNetworkAccess(utils); } catch { }   // relay fallback for strict NAT
+                EnableConnectionDebugLog(utils);   // surface WHY a P2P connection drops (otherwise silent)
                 _applied = ok;
                 Core.Log?.Msg($"[mp] P2P ICE candidates -> allow-all ({(ok ? "ok" : "rejected")}) + relay warmup; enables non-friend NAT traversal.");
             }
@@ -59,6 +67,29 @@ namespace SideHustle.Multiplayer
             {
                 Core.Log?.Warning("[mp] native P2P ICE tuning failed: " + e.Message);
             }
+        }
+
+        /// <summary>Diagnostic: route Steam's networking debug output (connection lifecycle + CLOSE REASONS, which are
+        /// otherwise silent) into the log, so a dropped P2P connection tells us WHY. Level Msg = important events + msgs,
+        /// not per-packet spam. The delegate is held in a static field so the native function pointer stays valid.</summary>
+        private static void EnableConnectionDebugLog(IntPtr utils)
+        {
+            if (_debugSink != null || utils == IntPtr.Zero) return;
+            try
+            {
+                _debugSink = OnSteamNetDebug;
+                const int k_ESteamNetworkingSocketsDebugOutputType_Msg = 5;
+                SteamAPI_ISteamNetworkingUtils_SetDebugOutputFunction(
+                    utils, k_ESteamNetworkingSocketsDebugOutputType_Msg, Marshal.GetFunctionPointerForDelegate(_debugSink));
+                Core.Log?.Msg("[mp] Steam networking debug output enabled (captures connection close reasons).");
+            }
+            catch (Exception e) { Core.Log?.Warning("[mp] could not enable Steam net debug: " + e.Message); }
+        }
+
+        private static void OnSteamNetDebug(int nType, IntPtr pszMsg)
+        {
+            try { var s = Marshal.PtrToStringAnsi(pszMsg); if (!string.IsNullOrEmpty(s)) Core.Log?.Msg("[steamnet] " + s); }
+            catch { }
         }
     }
 }

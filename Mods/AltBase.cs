@@ -182,6 +182,51 @@ namespace SideHustle.Mods
             catch (Exception e) { Core.Log?.Warning("[modpolicy] sweep: " + e.Message); }
         }
 
+        /// <summary>
+        /// True when the CURRENT alt-profile session's mods no longer match the real install - e.g. the player updated
+        /// a mod (a new beta) AFTER this profile was built, so its hardlinks/copies are out of date (a replaced DLL
+        /// orphans the old hardlink). Compares every DLL in the profile's Mods to its real-install source by size, then
+        /// content on a size tie; a source that is now gone also counts as stale. Cheap (a handful of DLLs) and only
+        /// meaningful inside a profile session. When true, the caller should restore the full set so a fresh launch
+        /// rebuilds the profile from the up-to-date mods.
+        /// </summary>
+        internal static bool ProfileIsStale()
+        {
+            try
+            {
+                if (!IsAltSession()) return false;
+                string profMods = Path.Combine(CurrentBase() ?? "", "Mods");
+                string realMods = RealModsDir();
+                if (!Directory.Exists(profMods) || realMods == null || !Directory.Exists(realMods)) return false;
+
+                foreach (var f in Directory.GetFiles(profMods, "*.dll"))
+                {
+                    string name = Path.GetFileName(f);
+                    string src = ResolveSource(realMods, name);
+                    if (src == null) return true;                                  // a mod removed from the real install
+                    if (new FileInfo(f).Length != new FileInfo(src).Length) return true;   // a different build (updated mod)
+                    if (!ContentEquals(f, src)) return true;                       // same size, different content
+                }
+                return false;
+            }
+            catch { return false; }
+        }
+
+        private static bool ContentEquals(string a, string b)
+        {
+            try
+            {
+                using (var sha = System.Security.Cryptography.SHA256.Create())
+                {
+                    byte[] ha, hb;
+                    using (var s = File.OpenRead(a)) ha = sha.ComputeHash(s);
+                    using (var s = File.OpenRead(b)) hb = sha.ComputeHash(s);
+                    return ha.AsSpan().SequenceEqual(hb);
+                }
+            }
+            catch { return false; }   // unreadable -> treat as changed (safer to rebuild)
+        }
+
         // --- win32 link helpers (mklink is a cmd builtin; no admin needed for /J junctions or /H hardlinks) ---
 
         private static bool MakeJunction(string link, string target) => RunCmd($"mklink /J \"{link}\" \"{target}\"") == 0 && Directory.Exists(link);

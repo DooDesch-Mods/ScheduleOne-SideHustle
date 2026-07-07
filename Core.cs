@@ -49,6 +49,18 @@ namespace SideHustle
                 MenuInjector.Reset();   // OnUpdate injects after a short warmup, once the menu's own UI has settled
 
                 bool policySession = Mods.AltBase.IsAltSession();
+
+                // If this gamemode profile no longer matches your installed mods (you updated a mod - a new beta - after
+                // the profile was built), it would run STALE DLLs. Bounce back to your full, current mod set: the next
+                // normal launch sweeps the outdated profile, and relaunching the gamemode rebuilds it from the up-to-date
+                // mods. This guarantees a profile is never silently out of date with what's installed.
+                if (policySession && Mods.AltBase.ProfileIsStale())
+                {
+                    Log.Warning("[modpolicy] this gamemode profile is out of date with your installed mods - restoring your full set so it rebuilds fresh.");
+                    Mods.ModSwitcher.RestoreAndRestart();
+                    return;
+                }
+
                 if (!policySession)
                 {
                     // Normal launch: capture the full installed mod set for the policy resolver, drop any stale
