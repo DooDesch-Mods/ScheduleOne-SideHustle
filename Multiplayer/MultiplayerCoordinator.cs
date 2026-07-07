@@ -45,6 +45,7 @@ namespace SideHustle.Multiplayer
             _ctx = null;
             _timer = 0f;
             GamemodeHygiene.Apply(desc);   // skip-intro / block-quests must be active before the world loads
+            NetworkTuning.EnsureIceEnabled();   // allow all P2P ICE candidate types so non-friend clients can reach this host
 
             Core.Log?.Msg($"[mp] hosting '{desc.DisplayName}' (max {_hostOpts.MaxPlayers}, {_hostOpts.Visibility})...");
             if (!LobbyCoordinator.CreateLobby(_hostOpts.MaxPlayers, _hostOpts.Visibility)) { AbortToHub("could not create a lobby"); return; }
@@ -64,6 +65,7 @@ namespace SideHustle.Multiplayer
             _ctx = null;
             _timer = 0f;
             GamemodeHygiene.Apply(desc);   // active before the host's world streams in (the client also runs PlayerLoaded)
+            NetworkTuning.EnsureIceEnabled();   // allow all P2P ICE candidate types so this join can hold to a non-friend host
 
             Core.Log?.Msg($"[mp] joining '{desc.DisplayName}' lobby {row.LobbyId}...");
             LobbyCoordinator.JoinLobby(row.LobbyId);
