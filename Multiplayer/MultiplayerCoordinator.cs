@@ -46,6 +46,7 @@ namespace SideHustle.Multiplayer
             _timer = 0f;
             GamemodeHygiene.Apply(desc);   // skip-intro / block-quests must be active before the world loads
             NetworkTuning.EnsureIceEnabled();   // allow all P2P ICE candidate types so non-friend clients can reach this host
+            PublicLobbyAccess.Enable();   // stop the vanilla host from kicking non-friends, so public lobbies actually work
 
             Core.Log?.Msg($"[mp] hosting '{desc.DisplayName}' (max {_hostOpts.MaxPlayers}, {_hostOpts.Visibility})...");
             if (!LobbyCoordinator.CreateLobby(_hostOpts.MaxPlayers, _hostOpts.Visibility)) { AbortToHub("could not create a lobby"); return; }
@@ -216,6 +217,7 @@ namespace SideHustle.Multiplayer
             }
 
             GamemodeHygiene.Clear();
+            PublicLobbyAccess.Disable();   // restore the vanilla non-friend kick outside a Side Hustle session
             WorldBoot.CleanupScratch();
             _state = State.Idle;
             _ctx = null;
@@ -238,6 +240,7 @@ namespace SideHustle.Multiplayer
             bool wasInGame = WorldBoot.IsInGame;
             if (wasInGame) { WorldBoot.ExitToMenu(); PendingHubReopen = true; }
             GamemodeHygiene.Clear();
+            PublicLobbyAccess.Disable();   // restore the vanilla non-friend kick outside a Side Hustle session
             WorldBoot.CleanupScratch();
             _state = State.Idle;
             _ctx = null;
