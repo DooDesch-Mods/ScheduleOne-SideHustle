@@ -3,6 +3,19 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.5.2] - 2026-07-08
+
+### Added
+- **Kick players.** The host can remove a player from the session from the gamemode's UI (a reusable framework
+  control, so any gamemode can offer it).
+- **Clients can invite friends too.** The Steam friend-invite (+) button in the pause-menu lobby panel now shows for
+  everyone in the lobby, not just the host, and works past four seats (with BiggerLobbies).
+
+### Fixed
+- **"Required mods only" re-hosting is now solid.** Hosting a gamemode with only its required mods, returning to the
+  menu, then hosting again now works reliably: each launch builds a fresh isolated profile (a locked leftover can
+  never block it), the gamemode list comes back on its own, and a quick re-host no longer times out.
+
 ## [1.5.1] - 2026-07-08
 
 ### Fixed
