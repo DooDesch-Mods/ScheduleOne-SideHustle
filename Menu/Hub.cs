@@ -36,6 +36,14 @@ namespace SideHustle.Menu
         private static Action _back;
         private static GamemodeDescriptor _mpDesc;
 
+        // Restart countdown shown before a "Required mods only" host relaunches the game (so the restart isn't a
+        // surprise): a 10s prompt with Restart now / Cancel; with no choice it restarts when the timer hits zero.
+        private static GameObject _rcScrim;
+        private static Text _rcLabel;
+        private static float _rcRemaining;
+        private static Action _rcOnRestart;
+        private static bool RestartCountdownActive => _rcScrim != null;
+
         // Rows are taller than the vanilla 70px save slots so each entry gets room to breathe; the name and subtitle
         // are centred as a group. The panel is sized to the row count so it is always nicely filled, at native scale.
         private const float SlotHeight = 96f;
@@ -72,7 +80,9 @@ namespace SideHustle.Menu
         /// <summary>Per-frame (menu scene): right-click steps one view back, or closes the menu at the root. ESC is native.</summary>
         internal static void TickInput()
         {
+            TickRestartCountdown();   // keep counting even if the screen state changes underneath the prompt
             if (_cloneScreen == null || !_cloneScreen.IsOpen) return;
+            if (RestartCountdownActive) return;   // modal: swallow right-click-back while the restart prompt is up
             if (Input.GetMouseButtonDown(1))
             {
                 if (_back != null) _back();
@@ -489,13 +499,55 @@ namespace SideHustle.Menu
             // carrying the chosen host options across so the post-relaunch continue hosts directly. Else host in place.
             if (policyMode == 1 && plan != null && plan.HasChanges && !plan.Blocked)
             {
-                Preferences.RecordLaunch(desc.Id);
-                Mods.ModSwitcher.ApplyPolicyAndRestart(desc, plan, EncodeHostIntent(opts));
+                // Don't restart out from under the host - show a 10s "about to restart" prompt (Restart now / Cancel;
+                // restarts automatically when the timer runs out). The actual relaunch happens in the fire path below.
+                ShowRestartCountdown(desc, plan, opts);
                 return;
             }
             Preferences.RecordLaunch(desc.Id);
             CloseHubScreen();
             MultiplayerCoordinator.StartHost(desc, opts);
+        }
+
+        // --- restart countdown (Required-mods-only host) ---
+
+        private static void ShowRestartCountdown(GamemodeDescriptor desc, Mods.ModPlan plan, HostOptions opts)
+        {
+            _rcOnRestart = () =>
+            {
+                Preferences.RecordLaunch(desc.Id);
+                Mods.ModSwitcher.ApplyPolicyAndRestart(desc, plan, EncodeHostIntent(opts));
+            };
+
+            var canvas = _clone != null ? _clone.GetComponentInParent<Canvas>() : null;
+            Transform root = canvas != null ? canvas.transform : (_clone != null ? _clone.transform : null);
+            if (root == null) { var a = _rcOnRestart; _rcOnRestart = null; a(); return; }   // no UI to host the prompt -> just restart
+
+            _rcRemaining = 10f;
+            _rcScrim = Components.CountdownDialog(root,
+                "Restarting to load the required mods",
+                "This gamemode runs with only its required mods, so the game has to restart. Your installed mods are left untouched.",
+                "Restart now", "Cancel", RestartCountdownFire, RestartCountdownCancel, out _rcLabel);
+            if (_rcScrim == null) { var a = _rcOnRestart; _rcOnRestart = null; a(); return; }
+            if (_rcLabel != null) _rcLabel.text = "Restarting in 10s...";
+        }
+
+        private static void RestartCountdownClose()
+        {
+            if (_rcScrim != null) { try { UnityEngine.Object.Destroy(_rcScrim); } catch { } _rcScrim = null; }
+            _rcLabel = null;
+        }
+
+        private static void RestartCountdownFire() { var a = _rcOnRestart; _rcOnRestart = null; RestartCountdownClose(); a?.Invoke(); }
+        private static void RestartCountdownCancel() { _rcOnRestart = null; RestartCountdownClose(); }   // stay on the host form
+
+        private static void TickRestartCountdown()
+        {
+            if (_rcScrim == null) return;
+            _rcRemaining -= Time.unscaledDeltaTime;
+            int secs = Mathf.Max(0, Mathf.CeilToInt(_rcRemaining));
+            if (_rcLabel != null) { try { _rcLabel.text = secs > 0 ? $"Restarting in {secs}s..." : "Restarting..."; } catch { } }
+            if (_rcRemaining <= 0f) RestartCountdownFire();
         }
 
         // Encode/decode the host's chosen lobby options so they survive a mod-policy relaunch (the relaunch is local,

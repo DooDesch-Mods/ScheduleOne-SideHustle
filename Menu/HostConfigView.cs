@@ -22,9 +22,11 @@ namespace SideHustle.Menu
             int cap = Mathf.Max(2, maxClients);
             int players = Mathf.Clamp(Mathf.Min(4, cap), 2, cap);   // multiplayer: never below 2
             int visibility = 0;   // 0 = Public, 1 = Private
-            int policyMode = 0;   // 0 = current installed, 1 = required only
             bool hasPolicy = plan != null && plan.HasChanges;
             bool blocked = plan != null && plan.Blocked;
+            // The gamemode can default the mod-set choice (e.g. PropHunt wants a clean, everyone-identical set) - but
+            // only when a policy is actually available and not blocked; otherwise "Current installed mods" (0).
+            int policyMode = (hasPolicy && !blocked && desc.DefaultRequiredModsOnly) ? 1 : 0;   // 0 = current installed, 1 = required only
 
             var values = new Dictionary<string, string>();
             var textInputs = new List<KeyValuePair<string, InputField>>();
@@ -100,7 +102,7 @@ namespace SideHustle.Menu
                     ? "Missing required mod(s): " + string.Join(", ", plan.MissingRequired) + ". Pick \"Current installed mods\"."
                     : $"Required: pauses {plan.ToDisable.Count} mod(s), enables {plan.ToEnable.Count}; restarts the game. Current keeps your full set.";
                 Components.FormRow(content, "Mods", hint, out var mSlot, stacked: true);
-                var seg = Components.Segmented(mSlot, new[] { "Current installed mods", "Required mods only" }, 0,
+                var seg = Components.Segmented(mSlot, new[] { "Current installed mods", "Required mods only" }, policyMode,
                     i => policyMode = i, out var mbtns);
                 Fill(seg);
                 if (blocked && mbtns.Length > 1 && mbtns[1] != null) mbtns[1].interactable = false;   // can't apply with a missing mod

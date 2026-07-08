@@ -102,6 +102,12 @@ namespace SideHustle
         /// </summary>
         public ModPolicy Policy;
 
+        /// <summary>When true, the Host form defaults the mod-set choice to "Required mods only" (an isolated profile
+        /// with just this gamemode's mods) instead of "Current installed mods" - e.g. a multiplayer gamemode that
+        /// wants everyone on an identical, clean set. The host can still switch it before starting. Only takes effect
+        /// when <see cref="Policy"/> is declared and would actually change the set (and is not blocked). Default false.</summary>
+        public bool DefaultRequiredModsOnly = false;
+
         /// <summary>
         /// Optional host-configurable settings. Side Hustle renders these as a form on the Host screen and ships the
         /// chosen values to your launch callbacks via <see cref="LaunchContext.Multiplayer"/>'s config blob. Null = none.
