@@ -7,7 +7,7 @@
 > shared entry point that gamemode mods (like an in-game tattoo editor) plug into. Built on
 > [S1API](https://github.com/ifBars/S1API).
 
-![Version](https://img.shields.io/badge/version-1.5.0-blue)
+![Version](https://img.shields.io/badge/version-1.5.1-blue)
 ![Game](https://img.shields.io/badge/game-Schedule%20I-purple)
 ![MelonLoader](https://img.shields.io/badge/MelonLoader-0.7.3+-green)
 ![S1API](https://img.shields.io/badge/S1API-required-orange)
@@ -36,6 +36,9 @@ mod registers itself and shows up under the Side Hustle entry.
 - **Public server browser.** Find and join open sessions for a gamemode, shown as cards with the host, player
   count and a lock for password-protected lobbies; filtered so each gamemode only lists its own lobbies. Bigger
   lobbies are supported (with BiggerLobbies).
+- **Play with anyone, not just friends.** Schedule I normally kicks joiners who aren't on the host's Steam friends
+  list. While you host a Side Hustle gamemode that kick is lifted, so anyone can join your public or
+  password-protected lobbies. Normal co-op outside Side Hustle is unaffected.
 - **World gamemodes.** Gamemodes that need the actual game world get a throwaway session booted for them,
   outside your save slots, so your real saves are never touched.
 - **Conflict-free mod sets (optional, the host's choice).** A gamemode can declare which other mods it works with.

@@ -3,6 +3,19 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.5.1] - 2026-07-08
+
+### Fixed
+- **Public lobbies now work with anyone, not just your Steam friends.** The game normally kicks a joining player
+  who isn't on the host's friends list a few seconds after they connect - so public sessions were effectively
+  friends-only. While you host a Side Hustle gamemode, that kick is lifted, so friends and non-friends alike can
+  join your public (or password-protected) lobbies. It only applies while you are hosting a Side Hustle session;
+  normal co-op outside Side Hustle is unaffected.
+
+### Changed
+- **Better connection routing for public lobbies.** Public P2P connections now allow all connection routes and warm
+  up Steam's relay, so a join picks the best available path instead of falling back to relay-only.
+
 ## [1.5.0] - 2026-07-03
 
 ### Added
