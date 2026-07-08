@@ -42,7 +42,12 @@ namespace SideHustle.Mods
             return root == null ? null : Path.Combine(root, "SideHustle_Profiles");
         }
 
-        /// <summary>The alt base path for a gamemode id (sanitized to a safe, no-space folder name).</summary>
+        /// <summary>A FRESH alt base path for a gamemode id (sanitized folder name + a unique nonce). A new nonce
+        /// every build guarantees a locked, un-deletable stale profile (a hardlink to a currently-loaded mod DLL
+        /// cannot be removed by ANY of its names) can never block a new "Required only" host. Old profiles are cheap
+        /// - hardlinks share the real file's bytes and junctions are reparse points - and get swept on a later normal
+        /// launch when their mods are not loaded. The exact path is persisted (Preferences.ActiveAltBase + the
+        /// relaunch .bat), so nothing relies on this being recomputable.</summary>
         internal static string ComputeAltPath(string gamemodeId)
         {
             var bases = BasesRoot();
@@ -50,7 +55,8 @@ namespace SideHustle.Mods
             var safe = new string((gamemodeId ?? "gamemode")
                 .Select(c => char.IsLetterOrDigit(c) || c == '.' || c == '-' || c == '_' ? c : '_').ToArray());
             if (safe.Length == 0) safe = "gamemode";
-            return Path.Combine(bases, safe);
+            string nonce = Guid.NewGuid().ToString("N").Substring(0, 8);
+            return Path.Combine(bases, safe + "-" + nonce);
         }
 
         /// <summary>The base directory the CURRENT process actually loaded from (alt or real).</summary>
@@ -108,6 +114,9 @@ namespace SideHustle.Mods
                     string src = ResolveSource(realMods, file);
                     if (src == null) { Core.Log?.Warning($"[modpolicy] keep '{file}' has no source on disk; skipping."); continue; }
                     string dst = Path.Combine(altPath, "Mods", file);   // always the enabled .dll name (enables a .disabled source)
+                    // Already present from a reused profile whose stale hardlink was locked (un-deletable): if it
+                    // already matches the source, count it as done rather than failing to re-link/overwrite it.
+                    if (File.Exists(dst) && SameSize(dst, src)) { linked++; continue; }
                     if (MakeHardLink(dst, src)) { linked++; continue; }
                     // Fallback to a copy (cross-volume, non-NTFS, or a locked source).
                     try { File.Copy(src, dst, true); linked++; }
@@ -160,9 +169,30 @@ namespace SideHustle.Mods
                     Core.Log?.Error($"[modpolicy] alt base '{altPath}' still has junctions; NOT deleting recursively.");
                     return;
                 }
-                Directory.Delete(altPath, true);
+
+                // Delete the remaining real content (the Mods hardlinks) ONE BY ONE, tolerating locked files: a
+                // hardlink to a currently-loaded mod DLL is un-deletable, and an all-or-nothing Directory.Delete(true)
+                // would throw and leave the whole profile behind (the old "Access denied" failure). Deleting a
+                // hardlink never removes the original file. Anything we cannot delete now is left in place (it costs
+                // ~nothing - it shares bytes with the real mod) and is swept on a later launch when it is not loaded.
+                bool allGone = true;
+                foreach (var f in Directory.GetFiles(altPath, "*", SearchOption.AllDirectories))
+                {
+                    try { File.SetAttributes(f, FileAttributes.Normal); File.Delete(f); }
+                    catch { allGone = false; }   // locked (loaded DLL) - leave it, sweep later
+                }
+                foreach (var dir in Directory.GetDirectories(altPath, "*", SearchOption.AllDirectories)
+                                             .OrderByDescending(p => p.Length))   // deepest first
+                { try { Directory.Delete(dir, false); } catch { allGone = false; } }
+                if (allGone) { try { Directory.Delete(altPath, false); } catch { /* a race left something; the next sweep gets it */ } }
             }
             catch (Exception e) { Core.Log?.Warning("[modpolicy] alt-base teardown: " + e.Message); }
+        }
+
+        private static bool SameSize(string a, string b)
+        {
+            try { return new FileInfo(a).Length == new FileInfo(b).Length; }
+            catch { return false; }
         }
 
         /// <summary>Remove every leftover alt base (call from a normal session). Optionally keep one path.</summary>

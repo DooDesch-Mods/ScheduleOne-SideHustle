@@ -47,6 +47,12 @@ namespace SideHustle
         /// <summary>Remove a previously registered gamemode. Returns true if one was removed.</summary>
         public static bool Unregister(string id) => !string.IsNullOrWhiteSpace(id) && Registry.Unregister(id);
 
+        /// <summary>Host-only: kick the connected player with this Steam id (id64) from the current session. A no-op on
+        /// a client or if no such player is connected, and never kicks the host itself. Returns true if a player was
+        /// kicked. Reusable by any gamemode that manages a Side Hustle lobby.</summary>
+        public static bool KickPlayer(ulong steamId64, string reason = "Kicked by host")
+            => Multiplayer.HostControls.KickBySteamId(steamId64, reason);
+
         /// <summary>True once Side Hustle's own OnInitializeMelon has run.</summary>
         public static bool IsReady { get; internal set; }
 

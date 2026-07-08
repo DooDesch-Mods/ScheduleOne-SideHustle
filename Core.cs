@@ -2,7 +2,7 @@ using MelonLoader;
 using SideHustle.Config;
 using SideHustle.Menu;
 
-[assembly: MelonInfo(typeof(SideHustle.Core), "Side Hustle", "1.5.1", "DooDesch", "https://github.com/DooDesch-Mods/ScheduleOne-SideHustle")]
+[assembly: MelonInfo(typeof(SideHustle.Core), "Side Hustle", "1.5.2", "DooDesch", "https://github.com/DooDesch-Mods/ScheduleOne-SideHustle")]
 [assembly: MelonGame("TVGS", "Schedule I")]
 
 namespace SideHustle
@@ -38,7 +38,7 @@ namespace SideHustle
             Dev.StubGamemode.Register();
 #endif
 
-            Log.Msg($"Side Hustle 1.5.1 ready - {API.Registered.Count} gamemode(s) registered so far.");
+            Log.Msg($"Side Hustle 1.5.2 ready - {API.Registered.Count} gamemode(s) registered so far.");
         }
 
         public override void OnSceneWasInitialized(int buildIndex, string sceneName)
@@ -87,8 +87,10 @@ namespace SideHustle
                     _reopenHubFrames = 90;
                 }
                 // A World/multiplayer session that just ended reloaded the menu scene: reopen the gamemode list
-                // once the menu has laid out (a short delay so the cloned NewGameScreen is available).
-                else if (!policySession && Multiplayer.MultiplayerCoordinator.PendingHubReopen)
+                // once the menu has laid out (a short delay so the cloned NewGameScreen is available). This must run
+                // in a profile session too - otherwise, after hosting a "Required only" gamemode and returning to the
+                // menu, the hub never comes back and re-hosting looks broken (the flag would also leak true).
+                else if (Multiplayer.MultiplayerCoordinator.PendingHubReopen)
                 {
                     Multiplayer.MultiplayerCoordinator.PendingHubReopen = false;
                     _reopenHubFrames = 90;
