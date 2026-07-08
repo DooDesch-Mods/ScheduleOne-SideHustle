@@ -3,6 +3,16 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.5.3] - 2026-07-08
+
+### Added
+- **A heads-up before a "Required mods only" host restarts the game.** Instead of restarting instantly, a short
+  countdown appears (Restart now / Cancel) and restarts on its own when the timer runs out - so the restart is never
+  a surprise.
+- **Gamemodes can default to "Required mods only".** A gamemode can ask the Host form to pre-select the isolated
+  "required mods only" set (the host can still switch it), so a mode that wants everyone on an identical set gets it
+  by default.
+
 ## [1.5.2] - 2026-07-08
 
 ### Added
