@@ -5,7 +5,18 @@ All notable changes to Side Hustle are documented here. This project adheres to
 
 ## [1.5.3] - 2026-07-08
 
+A multiplayer-focused update - public lobbies work with anyone, plus host controls, friend invites and smoother
+mod-set switching.
+
 ### Added
+- **Play with anyone, not just friends.** Schedule I normally kicks a joining player who isn't on the host's Steam
+  friends list a few seconds after they connect - so public sessions were effectively friends-only. While you host a
+  Side Hustle gamemode that kick is lifted, so friends and non-friends alike can join your public (or
+  password-protected) lobbies. Normal co-op outside Side Hustle is unaffected.
+- **Kick players.** The host can remove a player from the session from the gamemode's UI (a reusable framework
+  control, so any gamemode can offer it).
+- **Clients can invite friends too.** The Steam friend-invite (+) button in the pause-menu lobby panel now shows for
+  everyone in the lobby, not just the host, and works past four seats (with BiggerLobbies).
 - **A heads-up before a "Required mods only" host restarts the game.** Instead of restarting instantly, a short
   countdown appears (Restart now / Cancel) and restarts on its own when the timer runs out - so the restart is never
   a surprise.
@@ -13,27 +24,10 @@ All notable changes to Side Hustle are documented here. This project adheres to
   "required mods only" set (the host can still switch it), so a mode that wants everyone on an identical set gets it
   by default.
 
-## [1.5.2] - 2026-07-08
-
-### Added
-- **Kick players.** The host can remove a player from the session from the gamemode's UI (a reusable framework
-  control, so any gamemode can offer it).
-- **Clients can invite friends too.** The Steam friend-invite (+) button in the pause-menu lobby panel now shows for
-  everyone in the lobby, not just the host, and works past four seats (with BiggerLobbies).
-
 ### Fixed
 - **"Required mods only" re-hosting is now solid.** Hosting a gamemode with only its required mods, returning to the
   menu, then hosting again now works reliably: each launch builds a fresh isolated profile (a locked leftover can
   never block it), the gamemode list comes back on its own, and a quick re-host no longer times out.
-
-## [1.5.1] - 2026-07-08
-
-### Fixed
-- **Public lobbies now work with anyone, not just your Steam friends.** The game normally kicks a joining player
-  who isn't on the host's friends list a few seconds after they connect - so public sessions were effectively
-  friends-only. While you host a Side Hustle gamemode, that kick is lifted, so friends and non-friends alike can
-  join your public (or password-protected) lobbies. It only applies while you are hosting a Side Hustle session;
-  normal co-op outside Side Hustle is unaffected.
 
 ### Changed
 - **Better connection routing for public lobbies.** Public P2P connections now allow all connection routes and warm
