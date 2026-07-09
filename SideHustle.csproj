@@ -7,6 +7,7 @@
        can't double-include the ui sources on CI. No-op locally, where Workspace is a sibling folder. -->
   <ItemGroup>
     <Compile Remove="Workspace/**/*.cs" />
+    <Compile Remove="Stash/**/*.cs" />
   </ItemGroup>
 
   <!-- Shared DooDesch.UI in-game design-system layer (tokens, controls, states, toasts/banners) - linked source.
@@ -14,10 +15,11 @@
   <Import Project="$(MSBuildThisFileDirectory)../Workspace/build/DooDeschUI.props" Condition="Exists('$(MSBuildThisFileDirectory)../Workspace/build/DooDeschUI.props')" />
   <Import Project="$(MSBuildThisFileDirectory)Workspace/build/DooDeschUI.props" Condition="Exists('$(MSBuildThisFileDirectory)Workspace/build/DooDeschUI.props')" />
 
-  <!-- Shared FullHouse cap engine (namespace DooDesch.Lobbies) - linked source. Raises the co-op lobby cap
-       natively so Side Hustle needs no external BiggerLobbies dependency. Same sibling/subfolder rule as above. -->
-  <Import Project="$(MSBuildThisFileDirectory)../Workspace/build/FullHouse.props" Condition="Exists('$(MSBuildThisFileDirectory)../Workspace/build/FullHouse.props')" />
-  <Import Project="$(MSBuildThisFileDirectory)Workspace/build/FullHouse.props" Condition="Exists('$(MSBuildThisFileDirectory)Workspace/build/FullHouse.props')" />
+  <!-- Shared FullHouse cap engine (namespace DooDesch.Lobbies) from the public Stash repo - linked source. Raises
+       the co-op lobby cap natively so Side Hustle needs no external BiggerLobbies dependency. Local: Stash is a
+       sibling (../Stash). CI checks it out as a subfolder (./Stash). Import whichever exists. -->
+  <Import Project="$(MSBuildThisFileDirectory)../Stash/build/FullHouse.props" Condition="Exists('$(MSBuildThisFileDirectory)../Stash/build/FullHouse.props')" />
+  <Import Project="$(MSBuildThisFileDirectory)Stash/build/FullHouse.props" Condition="Exists('$(MSBuildThisFileDirectory)Stash/build/FullHouse.props')" />
 
   <!--
     Side Hustle - MelonLoader IL2CPP gamemode-hub mod for Schedule I.

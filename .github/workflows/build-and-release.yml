@@ -4,6 +4,8 @@ name: Build and Release on Tag
 # GitHub Release, and uploads to Thunderstore + Nexus. Mirrors the Siesta/RVRepairVan pipeline.
 #
 # One-time setup:
+#   - Public shared-source repo  ${owner}/ScheduleOne-Stash  provides the FullHouse cap engine that Side Hustle
+#     embeds (build/FullHouse.props + fullhouse/FullHouse.cs). No token needed - it is public.
 #   - Private build-libs repo  ${owner}/ScheduleOne-Workspace  must contain:
 #       lib/il2cpp/game        (game managed DLLs incl. Assembly-CSharp, Il2Cppmscorlib, Il2CppSystem, and the
 #                               Unity modules SideHustle references: CoreModule, UI, UIModule, IMGUIModule,
@@ -36,6 +38,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Checkout Stash repository (shared FullHouse engine, public)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/ScheduleOne-Stash
+          path: Stash
 
       - name: Checkout Workspace repository (build libs)
         uses: actions/checkout@v4
