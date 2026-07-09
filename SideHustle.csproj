@@ -15,7 +15,7 @@
   <Import Project="$(MSBuildThisFileDirectory)../Workspace/build/DooDeschUI.props" Condition="Exists('$(MSBuildThisFileDirectory)../Workspace/build/DooDeschUI.props')" />
   <Import Project="$(MSBuildThisFileDirectory)Workspace/build/DooDeschUI.props" Condition="Exists('$(MSBuildThisFileDirectory)Workspace/build/DooDeschUI.props')" />
 
-  <!-- Shared FullHouse cap engine (namespace DooDesch.Lobbies) from the public Stash repo - linked source. Raises
+  <!-- Shared FullHouse cap engine (namespace DooDesch.FullHouse) from the public Stash repo - linked source. Raises
        the co-op lobby cap natively so Side Hustle needs no external BiggerLobbies dependency. Local: Stash is a
        sibling (../Stash). CI checks it out as a subfolder (./Stash). Import whichever exists. -->
   <Import Project="$(MSBuildThisFileDirectory)../Stash/build/FullHouse.props" Condition="Exists('$(MSBuildThisFileDirectory)../Stash/build/FullHouse.props')" />

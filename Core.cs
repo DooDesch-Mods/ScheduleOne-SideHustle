@@ -33,7 +33,7 @@ namespace SideHustle
 
             // Native bigger lobbies - raise the co-op cap ourselves (no external BiggerLobbies dependency).
             // Idempotent + single-flight guarded, so a standalone FullHouse.dll or BiggerLobbies alongside is fine.
-            DooDesch.Lobbies.FullHouse.Install();
+            DooDesch.FullHouse.Lobbies.Install();
 
             // Keep ticking when the window is unfocused, so a post-restart auto-continue still fires.
             try { UnityEngine.Application.runInBackground = true; } catch { /* ignore */ }
