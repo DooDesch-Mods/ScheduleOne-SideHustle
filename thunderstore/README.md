@@ -6,7 +6,7 @@
 > lists every installed gamemode mod and launches it straight from the menu - no savegame required.
 > It is the shared hub that gamemode mods plug into.
 
-![Version](https://img.shields.io/badge/version-1.5.3-blue)
+![Version](https://img.shields.io/badge/version-1.6.0-blue)
 ![Game](https://img.shields.io/badge/game-Schedule%20I-purple)
 ![MelonLoader](https://img.shields.io/badge/MelonLoader-0.7.3+-green)
 ![S1API](https://img.shields.io/badge/S1API-required-orange)
@@ -30,7 +30,7 @@ itself and shows up under the Side Hustle entry.
   (friends-only) lobby with an optional password, and any settings the gamemode exposes (sliders, toggles,
   choices, text), all passed to the gamemode at launch.
 - **Public server browser** - browse open lobbies as cards (host, player count, a lock for password-protected
-  ones), filtered per gamemode; bigger lobbies supported with BiggerLobbies.
+  ones), filtered per gamemode; bigger lobbies (past the vanilla 4) come built in, no extra lobby mod needed.
 - **Play with anyone, not just friends** - Schedule I normally kicks joiners who aren't the host's Steam friends;
   while you host a Side Hustle gamemode that kick is lifted, so anyone can join your public or password lobbies.
 - **World gamemodes** - gamemodes that need the loaded game world get a throwaway session, outside your

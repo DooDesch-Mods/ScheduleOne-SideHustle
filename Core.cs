@@ -2,7 +2,7 @@ using MelonLoader;
 using SideHustle.Config;
 using SideHustle.Menu;
 
-[assembly: MelonInfo(typeof(SideHustle.Core), "Side Hustle", "1.5.3", "DooDesch", "https://github.com/DooDesch-Mods/ScheduleOne-SideHustle")]
+[assembly: MelonInfo(typeof(SideHustle.Core), "Side Hustle", "1.6.0", "DooDesch", "https://github.com/DooDesch-Mods/ScheduleOne-SideHustle")]
 [assembly: MelonGame("TVGS", "Schedule I")]
 
 namespace SideHustle
@@ -31,6 +31,10 @@ namespace SideHustle
             Preferences.Initialize();
             API.IsReady = true;
 
+            // Native bigger lobbies - raise the co-op cap ourselves (no external BiggerLobbies dependency).
+            // Idempotent + single-flight guarded, so a standalone FullHouse.dll or BiggerLobbies alongside is fine.
+            DooDesch.Lobbies.FullHouse.Install();
+
             // Keep ticking when the window is unfocused, so a post-restart auto-continue still fires.
             try { UnityEngine.Application.runInBackground = true; } catch { /* ignore */ }
 
@@ -38,7 +42,7 @@ namespace SideHustle
             Dev.StubGamemode.Register();
 #endif
 
-            Log.Msg($"Side Hustle 1.5.3 ready - {API.Registered.Count} gamemode(s) registered so far.");
+            Log.Msg($"Side Hustle 1.6.0 ready - {API.Registered.Count} gamemode(s) registered so far.");
         }
 
         public override void OnSceneWasInitialized(int buildIndex, string sceneName)

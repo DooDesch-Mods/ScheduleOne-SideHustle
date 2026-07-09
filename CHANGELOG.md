@@ -3,6 +3,18 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.6.0] - 2026-07-09
+
+Native bigger lobbies - Side Hustle now raises the co-op player cap on its own.
+
+### Added
+- **Bigger co-op lobbies, built in.** Side Hustle now seats far more than the vanilla 4 players by itself
+  (default up to 32), and the host player-count slider opens up to match. No separate lobby mod required.
+
+### Changed
+- Larger lobbies no longer rely on the external BiggerLobbies mod. If you still run BiggerLobbies, the two
+  cooperate and the higher cap wins.
+
 ## [1.5.3] - 2026-07-08
 
 A multiplayer-focused update - public lobbies work with anyone, plus host controls, friend invites and smoother

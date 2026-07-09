@@ -2,7 +2,6 @@ using System;
 using HarmonyLib;
 using Il2CppScheduleOne.Networking;
 using Il2CppScheduleOne.UI.Multiplayer;
-using Il2CppSteamworks;
 
 namespace SideHustle.Multiplayer
 {
@@ -10,10 +9,11 @@ namespace SideHustle.Multiplayer
     /// Lets a NON-host lobby member open the Steam friend-invite dialog from the pause-menu lobby panel.
     ///
     /// Vanilla shows the [+] invite button to the host only: <c>LobbyInterface.UpdateButtons</c> does
-    /// <c>InviteButton.SetActive(Lobby.IsHost &amp;&amp; Lobby.PlayerCount &lt; 4)</c>, and <c>Lobby.TryOpenInviteInterface</c>
-    /// refuses once the lobby has &gt;= 4 members. The lobby panel itself is already shown to clients (its Canvas is
-    /// enabled for anyone paused while in a lobby), and Steam lets ANY lobby member invite friends - so we just
-    /// re-show the button for clients and bypass the hardcoded 4-seat cap (which BiggerLobbies raises anyway).
+    /// <c>InviteButton.SetActive(Lobby.IsHost &amp;&amp; Lobby.PlayerCount &lt; cap)</c>. The lobby panel itself is already
+    /// shown to clients (its Canvas is enabled for anyone paused while in a lobby), and Steam lets ANY lobby member
+    /// invite friends - so we just re-show the button for clients. The seat cap itself (and the vanilla
+    /// <c>TryOpenInviteInterface</c> "&gt;= 4" refusal) is raised by the embedded FullHouse engine, which transpiles
+    /// that literal to the configured cap - so this class no longer needs to bypass it.
     ///
     /// Active only while a Side Hustle session is live (both host and client set it), so vanilla co-op outside Side
     /// Hustle is untouched.
@@ -51,10 +51,6 @@ namespace SideHustle.Multiplayer
                 if (lateUpdate != null)
                     _harmony.Patch(lateUpdate, postfix: Hook(nameof(LateUpdatePostfix)));
 
-                var tryInvite = AccessTools.Method(typeof(Lobby), "TryOpenInviteInterface");
-                if (tryInvite != null)
-                    _harmony.Patch(tryInvite, prefix: Hook(nameof(TryOpenInvitePrefix)));
-
                 Core.Log?.Msg("[mp] lobby invite access installed (clients can invite friends).");
             }
             catch (Exception e) { Core.Log?.Warning("[mp] lobby-invite patch install failed: " + e.Message); }
@@ -87,23 +83,6 @@ namespace SideHustle.Multiplayer
                     __instance.InviteButton.gameObject.SetActive(true);
             }
             catch { }
-        }
-
-        // Bypass the hardcoded ">= 4 members" refusal so invites work in BiggerLobbies-sized lobbies. Open the Steam
-        // invite overlay for the current lobby directly and skip the vanilla body.
-        private static bool TryOpenInvitePrefix(Lobby __instance)
-        {
-            if (!Active || __instance == null) return true;   // outside a Side Hustle session: vanilla behaviour
-            try
-            {
-                if (__instance.IsInLobby)
-                {
-                    SteamFriends.ActivateGameOverlayInviteDialog(__instance.LobbySteamID);
-                    return false;   // handled - skip the capacity guard
-                }
-            }
-            catch (Exception e) { Core.Log?.Warning("[mp] open invite failed: " + e.Message); }
-            return true;   // not in a lobby - let vanilla handle it
         }
     }
 }
