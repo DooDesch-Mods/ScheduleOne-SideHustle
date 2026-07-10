@@ -28,7 +28,7 @@ namespace SideHustle.Menu
             var scrollArea = NewPanel("scrollArea", formHost);
             var srt = scrollArea.GetComponent<RectTransform>();
             srt.anchorMin = new Vector2(0, 0); srt.anchorMax = new Vector2(1, 1); srt.offsetMin = new Vector2(Pad, 64); srt.offsetMax = new Vector2(-Pad, 0);
-            var content = Components.ScrollList(scrollArea.transform, out _, 8f);
+            var content = Components.ScrollList(scrollArea.transform, out _, 8f, Theme.ScrimPanel);
 
             var (backGO, backBtn, _b) = UIFactory.ButtonWithLabel("Back", "Back", footer.transform, Theme.Button, 140, 40);
             PlaceFooter(backGO, left: true);

@@ -3,6 +3,33 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [2.0.0] - 2026-07-10
+
+Play modded multiplayer with anyone - mods sync themselves, and you can chat in-game.
+
+### Added
+- **Mod Profiles - an in-game mod manager.** A new "Mod Profiles" entry on the main menu lets you keep separate,
+  isolated sets of mods and switch between them (the game restarts into the one you pick). Build a profile from
+  your installed mods, or browse and install straight from Thunderstore - dependencies included. Your real Mods
+  folder is never touched, so external managers like r2modman keep working exactly as before. Side Hustle picks
+  which profile to load at startup (a short prompt you can skip); pick "Full mod set" any time to go back to
+  everything.
+- **Vanilla Co-op with mod sync.** Host your own normal savegame as a public lobby (from the menu, or when you
+  click Continue), and anyone can find it and join. When they do, Side Hustle compares their mods to yours and, if
+  they differ, offers to set up a matching profile automatically - download from Thunderstore, restart, and drop
+  straight back into your game. Mods that can't be fetched automatically get a simple checklist with a download
+  link and an "open folder" button. You choose per-session whether to require synced mods.
+- **Sync your mod settings too (optional).** As a host you can pick which mods' settings to apply to everyone who
+  joins - it only affects the session, never their real settings, and anything that looks like a secret is left
+  off by default.
+- **Side Hustle Messenger.** A new phone app for chatting with the other players in your lobby - a shared lobby
+  chat and private one-to-one conversations, with unread badges and native message notifications.
+
+### Notes
+- Side Hustle now ships a small startup helper (`SideHustle.Boot`) that it installs into your `Plugins` folder on
+  first run. To fully remove Side Hustle, delete that file and the `SideHustle_Profiles` folder alongside the game.
+- Downloads only ever come from Thunderstore's official CDN. Mods are never sent between players directly.
+
 ## [1.8.0] - 2026-07-10
 
 Discover gamemodes you don't have installed yet.

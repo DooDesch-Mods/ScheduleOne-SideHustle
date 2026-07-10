@@ -20,9 +20,12 @@ namespace SideHustle.Mods
     internal static class AltBase
     {
         // Folders that --melonloader.basedir relocates and that must therefore exist under the alt base. They are
-        // junctioned straight back to the real install so the loader runtime, plugins, user libraries and user data
-        // (preferences, generated-assembly cache hash, etc.) are shared - a FRESH UserData hangs the game at startup.
-        private static readonly string[] JunctionDirs = { "MelonLoader", "Plugins", "UserLibs", "UserData" };
+        // junctioned straight back to the real install so the loader runtime, plugins and user libraries are shared.
+        // UserData is NOT junctioned anymore: a profile gets its own UserData via CloneUserData (subdirectories
+        // junctioned - including the generated-assembly cache, whose absence is what hangs a FRESH UserData at
+        // startup - and top-level files copied), so a profile can carry its own MelonPreferences.cfg. Callers of
+        // Build MUST follow up with CloneUserData before relaunching.
+        private static readonly string[] JunctionDirs = { "MelonLoader", "Plugins", "UserLibs" };
 
         /// <summary>The real game root (parent of the game's data folder); always the real install, never the alt base.</summary>
         internal static string GameRoot() => ModInventory.GameRoot();
@@ -34,12 +37,22 @@ namespace SideHustle.Mods
             return r == null ? null : Path.Combine(r, "Mods");
         }
 
-        /// <summary>The directory that holds all per-gamemode profiles, inside the game folder so the player can
-        /// find and delete it easily, e.g. "&lt;game&gt;\SideHustle_Profiles". (Same volume as Mods, so hardlinks work.)</summary>
+        /// <summary>The directory that holds everything profile-related, inside the game folder so the player can
+        /// find and delete it easily, e.g. "&lt;game&gt;\SideHustle_Profiles". (Same volume as Mods, so hardlinks work.)
+        /// Subdirectories with distinct lifecycles: session\ (temporary per-gamemode/sync profiles, swept on normal
+        /// launches), profiles\ (named persistent profiles, never swept) and cache\ (downloaded packages).</summary>
         internal static string BasesRoot()
         {
             var root = GameRoot();
             return root == null ? null : Path.Combine(root, "SideHustle_Profiles");
+        }
+
+        /// <summary>The parent of all TEMPORARY session profiles (gamemode policy + lobby sync) - the only
+        /// subtree SweepStale touches.</summary>
+        internal static string SessionRoot()
+        {
+            var bases = BasesRoot();
+            return bases == null ? null : Path.Combine(bases, "session");
         }
 
         /// <summary>A FRESH alt base path for a gamemode id (sanitized folder name + a unique nonce). A new nonce
@@ -50,7 +63,7 @@ namespace SideHustle.Mods
         /// relaunch .bat), so nothing relies on this being recomputable.</summary>
         internal static string ComputeAltPath(string gamemodeId)
         {
-            var bases = BasesRoot();
+            var bases = SessionRoot();
             if (bases == null) return null;
             var safe = new string((gamemodeId ?? "gamemode")
                 .Select(c => char.IsLetterOrDigit(c) || c == '.' || c == '-' || c == '_' ? c : '_').ToArray());
@@ -64,6 +77,25 @@ namespace SideHustle.Mods
         {
             try { return MelonLoader.Utils.MelonEnvironment.MelonBaseDirectory; }
             catch { return GameRoot(); }
+        }
+
+        /// <summary>True when the running process booted into a NAMED profile's isolated base (under profiles\),
+        /// as opposed to a temporary gamemode/sync policy base (under session\). Distinguished by path so the two
+        /// kinds of alt-base session get the right handling at menu load.</summary>
+        internal static bool IsNamedProfileSession()
+        {
+            try
+            {
+                if (!IsAltSession()) return false;
+                string cur = CurrentBase();
+                string profilesRoot = Shared.ProfileResolver.ProfilesRoot(GameRoot());
+                if (string.IsNullOrEmpty(cur) || string.IsNullOrEmpty(profilesRoot)) return false;
+                string p = Path.GetFullPath(cur).TrimEnd('\\', '/');
+                string pre = Path.GetFullPath(profilesRoot).TrimEnd('\\', '/');
+                return p.StartsWith(pre + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                       || p.Equals(pre, StringComparison.OrdinalIgnoreCase);
+            }
+            catch { return false; }
         }
 
         /// <summary>True when the running process was launched into an alt base (a policy session is live).</summary>
@@ -83,13 +115,14 @@ namespace SideHustle.Mods
         /// Build the alt base for <paramref name="altPath"/> containing only <paramref name="keepFiles"/> (DLL names).
         /// Returns true on success. Safe to call while the game is running (hardlinks/junctions don't lock the targets).
         /// </summary>
-        internal static bool Build(string altPath, IEnumerable<string> keepFiles)
+        /// <summary>The junction-only shell of an alt base (clean slate + Mods dir + runtime junctions), shared
+        /// by the name-based gamemode build below and the explicit-source sync build (ModSwitcher).</summary>
+        internal static bool BuildSkeleton(string altPath)
         {
             try
             {
                 string root = GameRoot();
-                string realMods = RealModsDir();
-                if (altPath == null || root == null || realMods == null) return false;
+                if (altPath == null || root == null) return false;
 
                 Teardown(altPath);                       // clean slate (a stale tree is never in use in a normal session)
                 Directory.CreateDirectory(altPath);
@@ -107,6 +140,22 @@ namespace SideHustle.Mods
                         return false;
                     }
                 }
+                return true;
+            }
+            catch (Exception e)
+            {
+                Core.Log?.Error("[modpolicy] alt-base skeleton failed: " + e);
+                try { Teardown(altPath); } catch { /* ignore */ }
+                return false;
+            }
+        }
+
+        internal static bool Build(string altPath, IEnumerable<string> keepFiles)
+        {
+            try
+            {
+                string realMods = RealModsDir();
+                if (realMods == null || !BuildSkeleton(altPath)) return false;
 
                 int linked = 0;
                 foreach (var file in keepFiles.Distinct(StringComparer.OrdinalIgnoreCase))
@@ -134,14 +183,140 @@ namespace SideHustle.Mods
             }
         }
 
-        /// <summary>The on-disk source for a wanted DLL: the enabled file, or the .disabled file (which we then enable).</summary>
+        /// <summary>The on-disk source for a wanted DLL: the enabled file, or the .disabled file (which we then enable).
+        /// Falls back to the CURRENT session's Mods folder when that differs from the real one - a gamemode launched
+        /// from inside another profile may want a DLL that exists only there (e.g. installed from the package cache).</summary>
         private static string ResolveSource(string realMods, string file)
         {
             string enabled = Path.Combine(realMods, file);
             if (File.Exists(enabled)) return enabled;
             string disabled = enabled + ".disabled";
             if (File.Exists(disabled)) return disabled;
+            string curMods = ModInventory.ModsPath();
+            if (curMods != null && !PathsEqual(curMods, realMods))
+            {
+                string cur = Path.Combine(curMods, file);
+                if (File.Exists(cur)) return cur;
+                if (File.Exists(cur + ".disabled")) return cur + ".disabled";
+            }
             return null;
+        }
+
+        /// <summary>
+        /// Build a NAMED profile's FULLY ISOLATED base directory: only the shared MelonLoader runtime is junctioned
+        /// (never duplicated), while Mods/, Plugins/ and UserLibs/ are the profile's OWN real folders. Plugins/ and
+        /// UserLibs/ are seeded from the global install (hardlinks, so everything that loaded globally still loads)
+        /// and then the profile's Thunderstore packages add their own - all WITHOUT ever writing into the global
+        /// folders a mod manager owns. Callers follow up with CloneUserData before relaunching.
+        /// </summary>
+        internal static bool BuildIsolatedBase(string altPath, IReadOnlyList<Shared.BuildInput> modInputs,
+            IReadOnlyList<Shared.BuildInput> pluginInputs, IReadOnlyList<Shared.BuildInput> userLibInputs)
+        {
+            try
+            {
+                string root = GameRoot();
+                if (altPath == null || root == null) return false;
+
+                Teardown(altPath);                       // clean slate (a named profile is never in use in a normal session)
+                Directory.CreateDirectory(altPath);
+
+                string mlTarget = Path.Combine(root, "MelonLoader");
+                if (Directory.Exists(mlTarget) && !MakeJunction(Path.Combine(altPath, "MelonLoader"), mlTarget))
+                {
+                    Core.Log?.Error("[profiles] could not junction the MelonLoader runtime; aborting isolated build.");
+                    Teardown(altPath);
+                    return false;
+                }
+
+                bool ok = Shared.ProfileBuilder.BuildModsDir(Path.Combine(altPath, "Mods"), modInputs,
+                    s => Core.Log?.Warning("[profiles] " + s));
+                ok &= BuildSeededFolder(Path.Combine(altPath, "Plugins"), Path.Combine(root, "Plugins"), pluginInputs);
+                ok &= BuildSeededFolder(Path.Combine(altPath, "UserLibs"), Path.Combine(root, "UserLibs"), userLibInputs);
+                if (ok) Core.Log?.Msg($"[profiles] isolated base ready at '{altPath}'.");
+                return ok;
+            }
+            catch (Exception e)
+            {
+                Core.Log?.Error("[profiles] isolated base build failed: " + e);
+                try { Teardown(altPath); } catch { /* ignore */ }
+                return false;
+            }
+        }
+
+        // A profile Plugins/UserLibs folder = every DLL from the matching global folder (seeded, so nothing that
+        // loaded globally breaks) PLUS the profile's own package files, all hardlinked. The profile's own files win a
+        // name clash over the global seed. Reuses the generic mods-dir builder.
+        private static bool BuildSeededFolder(string destDir, string globalDir, IReadOnlyList<Shared.BuildInput> extras)
+        {
+            var inputs = new List<Shared.BuildInput>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var e in extras ?? (IReadOnlyList<Shared.BuildInput>)Array.Empty<Shared.BuildInput>())
+                if (e?.FileName != null && seen.Add(e.FileName)) inputs.Add(e);
+            if (Directory.Exists(globalDir))
+                foreach (var f in Directory.GetFiles(globalDir, "*.dll"))
+                {
+                    string name = Path.GetFileName(f);
+                    if (seen.Add(name)) inputs.Add(new Shared.BuildInput { FileName = name, SourcePath = f });
+                }
+            return Shared.ProfileBuilder.BuildModsDir(destDir, inputs, s => Core.Log?.Warning("[profiles] " + s));
+        }
+
+        /// <summary>
+        /// Give the alt base its OWN UserData: every subdirectory of the real UserData is junctioned in (shared -
+        /// including the generated-assembly cache, whose absence is what hangs a fresh UserData at startup), every
+        /// top-level FILE is copied, and MelonPreferences.cfg is written through <paramref name="prefsTransform"/>
+        /// (session tokens + host-synced categories). The real cfg is never touched; a missing real cfg still
+        /// produces a transformed clone (first-run installs). Returns false when any junction or the transform
+        /// fails - the caller must abort and tear the alt base down.
+        /// </summary>
+        internal static bool CloneUserData(string altPath, Func<string, string> prefsTransform)
+        {
+            const string CfgName = "MelonPreferences.cfg";
+            try
+            {
+                string root = GameRoot();
+                if (altPath == null || root == null) return false;
+                string realUserData = Path.Combine(root, "UserData");
+                string clone = Path.Combine(altPath, "UserData");
+                Directory.CreateDirectory(clone);
+
+                bool cfgSeen = false;
+                if (Directory.Exists(realUserData))
+                {
+                    foreach (var sub in Directory.GetDirectories(realUserData))
+                    {
+                        if (IsReparsePoint(sub)) continue;   // never junction a junction (would chain reparse points)
+                        string link = Path.Combine(clone, Path.GetFileName(sub));
+                        if (!MakeJunction(link, sub))
+                        {
+                            Core.Log?.Error($"[modpolicy] could not junction UserData\\{Path.GetFileName(sub)}; aborting clone.");
+                            return false;
+                        }
+                    }
+                    foreach (var f in Directory.GetFiles(realUserData))
+                    {
+                        string name = Path.GetFileName(f);
+                        string dst = Path.Combine(clone, name);
+                        if (string.Equals(name, CfgName, StringComparison.OrdinalIgnoreCase) && prefsTransform != null)
+                        {
+                            File.WriteAllText(dst, prefsTransform(File.ReadAllText(f)));
+                            cfgSeen = true;
+                        }
+                        else
+                        {
+                            File.Copy(f, dst, true);
+                        }
+                    }
+                }
+                if (!cfgSeen && prefsTransform != null)
+                    File.WriteAllText(Path.Combine(clone, CfgName), prefsTransform(""));
+                return true;
+            }
+            catch (Exception e)
+            {
+                Core.Log?.Error("[modpolicy] UserData clone failed: " + e);
+                return false;
+            }
         }
 
         /// <summary>
@@ -195,7 +370,10 @@ namespace SideHustle.Mods
             catch { return false; }
         }
 
-        /// <summary>Remove every leftover alt base (call from a normal session). Optionally keep one path.</summary>
+        /// <summary>Remove every leftover SESSION profile (call from a normal session). Named profiles (profiles\)
+        /// and the package cache (cache\) have their own lifecycles and are never swept. Pre-2.0 session profiles
+        /// lived directly under the root as "&lt;id&gt;-&lt;8-hex-nonce&gt;" - those are swept too as migration; anything
+        /// else at the top level is left alone. Optionally keep one path.</summary>
         internal static void SweepStale(string keep = null)
         {
             try
@@ -204,6 +382,19 @@ namespace SideHustle.Mods
                 if (bases == null || !Directory.Exists(bases)) return;
                 foreach (var d in Directory.GetDirectories(bases))
                 {
+                    string name = Path.GetFileName(d);
+                    if (string.Equals(name, "session", StringComparison.OrdinalIgnoreCase))
+                    {
+                        foreach (var s in Directory.GetDirectories(d))
+                        {
+                            if (keep != null && PathsEqual(s, keep)) continue;
+                            Teardown(s);
+                        }
+                        try { if (!Directory.EnumerateFileSystemEntries(d).Any()) Directory.Delete(d); } catch { /* ignore */ }
+                        continue;
+                    }
+                    // Legacy top-level session profile (pre-2.0 layout): "<id>-<8-hex-nonce>".
+                    if (!System.Text.RegularExpressions.Regex.IsMatch(name, "-[0-9a-fA-F]{8}$")) continue;
                     if (keep != null && PathsEqual(d, keep)) continue;
                     Teardown(d);
                 }
@@ -234,6 +425,9 @@ namespace SideHustle.Mods
                     string name = Path.GetFileName(f);
                     string src = ResolveSource(realMods, name);
                     if (src == null) return true;                                  // a mod removed from the real install
+                    // Resolved to itself: no external source to be stale against (a cache-backed mod that only
+                    // exists in this profile - its freshness is the profile registry's fingerprint job, not ours).
+                    if (PathsEqual(src, f)) continue;
                     if (new FileInfo(f).Length != new FileInfo(src).Length) return true;   // a different build (updated mod)
                     if (!ContentEquals(f, src)) return true;                       // same size, different content
                 }

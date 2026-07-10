@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    SideHustle.Boot - MelonLoader PLUGIN (loads before the game initializes and before MelonMods are
+    scanned from disk). Boot-time profile engine for Side Hustle profiles: redirects the Mods directory
+    MelonLoader loads from to a profile directory, in-process, without a restart and without touching
+    the real Mods folder. Ships embedded inside SideHustle.dll and is self-installed to <game>\Plugins\.
+    References ONLY MelonLoader - no Unity, no Il2Cpp interop: it runs before any of that exists.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>SideHustle.Boot</RootNamespace>
+    <AssemblyName>SideHustle.Boot</AssemblyName>
+    <Version>2.0.0</Version>
+    <AssemblyVersion>2.0.0.0</AssemblyVersion>
+    <FileVersion>2.0.0.0</FileVersion>
+
+    <!-- Workspace lib root: local = Workspace is a sibling of the SideHustle repo (../../Workspace from
+         this subfolder); CI checks Workspace out as a subfolder of the repo (../Workspace from here). -->
+    <WorkspaceLibPath Condition="'$(WorkspaceLibPath)' == '' AND Exists('$(MSBuildThisFileDirectory)../../Workspace/lib')">$(MSBuildThisFileDirectory)../../Workspace/lib</WorkspaceLibPath>
+    <WorkspaceLibPath Condition="'$(WorkspaceLibPath)' == ''">$(MSBuildThisFileDirectory)../Workspace/lib</WorkspaceLibPath>
+    <MelonLoaderPath>$(WorkspaceLibPath)/il2cpp/melonloader</MelonLoaderPath>
+
+    <!-- Dev deploy target: the _MPTest copy, never the real install by default. -->
+    <PluginsDirectory Condition="'$(PluginsDirectory)' == ''">F:\Projects\Mods\Schedule1\_MPTest\Schedule I\Plugins</PluginsDirectory>
+  </PropertyGroup>
+
+  <!-- Shared profile data/build core (pure BCL), compiled into BOTH the mod and this plugin so the picker can
+       read profiles.json and rebuild a stale profile without any game or SideHustle.dll dependency. -->
+  <ItemGroup>
+    <Compile Include="../Shared/ProfileStore.cs" Link="Shared/ProfileStore.cs" />
+    <Compile Include="../Shared/ProfileBuilder.cs" Link="Shared/ProfileBuilder.cs" />
+    <Compile Include="../Shared/ProfileResolver.cs" Link="Shared/ProfileResolver.cs" />
+    <Compile Include="../Profiles/PackageCache.cs" Link="Shared/PackageCache.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="MelonLoader">
+      <HintPath>$(MelonLoaderPath)/MelonLoader.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="PostBuild" AfterTargets="Build" Condition="'$(OS)' == 'Windows_NT'">
+    <Exec Condition="Exists('$(PluginsDirectory)')"
+          Command="cmd /c copy /Y &quot;$(TargetPath)&quot; &quot;$(PluginsDirectory)&quot;"
+          ContinueOnError="true" />
+  </Target>
+
+</Project>

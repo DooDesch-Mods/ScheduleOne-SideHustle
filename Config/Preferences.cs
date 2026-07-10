@@ -12,7 +12,9 @@ namespace SideHustle.Config
     /// </summary>
     internal static class Preferences
     {
-        private const string CategoryId = "SideHustle_01_Main";
+        // Internal: ModSwitcher injects the pending-session tokens into a profile's CLONED cfg under this
+        // section id (text-level merge), so the live cfg never carries them.
+        internal const string CategoryId = "SideHustle_01_Main";
         private const int RecentMax = 10;
 
         // Delimiters for the per-gamemode alias map (see GetAlias/SetAlias). Both are stripped from aliases on set,
@@ -23,6 +25,7 @@ namespace SideHustle.Config
         private static MelonPreferences_Category _category;
         private static MelonPreferences_Entry<bool> _enabled;
         private static MelonPreferences_Entry<bool> _showUninstalled;
+        private static MelonPreferences_Entry<bool> _askHostOnContinue;
         private static MelonPreferences_Entry<string> _recent;
         private static MelonPreferences_Entry<string> _modNameMap;
         private static MelonPreferences_Entry<string> _pendingContinue;
@@ -30,6 +33,7 @@ namespace SideHustle.Config
         private static MelonPreferences_Entry<string> _activeAltBase;
         private static MelonPreferences_Entry<string> _activeGamemodeId;
         private static MelonPreferences_Entry<string> _pendingHostOptions;
+        private static MelonPreferences_Entry<string> _pendingVanillaJoin;
         private static MelonPreferences_Entry<string> _aliases;
 
         internal static void Initialize()
@@ -46,6 +50,10 @@ namespace SideHustle.Config
                 "When ON, the Side Hustle menu also lists gamemodes you have NOT installed that currently have live " +
                 "public lobbies, so you can discover them (with a Download link). Turn OFF to show only installed gamemodes.");
 
+            _askHostOnContinue = _category.CreateEntry("AskHostOnContinue", true, "Ask to host publicly on Continue",
+                "When ON, clicking Continue or a save slot asks whether to open it as a public Side Hustle lobby. " +
+                "Turn OFF to always just play the save.");
+
             _recent = _category.CreateEntry("RecentlyPlayed", "", "Recently played gamemodes",
                 "Internal: a list of recently launched gamemode ids so the hub can list them first. Managed automatically.");
 
@@ -61,6 +69,8 @@ namespace SideHustle.Config
                 "Internal: the id of the gamemode whose profile is currently running, so the main menu can offer it directly. Managed automatically.");
             _pendingHostOptions = _category.CreateEntry("PendingHostOptions", "", "Pending host options (internal)",
                 "Internal: the host's chosen lobby options to apply after a mod-policy restart, so it hosts directly. Managed automatically.");
+            _pendingVanillaJoin = _category.CreateEntry("PendingVanillaJoin", "", "Pending vanilla join (internal)",
+                "Internal: the lobby to auto-rejoin after a mod-sync restart (only ever present in a profile's cloned config). Managed automatically.");
 
             _aliases = _category.CreateEntry("Aliases", "", "Display names (internal)",
                 "Internal: your chosen display name for each gamemode, shown to other players instead of your Steam " +
@@ -71,6 +81,9 @@ namespace SideHustle.Config
 
         /// <summary>Whether the menu also lists not-installed gamemodes that currently have live public lobbies.</summary>
         internal static bool ShowUninstalledGamemodes => _showUninstalled?.Value ?? true;
+
+        /// <summary>Whether clicking Continue / a save slot prompts to host it as a public Side Hustle lobby.</summary>
+        internal static bool AskHostOnContinue => _askHostOnContinue?.Value ?? true;
 
         /// <summary>Your chosen display name for a given gamemode ("" = use the real Steam persona name). Stored
         /// per-gamemode so you can appear under a different name in each. Applied to the in-game player name for the
@@ -163,6 +176,12 @@ namespace SideHustle.Config
         {
             get => _pendingHostOptions?.Value ?? "";
             set { if (_pendingHostOptions != null) { _pendingHostOptions.Value = value ?? ""; Save(); } }
+        }
+
+        internal static string PendingVanillaJoin
+        {
+            get => _pendingVanillaJoin?.Value ?? "";
+            set { if (_pendingVanillaJoin != null) { _pendingVanillaJoin.Value = value ?? ""; Save(); } }
         }
 
         /// <summary>The ids of recently launched gamemodes, most recent first.</summary>

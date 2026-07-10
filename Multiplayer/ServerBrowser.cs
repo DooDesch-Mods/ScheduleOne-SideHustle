@@ -24,6 +24,9 @@ namespace SideHustle.Multiplayer
         private static CallResult<LobbyMatchList_t> _advCallResult;
         private static Action<List<LobbyRow>> _advOnResults;
 
+        private static CallResult<LobbyMatchList_t> _vanillaCallResult;
+        private static Action<List<Sync.VanillaLobbyRow>> _vanillaOnResults;
+
         internal static bool IsQuerying => _querying;
 
         /// <summary>Issue a lobby-list request filtered to one gamemode id. <paramref name="onResults"/> fires once on the main thread.</summary>
@@ -78,6 +81,50 @@ namespace SideHustle.Multiplayer
                 Core.Log?.Warning("[mp] advertised-lobby query failed: " + e.Message);
                 onResults?.Invoke(new List<LobbyRow>());
             }
+        }
+
+        /// <summary>List published VANILLA lobbies (sh_vanilla == "1") - the Sync module's browser. Independent
+        /// CallResult, same rules as the others (static-held, GetLobbyByIndex iteration).</summary>
+        internal static void BeginQueryVanilla(Action<List<Sync.VanillaLobbyRow>> onResults)
+        {
+            _vanillaOnResults = onResults;
+            try
+            {
+                if (_vanillaCallResult == null)
+                    _vanillaCallResult = CallResult<LobbyMatchList_t>.Create(
+                        (CallResult<LobbyMatchList_t>.APIDispatchDelegate)OnVanillaLobbyList);
+
+                SteamMatchmaking.AddRequestLobbyListStringFilter(
+                    Sync.VanillaLobby.KeyVanilla, "1", ELobbyComparison.k_ELobbyComparisonEqual);
+                SteamMatchmaking.AddRequestLobbyListDistanceFilter(
+                    ELobbyDistanceFilter.k_ELobbyDistanceFilterWorldwide);
+
+                SteamAPICall_t call = SteamMatchmaking.RequestLobbyList();
+                _vanillaCallResult.Set(call, (CallResult<LobbyMatchList_t>.APIDispatchDelegate)OnVanillaLobbyList);
+            }
+            catch (Exception e)
+            {
+                Core.Log?.Warning("[sync] vanilla-lobby query failed: " + e.Message);
+                onResults?.Invoke(new List<Sync.VanillaLobbyRow>());
+            }
+        }
+
+        private static void OnVanillaLobbyList(LobbyMatchList_t result, bool ioFailure)
+        {
+            var rows = new List<Sync.VanillaLobbyRow>();
+            try
+            {
+                for (int i = 0; i < 50; i++)
+                {
+                    CSteamID id = SteamMatchmaking.GetLobbyByIndex(i);
+                    if (id.m_SteamID == 0UL) break;
+                    rows.Add(Sync.VanillaLobby.ReadSummary(id.m_SteamID));
+                }
+            }
+            catch (Exception e) { Core.Log?.Warning("[sync] vanilla-lobby parse error: " + e.Message); }
+            Core.Log?.Msg($"[sync] vanilla browser: {rows.Count} lobby(ies) found.");
+            try { _vanillaOnResults?.Invoke(rows); }
+            catch (Exception e) { Core.Log?.Warning("[sync] vanilla-browser callback threw: " + e.Message); }
         }
 
         private static void OnLobbyList(LobbyMatchList_t result, bool ioFailure)

@@ -54,8 +54,12 @@ namespace SideHustle.Menu
         // Open the URL in the Steam overlay browser. Invoked via reflection because the Il2Cpp binding of
         // SteamFriends.ActivateGameOverlayToWebPage may or may not keep the optional overlay-mode parameter; this
         // binds to whichever arity exists and returns false (falling back to the external browser) on any failure.
+        // Guarded by IsOverlayEnabled first: without a working overlay (a Steam-emulated launch, or the overlay
+        // turned off in Steam) the call is a SILENT no-op that would otherwise swallow the click - so we skip it and
+        // let the caller fall back to the external browser.
         private static bool TryOverlay(string url)
         {
+            if (!OverlayEnabled()) return false;
             try
             {
                 foreach (var m in typeof(SteamFriends).GetMethods(BindingFlags.Public | BindingFlags.Static))
@@ -74,6 +78,19 @@ namespace SideHustle.Menu
             }
             catch (Exception e) { Core.Log?.Warning("[hub] Steam overlay web page failed (" + e.Message + "); using external browser."); }
             return false;
+        }
+
+        // Whether the Steam overlay is actually available. Reflected because SteamUtils.IsOverlayEnabled is not
+        // present on every binding; a missing method or any throw (Steam not initialised, emulated Steam) counts as
+        // "no overlay" so we fall back to the external browser.
+        private static bool OverlayEnabled()
+        {
+            try
+            {
+                var mi = typeof(SteamUtils).GetMethod("IsOverlayEnabled", BindingFlags.Public | BindingFlags.Static);
+                return mi != null && mi.Invoke(null, null) is bool ok && ok;
+            }
+            catch { return false; }
         }
     }
 }

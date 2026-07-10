@@ -19,6 +19,12 @@ namespace SideHustle.Mods
         // Set once a relaunch is committed; a second click (the menu keeps ticking while the process quits) is ignored.
         private static bool _inFlight;
 
+#if DEBUG
+        // Dev.SelfTest only: build the profile + UserData clone via the real path but stop before the relaunch,
+        // so the MCP dev loop can inspect the artifacts and drive the basedir relaunch itself.
+        internal static bool DryRunForTests;
+#endif
+
         /// <summary>True while a gamemode profile is live (the process was launched into an alt base) - leaving restores.</summary>
         internal static bool HasRestorePending => AltBase.IsAltSession();
 
@@ -26,32 +32,135 @@ namespace SideHustle.Mods
         /// <paramref name="pendingHostPayload"/> (encoded host options) makes the post-relaunch continue host directly.</summary>
         internal static void ApplyPolicyAndRestart(GamemodeDescriptor desc, ModPlan plan, string pendingHostPayload = null)
         {
+            var tokens = new System.Collections.Generic.Dictionary<string, string>
+            {
+                ["PendingContinue"] = desc.Id,
+                ["PendingHostOptions"] = pendingHostPayload ?? "",
+                ["ActiveAltBase"] = "",   // set inside RelaunchIntoAltBase, where the path is final
+                ["ActiveGamemodeId"] = desc.Id,
+            };
+            RelaunchIntoAltBase(desc.Id, plan.KeepFiles, tokens, prefsOverlay: null,
+                $"launching '{desc.DisplayName}' with {plan.KeepFiles.Count} mod(s)");
+        }
+
+        /// <summary>
+        /// The shared restart-into-a-profile engine (gamemode policy AND lobby sync): build the alt base, clone
+        /// UserData with the session tokens - and optionally a host-synced prefs overlay - merged into the CLONED
+        /// MelonPreferences.cfg, then relaunch. The live cfg never carries the tokens: a plain launch can therefore
+        /// never see stale pending state, and nothing is persisted until every profile artifact exists on disk.
+        /// </summary>
+        internal static void RelaunchIntoAltBase(string profileId, System.Collections.Generic.IEnumerable<string> keepFiles,
+            System.Collections.Generic.Dictionary<string, string> tokens, Func<string, string> prefsOverlay, string logLabel)
+        {
             if (_inFlight) { Core.Log?.Msg("[modpolicy] a relaunch is already in progress; ignoring."); return; }
             _inFlight = true;
             try
             {
-                string altPath = AltBase.ComputeAltPath(desc.Id);
+                string altPath = AltBase.ComputeAltPath(profileId);
                 if (altPath == null) { _inFlight = false; Core.Log?.Error("[modpolicy] could not determine a profile path; aborting."); return; }
 
-                if (!AltBase.Build(altPath, plan.KeepFiles))
+                if (!AltBase.Build(altPath, keepFiles))
                 {
                     _inFlight = false;
-                    Core.Log?.Error("[modpolicy] could not build the gamemode profile; aborting (your mods are untouched).");
+                    Core.Log?.Error("[modpolicy] could not build the profile; aborting (your mods are untouched).");
                     return;
                 }
-
-                string bat = WriteRelaunchHelper(altPath);   // altPath != null => relaunch into the profile
-                if (!StartHelper(bat)) { _inFlight = false; AltBase.Teardown(altPath); return; }
-
-                // Persist only after a confirmed relaunch, so a failure never leaves stale state with no restart.
-                Preferences.PendingContinue = desc.Id;
-                Preferences.PendingHostOptions = pendingHostPayload ?? "";
-                Preferences.ActiveAltBase = altPath;
-                Preferences.ActiveGamemodeId = desc.Id;
-                Core.Log?.Msg($"[modpolicy] launching '{desc.DisplayName}' with {plan.KeepFiles.Count} mod(s); relaunching.");
-                Application.Quit();
+                FinishRelaunch(altPath, tokens, prefsOverlay, logLabel);
             }
             catch (Exception e) { _inFlight = false; Core.Log?.Error("[modpolicy] apply failed: " + e); }
+        }
+
+        /// <summary>
+        /// The lobby-sync variant: the profile's Mods come from EXPLICIT sources (hash-matched real files and
+        /// package-cache files that may deliberately DIFFER from a same-named installed mod), not from names in
+        /// the real Mods folder.
+        /// </summary>
+        internal static void RelaunchIntoSyncProfile(string profileKey,
+            System.Collections.Generic.IReadOnlyList<Shared.BuildInput> inputs,
+            System.Collections.Generic.Dictionary<string, string> tokens, Func<string, string> prefsOverlay, string logLabel)
+        {
+            if (_inFlight) { Core.Log?.Msg("[modpolicy] a relaunch is already in progress; ignoring."); return; }
+            _inFlight = true;
+            try
+            {
+                string altPath = AltBase.ComputeAltPath(profileKey);
+                if (altPath == null || !AltBase.BuildSkeleton(altPath))
+                {
+                    _inFlight = false;
+                    Core.Log?.Error("[modpolicy] could not build the sync profile; aborting (your mods are untouched).");
+                    return;
+                }
+                if (!Shared.ProfileBuilder.BuildModsDir(Path.Combine(altPath, "Mods"), inputs,
+                        s => Core.Log?.Warning("[modpolicy] " + s)))
+                {
+                    _inFlight = false;
+                    AltBase.Teardown(altPath);
+                    Core.Log?.Error("[modpolicy] sync profile is incomplete; aborting (your mods are untouched).");
+                    return;
+                }
+                FinishRelaunch(altPath, tokens, prefsOverlay, logLabel);
+            }
+            catch (Exception e) { _inFlight = false; Core.Log?.Error("[modpolicy] sync apply failed: " + e); }
+        }
+
+        /// <summary>
+        /// The NAMED-profile variant: build the profile's FULLY ISOLATED base (its own Mods/Plugins/UserLibs; only the
+        /// MelonLoader runtime shared) at its persistent path, then relaunch into it. Unlike the gamemode/sync profiles
+        /// this uses a stable per-profile folder (never swept) and carries no session tokens - it is just "boot with
+        /// exactly this profile's mods and their plugins/libraries, isolated from the global folders".
+        /// </summary>
+        internal static void RelaunchIntoNamedProfile(string altPath,
+            System.Collections.Generic.IReadOnlyList<Shared.BuildInput> modInputs,
+            System.Collections.Generic.IReadOnlyList<Shared.BuildInput> pluginInputs,
+            System.Collections.Generic.IReadOnlyList<Shared.BuildInput> userLibInputs, string logLabel)
+        {
+            if (_inFlight) { Core.Log?.Msg("[profiles] a relaunch is already in progress; ignoring."); return; }
+            _inFlight = true;
+            try
+            {
+                if (!AltBase.BuildIsolatedBase(altPath, modInputs, pluginInputs, userLibInputs))
+                {
+                    _inFlight = false;
+                    Core.Log?.Error("[profiles] could not build the profile; aborting (your mods are untouched).");
+                    return;
+                }
+                FinishRelaunch(altPath, new System.Collections.Generic.Dictionary<string, string>(), prefsOverlay: null, logLabel);
+            }
+            catch (Exception e) { _inFlight = false; Core.Log?.Error("[profiles] named-profile apply failed: " + e); }
+        }
+
+        // Shared tail: session tokens + host prefs into the CLONED cfg, then the bat relaunch. The live cfg
+        // never carries the tokens, so a plain launch can never see stale pending state.
+        private static void FinishRelaunch(string altPath, System.Collections.Generic.Dictionary<string, string> tokens,
+            Func<string, string> prefsOverlay, string logLabel)
+        {
+            tokens ??= new System.Collections.Generic.Dictionary<string, string>();
+            tokens["ActiveAltBase"] = altPath;
+            string Transform(string cfg)
+            {
+                string t = prefsOverlay != null ? prefsOverlay(cfg) : cfg;
+                return Sync.PrefsSync.MergeKeys(t, Preferences.CategoryId, tokens);
+            }
+            if (!AltBase.CloneUserData(altPath, Transform))
+            {
+                _inFlight = false;
+                AltBase.Teardown(altPath);
+                return;
+            }
+
+#if DEBUG
+            if (DryRunForTests)
+            {
+                _inFlight = false;
+                Core.Log?.Msg($"[modpolicy] DRY RUN: profile ready at '{altPath}'; skipping the relaunch.");
+                return;
+            }
+#endif
+            string bat = WriteRelaunchHelper(altPath);   // altPath != null => relaunch into the profile
+            if (!StartHelper(bat)) { _inFlight = false; AltBase.Teardown(altPath); return; }
+
+            Core.Log?.Msg($"[modpolicy] {logLabel}; relaunching.");
+            Application.Quit();
         }
 
         /// <summary>Relaunch normally (the player's full mod set) and leave the temporary profile for cleanup.</summary>
@@ -72,6 +181,22 @@ namespace SideHustle.Mods
                 Application.Quit();
             }
             catch (Exception e) { _inFlight = false; Core.Log?.Error("[modpolicy] restore failed: " + e); }
+        }
+
+        /// <summary>Plain relaunch (no basedir, no marker changes): used by the named-profile switch, where the
+        /// BOOT PLUGIN decides what the next start loads (it consumes profiles.json's pendingSwitch).</summary>
+        internal static void RelaunchPlain(string logLabel)
+        {
+            if (_inFlight) { Core.Log?.Msg("[modpolicy] a relaunch is already in progress; ignoring."); return; }
+            _inFlight = true;
+            try
+            {
+                string bat = WriteRelaunchHelper(null);
+                if (!StartHelper(bat)) { _inFlight = false; return; }
+                Core.Log?.Msg($"[modpolicy] {logLabel}; relaunching.");
+                Application.Quit();
+            }
+            catch (Exception e) { _inFlight = false; Core.Log?.Error("[modpolicy] plain relaunch failed: " + e); }
         }
 
         private static bool StartHelper(string bat)

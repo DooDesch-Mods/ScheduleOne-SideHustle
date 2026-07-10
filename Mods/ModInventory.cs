@@ -9,12 +9,14 @@ using UnityEngine;
 
 namespace SideHustle.Mods
 {
-    /// <summary>One loaded MelonLoader mod: its display name, DLL file name, and managed assembly.</summary>
+    /// <summary>One loaded MelonLoader mod: its display name, version, DLL file name, and managed assembly.</summary>
     internal sealed class LoadedMod
     {
         public string Name;
-        public string File;        // e.g. "Litterally.dll"
-        public Assembly Assembly;  // for dependency lookups
+        public string Version;      // exact MelonInfo version ("" when the mod declares none)
+        public string DownloadLink; // MelonInfo download URL ("" when the mod declares none)
+        public string File;         // e.g. "Litterally.dll"
+        public Assembly Assembly;   // for dependency lookups
     }
 
     /// <summary>
@@ -41,6 +43,10 @@ namespace SideHustle.Mods
 
         internal static string NameOf(MelonMod m) { try { return m.Info?.Name ?? m.GetType().Name; } catch { return m.GetType().Name; } }
 
+        internal static string VersionOf(MelonMod m) { try { return m.Info?.Version ?? ""; } catch { return ""; } }
+
+        internal static string DownloadLinkOf(MelonMod m) { try { return m.Info?.DownloadLink ?? ""; } catch { return ""; } }
+
         internal static string FileOf(MelonMod m)
         {
             try { var l = m.MelonAssembly?.Location; if (!string.IsNullOrEmpty(l)) return Path.GetFileName(l); } catch { /* ignore */ }
@@ -57,7 +63,14 @@ namespace SideHustle.Mods
                 {
                     string f = FileOf(m);
                     if (f == null) continue;
-                    list.Add(new LoadedMod { Name = NameOf(m), File = f, Assembly = m.GetType().Assembly });
+                    list.Add(new LoadedMod
+                    {
+                        Name = NameOf(m),
+                        Version = VersionOf(m),
+                        DownloadLink = DownloadLinkOf(m),
+                        File = f,
+                        Assembly = m.GetType().Assembly
+                    });
                 }
                 catch { /* ignore */ }
             }
@@ -80,6 +93,20 @@ namespace SideHustle.Mods
             }
             catch { /* ignore */ }
             return res.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        /// <summary>Lowercase SHA256 hex of a file's bytes, or null when unreadable. The sync manifest identifies
+        /// a mod by this hash - it wins over the declared version (a recompiled DLL with an unchanged version
+        /// must still count as different).</summary>
+        internal static string Sha256OfFile(string path)
+        {
+            try
+            {
+                using var sha = System.Security.Cryptography.SHA256.Create();
+                using var s = File.OpenRead(path);
+                return Convert.ToHexString(sha.ComputeHash(s)).ToLowerInvariant();
+            }
+            catch { return null; }
         }
 
         internal static bool IsDisabledOnDisk(string dllFile)

@@ -21,7 +21,7 @@ namespace SideHustle.Menu
     /// renders as native save-slot rows in this one screen, swapping the rows in place. A "Back" row steps one level
     /// up; right-click does the same; ESC closes the whole menu (its PreviousScreen is the home screen).
     /// </summary>
-    internal static class Hub
+    internal static partial class Hub
     {
         private static bool _initialized;
         private static MainMenuScreen _home;
@@ -215,6 +215,8 @@ namespace SideHustle.Menu
                     Corner = "Mods",
                     OnClick = () => Mods.ModSwitcher.RestoreAndRestart()
                 });
+
+            rows.Add(BuildVanillaRow());   // pinned above the gamemodes: vanilla co-op is a session type too
 
             foreach (var d in modes)
             {
@@ -518,6 +520,18 @@ namespace SideHustle.Menu
             Transform info = slot.Find("Container/Info");
             if (info != null) info.gameObject.SetActive(true);
 
+            // A semi-opaque backing behind the row content so the name/subtitle/corner stay legible over the bright
+            // 3D scene, without making the whole panel opaque (the native transparent chrome is kept). Added once per
+            // reused native slot, behind everything, and never intercepts the row's click.
+            Transform container = slot.Find("Container");
+            if (container != null && container.Find("SH_RowBacking") == null)
+            {
+                var backing = UIFactory.Panel("SH_RowBacking", container, Theme.ScrimRow, fullAnchor: true);
+                var bimg = backing.GetComponent<Image>();
+                if (bimg != null) { bimg.sprite = Theme.RoundedSprite(); bimg.type = Image.Type.Sliced; bimg.raycastTarget = false; }
+                backing.transform.SetAsFirstSibling();
+            }
+
             var slotRt = slot.GetComponent<RectTransform>();
             if (slotRt != null) slotRt.sizeDelta = new Vector2(slotRt.sizeDelta.x, SlotHeight);
             var le = slot.GetComponent<LayoutElement>();
@@ -547,7 +561,7 @@ namespace SideHustle.Menu
                 if (tmp != null)
                 {
                     tmp.text = string.IsNullOrWhiteSpace(row.Subtitle) ? "" : row.Subtitle.Trim();
-                    tmp.color = row.Disabled ? Theme.TextDisabled : new Color(0.627f, 0.627f, 0.627f, 1f);
+                    tmp.color = row.Disabled ? Theme.TextDisabled : new Color(0.72f, 0.74f, 0.78f, 1f);   // brighter over the scene, on the row backing
                     tmp.enableWordWrapping = false;
                     tmp.overflowMode = Il2CppTMPro.TextOverflowModes.Ellipsis;
                 }
@@ -562,6 +576,7 @@ namespace SideHustle.Menu
                 {
                     bool has = !string.IsNullOrWhiteSpace(row.Corner);
                     vtmp.text = has ? row.Corner : "";
+                    vtmp.color = Theme.TextMuted;   // legible corner badge on the row backing (was the dim native Version colour)
                     verT.gameObject.SetActive(has);
                 }
             }

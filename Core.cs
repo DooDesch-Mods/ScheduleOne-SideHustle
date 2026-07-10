@@ -2,7 +2,7 @@ using MelonLoader;
 using SideHustle.Config;
 using SideHustle.Menu;
 
-[assembly: MelonInfo(typeof(SideHustle.Core), "Side Hustle", "1.8.0", "DooDesch", "https://github.com/DooDesch-Mods/ScheduleOne-SideHustle")]
+[assembly: MelonInfo(typeof(SideHustle.Core), "Side Hustle", "2.0.0", "DooDesch", "https://github.com/DooDesch-Mods/ScheduleOne-SideHustle")]
 [assembly: MelonGame("TVGS", "Schedule I")]
 
 namespace SideHustle
@@ -22,6 +22,7 @@ namespace SideHustle
         private int _reopenHubFrames;   // >0 = reopen the hub list this many frames after a session returns to Menu
         private string _continueId;     // a gamemode to continue into after a mod-policy restart
         private string _continueHost;   // encoded host options to host directly after a Host-triggered policy restart
+        private string _vanillaJoinPayload;   // encoded lobby+mhash to auto-rejoin after a mod-sync restart
 
         public override void OnInitializeMelon()
         {
@@ -35,6 +36,13 @@ namespace SideHustle
             // Idempotent + single-flight guarded, so a standalone FullHouse.dll or BiggerLobbies alongside is fine.
             DooDesch.FullHouse.Lobbies.Install();
 
+            // Keep the boot-time profile picker (a MelonPlugin, shipped embedded) installed and current.
+            Profiles.BootInstaller.EnsureInstalled();
+            Profiles.ThunderstoreClient.Log = s => Log?.Warning("[profiles] " + s);
+
+            // The live-publish button (pause-menu lobby panel) patch - inert until a co-op host is eligible.
+            Sync.LivePublish.Install();
+
             // Keep ticking when the window is unfocused, so a post-restart auto-continue still fires.
             try { UnityEngine.Application.runInBackground = true; } catch { /* ignore */ }
 
@@ -42,7 +50,7 @@ namespace SideHustle
             Dev.StubGamemode.Register();
 #endif
 
-            Log.Msg($"Side Hustle 1.8.0 ready - {API.Registered.Count} gamemode(s) registered so far.");
+            Log.Msg($"Side Hustle 2.0.0 ready - {API.Registered.Count} gamemode(s) registered so far.");
         }
 
         public override void OnSceneWasInitialized(int buildIndex, string sceneName)
@@ -51,8 +59,15 @@ namespace SideHustle
             {
                 _inMenu = true;
                 MenuInjector.Reset();   // OnUpdate injects after a short warmup, once the menu's own UI has settled
+                Menu.ContinueInterstitial.EnsureInstalled();   // the "host publicly?" prompt on Continue/Load
+                Sync.SyncCoordinator.OnMenuScene();   // a vanilla session that ended via save+quit cleans up here
 
-                bool policySession = Mods.AltBase.IsAltSession();
+                // Three kinds of session: a plain full-set launch, a TEMPORARY gamemode/sync policy base (session\),
+                // and a NAMED profile's own isolated base (profiles\). Only the gamemode/sync kind gets the policy
+                // handling below; a named-profile session must neither restore-to-full on staleness nor have its
+                // isolated Mods captured as "the full set".
+                bool namedProfileSession = Mods.AltBase.IsNamedProfileSession();
+                bool policySession = Mods.AltBase.IsAltSession() && !namedProfileSession;
 
                 // If this gamemode profile no longer matches your installed mods (you updated a mod - a new beta - after
                 // the profile was built), it would run STALE DLLs. Bounce back to your full, current mod set: the next
@@ -65,7 +80,7 @@ namespace SideHustle
                     return;
                 }
 
-                if (!policySession)
+                if (!policySession && !namedProfileSession)
                 {
                     // Normal launch: capture the full installed mod set for the policy resolver, drop any stale
                     // policy markers left by a crashed profile session (a plain launch already loads the full set,
@@ -79,6 +94,20 @@ namespace SideHustle
                     Mods.AltBase.SweepStale();
                 }
 
+#if DEBUG
+                // After the sweep (a dry-run-built profile must survive it) and before the continue-token is
+                // consumed below (a profile session logs the token the clone carried).
+                Dev.SelfTest.TickMenu(policySession);
+#endif
+
+                // After a mod-sync restart, rejoin the published vanilla lobby the player consented to.
+                string vanillaJoin = policySession ? Preferences.PendingVanillaJoin : "";
+                if (!string.IsNullOrEmpty(vanillaJoin))
+                {
+                    Preferences.PendingVanillaJoin = "";
+                    _vanillaJoinPayload = vanillaJoin;
+                    _reopenHubFrames = 90;
+                }
                 // After relaunching into a gamemode profile, continue straight into the gamemode (mods are curated).
                 string cont = policySession ? Preferences.PendingContinue : "";
                 if (!string.IsNullOrEmpty(cont))
@@ -119,14 +148,35 @@ namespace SideHustle
             // happen during scene loads, not only in the menu).
             Multiplayer.MultiplayerCoordinator.Tick();
 
+            // Worker-thread completions from the Profiles module (downloads, builds) land on the main thread here.
+            Profiles.MainThread.Tick();
+
+            // The vanilla-session state machine (lobby create -> tag -> save load) advances every frame too.
+            Sync.SyncCoordinator.Tick();
+            Sync.SyncCoordinator.TickGate();   // an enforcing host kicks unsynced members
+
+            // The Messenger backend runs whenever we're in a lobby; its phone app refreshes only while open.
+            Messenger.ChatService.Tick();
+            Messenger.MessengerApp.Instance?.Tick();
+
+#if DEBUG
+            Dev.SelfTest.TickChatService();
+#endif
+
+#if DEBUG
+            Dev.ChatSmoke.Tick();
+#endif
+
             if (_inMenu)
             {
                 MenuInjector.TickRetry();
                 DooDesch.UI.SmoothScroll.Tick();   // smooth wheel glide for menu lists (host-config form, etc.)
                 Hub.TickInput();   // right-click steps one view back (mod-check, host/join choice, browser, ...)
+                Menu.SyncManualInstallView.Tick();   // poll the staging folder while the manual checklist is open
                 if (_reopenHubFrames > 0 && --_reopenHubFrames == 0)
                 {
-                    if (!string.IsNullOrEmpty(_continueId)) { var id = _continueId; var host = _continueHost; _continueId = null; _continueHost = null; Hub.ContinueGamemode(id, host); }
+                    if (!string.IsNullOrEmpty(_vanillaJoinPayload)) { var p = _vanillaJoinPayload; _vanillaJoinPayload = null; Sync.SyncCoordinator.ContinueJoin(p); }
+                    else if (!string.IsNullOrEmpty(_continueId)) { var id = _continueId; var host = _continueHost; _continueId = null; _continueHost = null; Hub.ContinueGamemode(id, host); }
                     else Hub.OpenScreen();
                 }
             }

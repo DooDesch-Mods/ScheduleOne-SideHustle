@@ -65,7 +65,7 @@ namespace SideHustle.Menu
             var scrollArea = NewPanel("scrollArea", formHost);
             var srt = scrollArea.GetComponent<RectTransform>();
             srt.anchorMin = new Vector2(0, 0); srt.anchorMax = new Vector2(1, 1); srt.offsetMin = new Vector2(Pad, 64); srt.offsetMax = new Vector2(-Pad, 0);
-            var content = Components.ScrollList(scrollArea.transform, out var scroll, 6f);
+            var content = Components.ScrollList(scrollArea.transform, out var scroll, 6f, Theme.ScrimPanel);
             SmoothScroll.Attach(scroll);   // smooth wheel glide for the host-config list (driven by Core's menu update)
 
             // --- gamemode preset picker (cascades its values into the controls below; the host can still tweak

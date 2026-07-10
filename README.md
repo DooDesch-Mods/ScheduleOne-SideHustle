@@ -7,7 +7,7 @@
 > shared entry point that gamemode mods (like an in-game tattoo editor) plug into. Built on
 > [S1API](https://github.com/ifBars/S1API).
 
-![Version](https://img.shields.io/badge/version-1.8.0-blue)
+![Version](https://img.shields.io/badge/version-2.0.0-blue)
 ![Game](https://img.shields.io/badge/game-Schedule%20I-purple)
 ![MelonLoader](https://img.shields.io/badge/MelonLoader-0.7.3+-green)
 ![S1API](https://img.shields.io/badge/S1API-required-orange)
@@ -58,6 +58,22 @@ mod registers itself and shows up under the Side Hustle entry.
 - **Load-order independent API.** Gamemode mods register themselves whether they load before or after
   Side Hustle.
 - **Stays out of the way.** A single toggle hides the entry without uninstalling.
+
+## New in 2.0: Profiles, Sync and Messenger
+
+- **Mod Profiles (in-game mod manager).** A separate "Mod Profiles" main-menu entry keeps isolated sets of mods you
+  can switch between (the game restarts into the one you pick). Build a profile from your installed mods or browse
+  and install straight from Thunderstore with dependencies resolved. Your real Mods folder is never managed, so
+  external managers keep working. A short startup prompt lets you pick the profile to load (or the full set).
+- **Vanilla Co-op with mod sync.** Host your own savegame as a public lobby (from the menu, or when you click
+  Continue). When someone joins, Side Hustle compares mods and offers to set up a matching profile automatically -
+  download from Thunderstore, restart, rejoin - so you can play modded co-op with anyone without hand-matching mod
+  lists. Mods that can't be fetched automatically get a link + "open folder" checklist. Optionally require synced
+  clients. Downloads only ever come from Thunderstore's CDN; mods are never sent between players directly.
+- **Sync mod settings (optional).** A host can apply chosen mods' settings to everyone in the session only, never
+  touching their real settings; anything that looks like a secret is off by default.
+- **Side Hustle Messenger.** A phone app to chat with the other players in your lobby - shared lobby chat and
+  private one-to-one threads, unread badges and native notifications.
 
 ## Requirements
 

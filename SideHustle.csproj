@@ -8,6 +8,9 @@
   <ItemGroup>
     <Compile Remove="Workspace/**/*.cs" />
     <Compile Remove="Stash/**/*.cs" />
+    <!-- SideHustle.Boot is its own assembly (a MelonPlugin, built by Boot/SideHustle.Boot.csproj);
+         keep its sources out of the mod DLL. -->
+    <Compile Remove="Boot/**/*.cs" />
   </ItemGroup>
 
   <!-- Shared DooDesch.UI in-game design-system layer (tokens, controls, states, toasts/banners) - linked source.
@@ -40,9 +43,9 @@
     <RootNamespace>SideHustle</RootNamespace>
     <AssemblyName>SideHustle</AssemblyName>
     <NeutralLanguage>en-US</NeutralLanguage>
-    <Version>1.8.0</Version>
-    <AssemblyVersion>1.8.0.0</AssemblyVersion>
-    <FileVersion>1.8.0.0</FileVersion>
+    <Version>2.0.0</Version>
+    <AssemblyVersion>2.0.0.0</AssemblyVersion>
+    <FileVersion>2.0.0.0</FileVersion>
     <!-- Suppress MSB3277/MSB3245 noise from il2cpp interop transitive refs -->
     <NoWarn>$(NoWarn);MSB3277;MSB3245</NoWarn>
 
@@ -130,6 +133,11 @@
       <HintPath>$(GameManagedPath)/UnityEngine.TextRenderingModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- Texture2D.LoadImage for the Messenger phone-app icon (embedded PNG). -->
+    <Reference Include="UnityEngine.ImageConversionModule">
+      <HintPath>$(GameManagedPath)/UnityEngine.ImageConversionModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="Unity.TextMeshPro">
       <HintPath>$(GameManagedPath)/Unity.TextMeshPro.dll</HintPath>
       <Private>false</Private>
@@ -141,6 +149,21 @@
       <Private>false</Private>
     </Reference>
   </ItemGroup>
+
+  <!-- The boot plugin (profile picker) builds FIRST and ships EMBEDDED in this DLL; Core self-installs it to
+       <game>\Plugins\ on init, so a plain "drop SideHustle.dll into Mods" install still gets the picker. The
+       resource is added inside a target because the file only exists after the project reference built. -->
+  <ItemGroup>
+    <ProjectReference Include="Boot/SideHustle.Boot.csproj">
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <Private>false</Private>
+    </ProjectReference>
+  </ItemGroup>
+  <Target Name="EmbedBootPlugin" BeforeTargets="AssignTargetPaths" DependsOnTargets="ResolveProjectReferences">
+    <ItemGroup>
+      <EmbeddedResource Include="Boot/bin/$(Configuration)/net6.0/SideHustle.Boot.dll" LogicalName="SideHustle.Boot.dll" />
+    </ItemGroup>
+  </Target>
 
   <Target Name="PostBuild" AfterTargets="Build" Condition="'$(OS)' == 'Windows_NT'">
     <Exec Condition="Exists('$(ModsDirectory)')"

@@ -21,6 +21,10 @@ namespace SideHustle.Menu
     {
         private const string MenuButtonName = "SideHustle_MenuButton";
 
+        // The separate "Mod Profiles" entry, right below the Side Hustle one: profiles are not a gamemode, so
+        // they get their own way in instead of being mixed into the gamemode list.
+        private const string ProfilesButtonName = "SideHustle_ProfilesButton";
+
         // The direct main-menu entry for the gamemode a profile session is running (e.g. "PropHunt"), shown only
         // while that profile is live. Clicking it is identical to opening Side Hustle and picking the gamemode.
         private const string GamemodeButtonName = "SideHustle_GamemodeButton";
@@ -73,17 +77,26 @@ namespace SideHustle.Menu
                 if (buttons == null || buttons.Length == 0) return;
 
                 // Idempotency guard: the "Menu" scene can re-initialise during a single menu load (the game fires
-                // OnSceneWasInitialized -> Reset more than once), so injection may run again after our button already
-                // exists. If it does, adopt the existing entry and stop - never add a second "Side Hustle" button.
+                // OnSceneWasInitialized -> Reset more than once), so injection may run again after our buttons
+                // already exist. Adopt what is there and only add what is missing - never duplicate an entry.
+                Button existingMain = null;
+                bool haveProfiles = false;
                 for (int i = 0; i < buttons.Length; i++)
                 {
-                    if (buttons[i] != null && buttons[i].gameObject.name == MenuButtonName)
-                    {
-                        _injectedThisScene = true;
-                        Hub.RememberHome(home);
-                        if (Mods.AltBase.IsAltSession()) ApplyProfileMenu(home);
-                        return;
-                    }
+                    if (buttons[i] == null) continue;
+                    string n = buttons[i].gameObject.name;
+                    if (n == MenuButtonName) existingMain = buttons[i];
+                    else if (n == ProfilesButtonName) haveProfiles = true;
+                }
+                if (existingMain != null)
+                {
+                    if (!haveProfiles)
+                        CloneNavButton(existingMain, ProfilesButtonName, "Mod Profiles",
+                            (UnityAction)Hub.OpenProfilesScreen, existingMain.transform.GetSiblingIndex() + 1);
+                    _injectedThisScene = true;
+                    Hub.RememberHome(home);
+                    if (Mods.AltBase.IsAltSession()) ApplyProfileMenu(home);
+                    return;
                 }
 
                 if (!_loggedStructure)
@@ -158,9 +171,14 @@ namespace SideHustle.Menu
 
         private static bool BuildEntry(MainMenuScreen home, Button template)
         {
-            // Place the Side Hustle entry just above the template button in the nav column.
+            // Place the Side Hustle entry just above the template button in the nav column, and the separate
+            // "Mod Profiles" entry directly below it.
             int idx = template.transform.GetSiblingIndex();
-            return CloneNavButton(template, MenuButtonName, "Side Hustle", (UnityAction)Hub.OpenScreen, idx) != null;
+            var main = CloneNavButton(template, MenuButtonName, "Side Hustle", (UnityAction)Hub.OpenScreen, idx);
+            if (main == null) return false;
+            CloneNavButton(template, ProfilesButtonName, "Mod Profiles",
+                (UnityAction)Hub.OpenProfilesScreen, main.transform.GetSiblingIndex() + 1);
+            return true;
         }
 
         /// <summary>Clone a nav button for styling, relabel it, rewire its click to <paramref name="onClick"/> (dropping
