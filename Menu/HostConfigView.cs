@@ -77,7 +77,12 @@ namespace SideHustle.Menu
 
             // --- Lobby name (shown to joiners in the server browser) ---
             Components.FormRow(content, "Lobby name", "Shown to players in the server browser.", out var lnSlot, stacked: true);
-            lobbyNameField = Components.TextInput(lnSlot, LobbyCoordinator.LocalPersonaName() + " Lobby", null, "lobby name", 40);
+            // Default lobby title uses the host's chosen display name for THIS gamemode when set. At config time the
+            // session has not started, so the alias is not yet "active" - read it straight from the stored preference;
+            // fall back to the real Steam persona name when no alias is set.
+            string hostDisplay = SideHustle.Config.Preferences.GetAlias(desc.Id);
+            if (string.IsNullOrEmpty(hostDisplay)) hostDisplay = LobbyCoordinator.LocalPersonaName();
+            lobbyNameField = Components.TextInput(lnSlot, hostDisplay + " Lobby", null, "lobby name", 40);
             Fill(lobbyNameField.gameObject, 6f);
 
             // --- Players ---

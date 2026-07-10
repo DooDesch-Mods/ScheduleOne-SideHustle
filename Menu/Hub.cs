@@ -4,6 +4,7 @@ using System.Linq;
 using DooDesch.UI;
 using Il2CppInterop.Runtime;
 using Il2CppScheduleOne.UI.MainMenu;
+using S1API.UI;
 using SideHustle.Config;
 using SideHustle.Internal;
 using SideHustle.Multiplayer;
@@ -30,6 +31,8 @@ namespace SideHustle.Menu
         private static GameObject _clone;
         private static MainMenuScreen _cloneScreen;
         private static GameObject _formHost;   // the Host-config form overlay (shown instead of the native row list)
+        private static GameObject _aliasHeader;   // the "Your name" strip inserted as the first native Container child on a choice screen
+        private static bool _fontWarmed;   // the Arial dynamic-font atlas is built once per session; prewarm it so the first text field doesn't hitch
 
         // Current view's "back" step (null on the root gamemode list, where back closes the menu) + the gamemode the
         // multiplayer sub-views belong to (for the server-browser refresh callback).
@@ -55,6 +58,8 @@ namespace SideHustle.Menu
         private const float FormPanelHeight = 720f;   // fixed height for the scrollable Host-config form
         private const float TextInset = 30f;
         private const float TextInsetWithIcon = 96f;
+        // The "Your name" alias strip shown ABOVE the Host/Join/Back cards on a gamemode's choice screen.
+        private const float AliasHeaderHeight = 58f;
 
         internal static void EnsureInit()
         {
@@ -72,6 +77,7 @@ namespace SideHustle.Menu
             _clone = null;
             _cloneScreen = null;
             _formHost = null;
+            _aliasHeader = null;
             _activeCtx = null;
             _back = null;
             _mpDesc = null;
@@ -140,6 +146,7 @@ namespace SideHustle.Menu
 
                 // Run Awake once now (it self-deactivates and registers the ESC exit listener) so later Open() behaves.
                 _clone.SetActive(true);
+                PrewarmInputFont();   // build the Arial glyph atlas during this menu-open so the first text field on a choice screen renders without a one-time hitch
                 Core.Log?.Msg("[hub] cloned NewGameScreen -> gamemode screen.");
             }
             catch (Exception e) { Core.Log?.Warning("[hub] EnsureClone failed: " + e); }
@@ -207,7 +214,7 @@ namespace SideHustle.Menu
             // client runs the gamemode host-authoritatively, so it keeps its own mods - no client-side mod gate here.
             rows.Add(new Row { Name = "Join", Subtitle = "Browse and join an open session.", OnClick = () => ShowBrowser(desc) });
             rows.Add(new Row { Name = "Back", Subtitle = "Back to the gamemode list.", OnClick = ShowGamemodeList });
-            ShowRows(desc.DisplayName, rows);
+            ShowRows(desc.DisplayName, rows, desc.Id);   // desc.Id -> the "Your name" strip binds to THIS gamemode's alias
         }
 
         // The Host-config screen: a custom form (player count, visibility/password, optional mod policy, and the
@@ -275,11 +282,20 @@ namespace SideHustle.Menu
         private static void ClearFormHost()
         {
             if (_formHost != null) { try { UnityEngine.Object.Destroy(_formHost); } catch { /* ignore */ } _formHost = null; }
+
+            // Remove the choice-screen alias strip. Detach BEFORE Destroy (Destroy is deferred to end of frame) so a
+            // same-frame ShowRows re-entry never picks the dead strip as its GetChild(0) clone template.
+            if (_aliasHeader != null)
+            {
+                try { _aliasHeader.transform.SetParent(null, false); UnityEngine.Object.Destroy(_aliasHeader); } catch { /* ignore */ }
+                _aliasHeader = null;
+            }
+
             var container = _clone != null ? _clone.transform.Find("Container") : null;
             if (container != null) container.gameObject.SetActive(true);
         }
 
-        private static void ShowRows(string title, List<Row> rows)
+        private static void ShowRows(string title, List<Row> rows, string aliasForGamemodeId = null)
         {
             if (_clone == null) return;
             ClearFormHost();
@@ -316,12 +332,65 @@ namespace SideHustle.Menu
                     }
                 }
 
+                // Alias strip: a non-slot child inserted at the TOP of the native Container AFTER the slots above are
+                // built, so the clone-template pick + RepurposeRow loop only ever see real slots. The VLG then lays it
+                // out above the cards; the cards keep their exact native size/spacing and only the panel grows to fit it.
+                float band = 0f;
+                if (!string.IsNullOrEmpty(aliasForGamemodeId)) { BuildAliasHeader(container, aliasForGamemodeId); band = AliasHeaderHeight + SlotSpacing; }
+
                 int n = Mathf.Max(1, rows.Count);
-                float height = PanelChrome + n * SlotHeight + (n - 1) * SlotSpacing;
+                float height = PanelChrome + n * SlotHeight + (n - 1) * SlotSpacing + band;
                 var rootRt = _clone.GetComponent<RectTransform>();
                 if (rootRt != null) rootRt.sizeDelta = new Vector2(PanelWidth, height);
             }
             catch (Exception e) { Core.Log?.Warning("[hub] ShowRows failed: " + e); }
+        }
+
+        // The "Your name" alias strip shown above the Host / Join / Back cards on a gamemode's choice screen. It is a
+        // normal VerticalLayoutGroup child of the native Container (sized like CreateFormHost's form host, which renders
+        // full-width here), placed at the top via SetAsFirstSibling so the group lays it out above the cards with no
+        // manual offset math. The name is stored PER GAMEMODE, so each gamemode can show a different name; empty => the
+        // player's Steam name is used for that gamemode's session. Bound to the same persisted preference everywhere.
+        private static void BuildAliasHeader(Transform container, string gamemodeId)
+        {
+            _aliasHeader = new GameObject("SH_AliasHeader");
+            _aliasHeader.transform.SetParent(container, false);
+            var brt = _aliasHeader.AddComponent<RectTransform>();
+            brt.anchorMin = new Vector2(0, 1); brt.anchorMax = new Vector2(1, 1); brt.pivot = new Vector2(0.5f, 1);
+            brt.sizeDelta = new Vector2(0, AliasHeaderHeight);
+            var le = _aliasHeader.AddComponent<LayoutElement>();
+            le.minHeight = AliasHeaderHeight; le.preferredHeight = AliasHeaderHeight; le.flexibleWidth = 1;
+            _aliasHeader.transform.SetAsFirstSibling();
+
+            var label = UIFactory.Text("label", "Your name", _aliasHeader.transform, Theme.Label, TextAnchor.LowerLeft, FontStyle.Bold);
+            label.color = Theme.TextPrimary; label.raycastTarget = false;
+            var lrt = label.rectTransform;
+            lrt.anchorMin = new Vector2(0, 1); lrt.anchorMax = new Vector2(1, 1); lrt.pivot = new Vector2(0.5f, 1);
+            lrt.offsetMin = new Vector2(TextInset, -20); lrt.offsetMax = new Vector2(-TextInset, 0);
+
+            var field = Components.TextInput(_aliasHeader.transform, Config.Preferences.GetAlias(gamemodeId),
+                s => Config.Preferences.SetAlias(gamemodeId, s), "Shown to other players. Empty = your Steam name.", 24);
+            var frt = field.GetComponent<RectTransform>();
+            frt.anchorMin = new Vector2(0, 0); frt.anchorMax = new Vector2(1, 1); frt.pivot = new Vector2(0.5f, 0.5f);
+            frt.offsetMin = new Vector2(TextInset, 0); frt.offsetMax = new Vector2(-TextInset, -22);
+        }
+
+        // Unity builds the Arial dynamic-font atlas the first time a text field renders with it, which is a one-time
+        // hitch. The alias field is the first such field in the menu flow, so we request its glyphs up front - during
+        // the menu-open clone - to pay that cost there instead of on the first choice screen. Runs once per session.
+        private static void PrewarmInputFont()
+        {
+            if (_fontWarmed) return;
+            _fontWarmed = true;
+            try
+            {
+                var arial = Resources.GetBuiltinResource<Font>("Arial.ttf");
+                if (arial == null) return;
+                const string glyphs = " ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-.'";
+                arial.RequestCharactersInTexture(glyphs, Theme.Label);
+                arial.RequestCharactersInTexture(glyphs, Theme.Label, FontStyle.Bold);
+            }
+            catch { /* best-effort: a miss just leaves the original one-time first-field hitch */ }
         }
 
         // One native save-slot card -> one row, reusing the SAME native widgets in their native positions: the name

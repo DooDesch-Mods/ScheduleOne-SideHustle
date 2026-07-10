@@ -151,7 +151,14 @@ namespace SideHustle.Multiplayer
 
         internal static string LocalPersonaName()
         {
-            try { return SteamFriends.GetPersonaName(); } catch { return "Host"; }
+            try
+            {
+                // While aliasing, use the active session alias so the server-browser host name matches the in-game
+                // name others see; otherwise the real Steam persona name.
+                var alias = PlayerAlias.CurrentAlias;
+                return !string.IsNullOrEmpty(alias) ? alias : SteamFriends.GetPersonaName();
+            }
+            catch { return "Host"; }
         }
 
         /// <summary>A stable build fingerprint for a gamemode's DLL: the module's ModuleVersionId (MVID), which the

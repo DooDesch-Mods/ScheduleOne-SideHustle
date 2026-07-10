@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using MelonLoader;
 
 namespace SideHustle.Config
@@ -14,6 +15,11 @@ namespace SideHustle.Config
         private const string CategoryId = "SideHustle_01_Main";
         private const int RecentMax = 10;
 
+        // Delimiters for the per-gamemode alias map (see GetAlias/SetAlias). Both are stripped from aliases on set,
+        // and neither occurs in a gamemode id, so a single-line "id=alias|id2=alias2" value is unambiguous.
+        private const char AliasRecordSep = '|';
+        private const char AliasPairSep = '=';
+
         private static MelonPreferences_Category _category;
         private static MelonPreferences_Entry<bool> _enabled;
         private static MelonPreferences_Entry<string> _recent;
@@ -23,6 +29,7 @@ namespace SideHustle.Config
         private static MelonPreferences_Entry<string> _activeAltBase;
         private static MelonPreferences_Entry<string> _activeGamemodeId;
         private static MelonPreferences_Entry<string> _pendingHostOptions;
+        private static MelonPreferences_Entry<string> _aliases;
 
         internal static void Initialize()
         {
@@ -49,9 +56,60 @@ namespace SideHustle.Config
                 "Internal: the id of the gamemode whose profile is currently running, so the main menu can offer it directly. Managed automatically.");
             _pendingHostOptions = _category.CreateEntry("PendingHostOptions", "", "Pending host options (internal)",
                 "Internal: the host's chosen lobby options to apply after a mod-policy restart, so it hosts directly. Managed automatically.");
+
+            _aliases = _category.CreateEntry("Aliases", "", "Display names (internal)",
+                "Internal: your chosen display name for each gamemode, shown to other players instead of your Steam " +
+                "name during that gamemode's session. Set it on the gamemode's Host/Join screen. Managed automatically.");
         }
 
         internal static bool Enabled => _enabled?.Value ?? true;
+
+        /// <summary>Your chosen display name for a given gamemode ("" = use the real Steam persona name). Stored
+        /// per-gamemode so you can appear under a different name in each. Applied to the in-game player name for the
+        /// duration of that gamemode's session.</summary>
+        internal static string GetAlias(string gamemodeId)
+        {
+            if (string.IsNullOrEmpty(gamemodeId)) return "";
+            return DecodeAliases().TryGetValue(gamemodeId, out var v) ? v : "";
+        }
+
+        /// <summary>Set (or clear, when blank) the display name for one gamemode. Trimmed, capped at 24 chars, and
+        /// stripped of the map delimiters and newlines; persisted immediately.</summary>
+        internal static void SetAlias(string gamemodeId, string name)
+        {
+            if (_aliases == null || string.IsNullOrEmpty(gamemodeId)) return;
+            var v = (name ?? "").Trim();
+            if (v.Length > 24) v = v.Substring(0, 24);
+            v = v.Replace(AliasRecordSep, ' ').Replace(AliasPairSep, ' ').Replace('\n', ' ').Replace('\r', ' ').Trim();
+            var map = DecodeAliases();
+            if (string.IsNullOrEmpty(v)) map.Remove(gamemodeId); else map[gamemodeId] = v;
+            var sb = new StringBuilder();
+            foreach (var kv in map)
+            {
+                if (string.IsNullOrEmpty(kv.Key) || string.IsNullOrEmpty(kv.Value)) continue;
+                if (sb.Length > 0) sb.Append(AliasRecordSep);
+                sb.Append(kv.Key).Append(AliasPairSep).Append(kv.Value);
+            }
+            _aliases.Value = sb.ToString();
+            Save();
+        }
+
+        // gamemodeId -> alias, encoded on one line as "id=alias|id2=alias2". Both delimiters are stripped from
+        // aliases on set and neither occurs in a gamemode id, so the split back is unambiguous and stays single-line.
+        private static Dictionary<string, string> DecodeAliases()
+        {
+            var map = new Dictionary<string, string>();
+            var raw = _aliases?.Value;
+            if (string.IsNullOrEmpty(raw)) return map;
+            foreach (var rec in raw.Split(AliasRecordSep))
+            {
+                if (string.IsNullOrEmpty(rec)) continue;
+                int i = rec.IndexOf(AliasPairSep);
+                if (i <= 0) continue;
+                map[rec.Substring(0, i)] = rec.Substring(i + 1);
+            }
+            return map;
+        }
 
         private static void Save() { try { MelonPreferences.Save(); } catch { /* best-effort */ } }
 

@@ -3,6 +3,16 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.7.0] - 2026-07-10
+
+Set a custom display name for multiplayer sessions.
+
+### Added
+- **Custom display name (privacy).** Each gamemode has its own "Your name" field on its Host / Join screen. Fill it
+  in before opening or joining a lobby and other players see that name - the in-game nametag over your character,
+  scoreboards, and the server browser - instead of your Steam name. Leave it empty to use your Steam name. Per
+  gamemode, per session, and never saved.
+
 ## [1.6.0] - 2026-07-09
 
 Native bigger lobbies - Side Hustle now raises the co-op player cap on its own.

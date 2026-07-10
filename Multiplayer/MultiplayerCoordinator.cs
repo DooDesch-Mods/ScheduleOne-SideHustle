@@ -48,6 +48,7 @@ namespace SideHustle.Multiplayer
             NetworkTuning.EnsureIceEnabled();   // allow all P2P ICE candidate types so non-friend clients can reach this host
             PublicLobbyAccess.Enable();   // stop the vanilla host from kicking non-friends, so public lobbies actually work
             LobbyInviteAccess.Enable();   // let any lobby member (incl. clients) invite Steam friends from the pause panel
+            PlayerAlias.Enable(Config.Preferences.GetAlias(desc.Id));   // show the player's chosen (per-gamemode) display name this session
 
             Core.Log?.Msg($"[mp] hosting '{desc.DisplayName}' (max {_hostOpts.MaxPlayers}, {_hostOpts.Visibility})...");
             if (!LobbyCoordinator.CreateLobby(_hostOpts.MaxPlayers, _hostOpts.Visibility)) { AbortToHub("could not create a lobby"); return; }
@@ -69,6 +70,7 @@ namespace SideHustle.Multiplayer
             GamemodeHygiene.Apply(desc);   // active before the host's world streams in (the client also runs PlayerLoaded)
             NetworkTuning.EnsureIceEnabled();   // allow all P2P ICE candidate types so this join can hold to a non-friend host
             LobbyInviteAccess.Enable();   // let this client invite Steam friends from the pause-menu lobby panel
+            PlayerAlias.Enable(Config.Preferences.GetAlias(desc.Id));   // show the player's chosen (per-gamemode) display name this session
 
             Core.Log?.Msg($"[mp] joining '{desc.DisplayName}' lobby {row.LobbyId}...");
             LobbyCoordinator.JoinLobby(row.LobbyId);
@@ -220,6 +222,7 @@ namespace SideHustle.Multiplayer
 
             GamemodeHygiene.Clear();
             PublicLobbyAccess.Disable();   // restore the vanilla non-friend kick outside a Side Hustle session
+            PlayerAlias.Disable();         // stop aliasing; the next session uses the real Steam name again
             LobbyInviteAccess.Disable();   // restore the vanilla host-only invite button outside a Side Hustle session
             WorldBoot.CleanupScratch();
             _state = State.Idle;
@@ -244,6 +247,7 @@ namespace SideHustle.Multiplayer
             if (wasInGame) { WorldBoot.ExitToMenu(); PendingHubReopen = true; }
             GamemodeHygiene.Clear();
             PublicLobbyAccess.Disable();   // restore the vanilla non-friend kick outside a Side Hustle session
+            PlayerAlias.Disable();         // stop aliasing; the next session uses the real Steam name again
             LobbyInviteAccess.Disable();   // restore the vanilla host-only invite button outside a Side Hustle session
             WorldBoot.CleanupScratch();
             _state = State.Idle;
