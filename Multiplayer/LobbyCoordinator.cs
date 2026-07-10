@@ -27,6 +27,8 @@ namespace SideHustle.Multiplayer
         internal const string KeyVisibility = "sh_vis";
         internal const string KeyPwHash = "sh_pwhash";
         internal const string KeyBuild = "sh_build";
+        internal const string KeyAdvertise = "sh_adv";   // "1" on a public lobby whose gamemode opted in to discovery
+        internal const string KeyUrl = "sh_url";         // where to get the gamemode mod (for the "Download Mod" button)
 
         private static Lobby LobbyOrNull()
         {
@@ -102,6 +104,14 @@ namespace SideHustle.Multiplayer
                 if (!string.IsNullOrEmpty(opts.ConfigBlob))
                     SteamMatchmaking.SetLobbyData(sid, KeyConfig, opts.ConfigBlob);
                 SteamMatchmaking.SetLobbyData(sid, KeyBuild, BuildIdOf(desc));
+                // Advertise this gamemode's PUBLIC lobbies to players who do not have it installed (a discovery marker
+                // + a download link the browser can open). Private lobbies are never advertised - you cannot join them
+                // anyway - and a gamemode can opt out with Advertise = false (e.g. a WIP mod not ready to be found).
+                if (desc.Advertise && !priv)
+                {
+                    SteamMatchmaking.SetLobbyData(sid, KeyAdvertise, "1");
+                    SteamMatchmaking.SetLobbyData(sid, KeyUrl, desc.DownloadUrl ?? "");
+                }
             }
             catch (Exception e) { Core.Log?.Warning("[mp] TagLobby failed: " + e.Message); }
         }
@@ -142,6 +152,8 @@ namespace SideHustle.Multiplayer
                 info.PwHash = SteamMatchmaking.GetLobbyData(sid, KeyPwHash);
                 info.ConfigBlob = SteamMatchmaking.GetLobbyData(sid, KeyConfig);
                 info.BuildId = SteamMatchmaking.GetLobbyData(sid, KeyBuild);
+                info.GamemodeId = SteamMatchmaking.GetLobbyData(sid, KeyGamemode);
+                info.DownloadUrl = SteamMatchmaking.GetLobbyData(sid, KeyUrl);
                 int.TryParse(SteamMatchmaking.GetLobbyData(sid, KeyMax), out int max);
                 info.MaxPlayers = max;
             }

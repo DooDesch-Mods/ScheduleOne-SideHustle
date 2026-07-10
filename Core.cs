@@ -2,7 +2,7 @@ using MelonLoader;
 using SideHustle.Config;
 using SideHustle.Menu;
 
-[assembly: MelonInfo(typeof(SideHustle.Core), "Side Hustle", "1.7.0", "DooDesch", "https://github.com/DooDesch-Mods/ScheduleOne-SideHustle")]
+[assembly: MelonInfo(typeof(SideHustle.Core), "Side Hustle", "1.8.0", "DooDesch", "https://github.com/DooDesch-Mods/ScheduleOne-SideHustle")]
 [assembly: MelonGame("TVGS", "Schedule I")]
 
 namespace SideHustle
@@ -42,7 +42,7 @@ namespace SideHustle
             Dev.StubGamemode.Register();
 #endif
 
-            Log.Msg($"Side Hustle 1.7.0 ready - {API.Registered.Count} gamemode(s) registered so far.");
+            Log.Msg($"Side Hustle 1.8.0 ready - {API.Registered.Count} gamemode(s) registered so far.");
         }
 
         public override void OnSceneWasInitialized(int buildIndex, string sceneName)

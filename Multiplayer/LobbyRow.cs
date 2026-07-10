@@ -13,5 +13,7 @@ namespace SideHustle.Multiplayer
         public bool HasPassword;
         public string PwHash;   // hash of the host's password (sh_pwhash) - the client compares its entry before joining
         public string BuildId;  // host's gamemode build fingerprint (sh_build) - the browser flags a version mismatch
+        public string GamemodeId;   // stable gamemode id (sh_gamemode) - matches a lobby to an installed gamemode
+        public string DownloadUrl;  // where to get the mod (sh_url) - shown as "Download Mod" for uninstalled gamemodes
     }
 }

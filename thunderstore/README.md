@@ -6,7 +6,7 @@
 > lists every installed gamemode mod and launches it straight from the menu - no savegame required.
 > It is the shared hub that gamemode mods plug into.
 
-![Version](https://img.shields.io/badge/version-1.7.0-blue)
+![Version](https://img.shields.io/badge/version-1.8.0-blue)
 ![Game](https://img.shields.io/badge/game-Schedule%20I-purple)
 ![MelonLoader](https://img.shields.io/badge/MelonLoader-0.7.3+-green)
 ![S1API](https://img.shields.io/badge/S1API-required-orange)
@@ -35,6 +35,8 @@ itself and shows up under the Side Hustle entry.
   while you host a Side Hustle gamemode that kick is lifted, so anyone can join your public or password lobbies.
 - **Custom display name** - each gamemode has its own "Your name" field on its Host / Join screen; fill it in and
   others see that name (nametag, scoreboards, browser) instead of your Steam name. Per gamemode, per session.
+- **Discover what's being played** - the menu also lists gamemodes you don't have installed that have live public
+  lobbies right now, with a "Download Mod" button. Toggleable; gamemode authors can opt out.
 - **World gamemodes** - gamemodes that need the loaded game world get a throwaway session, outside your
   save slots, so your real saves are never touched.
 - **Conflict-free mod sets (optional, the host's choice)** - a gamemode can declare which mods it works with. When

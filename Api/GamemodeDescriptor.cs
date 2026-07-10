@@ -41,6 +41,20 @@ namespace SideHustle
         /// <summary>Whether the gamemode runs as a menu overlay or needs the game world.</summary>
         public GamemodeSurface Surface = GamemodeSurface.MenuSpace;
 
+        // --- Discovery / advertising (optional; multiplayer) ---
+
+        /// <summary>Where to get this mod (its Thunderstore/Nexus/GitHub page). When set, Side Hustle advertises this
+        /// gamemode's live public lobbies to players who do NOT have it installed, with a "Download Mod" button that
+        /// opens this page. Null = still advertised by name (see <see cref="Advertise"/>) but with no download link.
+        /// Only links on known mod hosts (Thunderstore, Nexus, GitHub) are opened.</summary>
+        public string DownloadUrl;
+
+        /// <summary>When true (default), this gamemode's PUBLIC lobbies are advertised in the Side Hustle menu of
+        /// players who do not have it installed, so they can discover it. Set false to stay invisible to
+        /// non-installers - e.g. a work-in-progress gamemode you do not want discovered during development. This only
+        /// affects that discovery listing; the gamemode is always fully hostable and joinable by people who have it.</summary>
+        public bool Advertise = true;
+
         // --- World hygiene flags (opt-in; only meaningful for Surface == World) ---
 
         /// <summary>When true, Side Hustle blocks every vanilla quest from starting for the duration of the session

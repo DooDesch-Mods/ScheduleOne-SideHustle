@@ -161,14 +161,44 @@ namespace SideHustle.Menu
             public string Corner;
             public Sprite Icon;
             public Action OnClick;
+            public bool Disabled;   // render greyed (e.g. Host/Join on a not-installed gamemode). OnClick is null then.
         }
+
+        private static int _listGen;   // bumped each time the gamemode list is shown; a late advertised-lobby result only applies if it still matches
 
         private static void ShowGamemodeList()
         {
             _back = null;
             _mpDesc = null;
+            int gen = ++_listGen;
 
-            // Recently played first, then the rest in registration order.
+            ShowRows("Choose a gamemode", BuildGamemodeListRows());
+
+            // Also advertise gamemodes the player does NOT have installed but that have live public lobbies right now.
+            // The Steam lobby query is async, so the installed list shows instantly and the discovered entries are
+            // appended a moment later - only while the player is still on this list (same generation, list still open).
+            if (Preferences.ShowUninstalledGamemodes)
+                ServerBrowser.BeginQueryAdvertised(results =>
+                {
+                    try
+                    {
+                        if (_cloneScreen == null || !_cloneScreen.IsOpen || _back != null || gen != _listGen) return;
+#if DEBUG
+                        results = DebugSeedAdvertised(results);
+#endif
+                        var ghosts = BuildGhostRows(results);
+                        if (ghosts.Count == 0) return;
+                        var merged = BuildGamemodeListRows();
+                        merged.AddRange(ghosts);
+                        ShowRows("Choose a gamemode", merged);
+                    }
+                    catch (Exception e) { Core.Log?.Warning("[hub] advertised-gamemode merge failed: " + e.Message); }
+                });
+        }
+
+        // The installed gamemode rows (recently played first) + the "Restore my mods" row when a profile is active.
+        private static List<Row> BuildGamemodeListRows()
+        {
             var recent = Preferences.RecentlyPlayed;
             var modes = API.Registered
                 .OrderBy(m => { int i = recent.IndexOf(m.Id); return i < 0 ? int.MaxValue : i; })
@@ -199,7 +229,94 @@ namespace SideHustle.Menu
                     OnClick = () => OnSelectGamemode(desc)
                 });
             }
-            ShowRows("Choose a gamemode", rows);
+            return rows;
+        }
+
+        // Group advertised public lobbies of NOT-installed gamemodes into one row each (name + live lobby/player count)
+        // that opens a download-only choice screen. Installed gamemodes and lobbies without a gamemode id are skipped.
+        private static List<Row> BuildGhostRows(List<LobbyRow> lobbies)
+        {
+            var rows = new List<Row>();
+            if (lobbies == null || lobbies.Count == 0) return rows;
+
+            var installed = new HashSet<string>(API.Registered.Select(m => m.Id), StringComparer.OrdinalIgnoreCase);
+            var byId = new Dictionary<string, Ghost>(StringComparer.OrdinalIgnoreCase);
+            foreach (var l in lobbies)
+            {
+                if (string.IsNullOrEmpty(l.GamemodeId) || installed.Contains(l.GamemodeId)) continue;
+                if (!byId.TryGetValue(l.GamemodeId, out var g))
+                {
+                    g = new Ghost { Name = string.IsNullOrEmpty(l.GamemodeName) ? l.GamemodeId : l.GamemodeName, Url = l.DownloadUrl };
+                    byId[l.GamemodeId] = g;
+                }
+                g.Lobbies++;
+                g.Players += Mathf.Max(1, l.Members);
+                if (string.IsNullOrEmpty(g.Url) && !string.IsNullOrEmpty(l.DownloadUrl)) g.Url = l.DownloadUrl;
+            }
+
+            foreach (var kv in byId)
+            {
+                Ghost ghost = kv.Value;
+                string live = $"Not installed - {ghost.Lobbies} public {(ghost.Lobbies == 1 ? "lobby" : "lobbies")} live now"
+                            + (ghost.Players > 0 ? $" ({ghost.Players} player{(ghost.Players == 1 ? "" : "s")})" : "");
+                rows.Add(new Row
+                {
+                    Name = ghost.Name,
+                    Subtitle = live,
+                    Corner = "Not installed",
+                    OnClick = () => ShowUninstalledChoice(ghost)
+                });
+            }
+            return rows;
+        }
+
+        private sealed class Ghost
+        {
+            public string Name;
+            public string Url;
+            public int Lobbies;
+            public int Players;
+        }
+
+#if DEBUG
+        // Debug-only: inject a fake advertised lobby so the "not installed" discovery UI (the ghost row, the
+        // download-only choice screen with greyed Host/Join, the allowlist check, and the Steam-overlay open) can be
+        // exercised solo, without a second real-Steam instance hosting a public lobby. Excluded from Release builds.
+        private static List<LobbyRow> DebugSeedAdvertised(List<LobbyRow> results)
+        {
+            var seeded = results != null ? new List<LobbyRow>(results) : new List<LobbyRow>();
+            seeded.Add(new LobbyRow
+            {
+                GamemodeId = "debug.testmode",
+                GamemodeName = "Test Gamemode (debug)",
+                DownloadUrl = "https://thunderstore.io/c/schedule-i/",
+                Members = 3
+            });
+            return seeded;
+        }
+#endif
+
+        // The choice screen for a gamemode the player does not have installed: Host and Join are greyed out and a
+        // "Download Mod" button opens the advertised page (only when it is on a trusted mod host).
+        private static void ShowUninstalledChoice(Ghost g)
+        {
+            _mpDesc = null;
+            _back = ShowGamemodeList;
+            bool canDownload = DownloadLink.IsAllowed(g.Url);
+            var rows = new List<Row>
+            {
+                new Row { Name = "Host", Subtitle = "Install the mod to host a session.", Disabled = true },
+                new Row { Name = "Join", Subtitle = "Install the mod to join a session.", Disabled = true },
+                new Row
+                {
+                    Name = "Download Mod",
+                    Subtitle = canDownload ? g.Url : "No trusted download link provided.",
+                    OnClick = canDownload ? (Action)(() => DownloadLink.Open(g.Url)) : null,
+                    Disabled = !canDownload
+                },
+                new Row { Name = "Back", Subtitle = "Back to the gamemode list.", OnClick = ShowGamemodeList }
+            };
+            ShowRows(g.Name, rows);
         }
 
         private static void ShowModeChoice(GamemodeDescriptor desc)
@@ -415,7 +532,11 @@ namespace SideHustle.Menu
             {
                 CentreRow(orgT, NameOffsetY, inset);
                 var tmp = orgT.GetComponent<Il2CppTMPro.TextMeshProUGUI>();
-                if (tmp != null) tmp.text = row.Name ?? "";
+                if (tmp != null)
+                {
+                    tmp.text = row.Name ?? "";
+                    tmp.color = row.Disabled ? Theme.TextDisabled : Color.white;   // explicit both ways so a reused slot resets
+                }
             }
 
             Transform nwT = slot.Find("Container/Info/NetWorth");
@@ -426,7 +547,7 @@ namespace SideHustle.Menu
                 if (tmp != null)
                 {
                     tmp.text = string.IsNullOrWhiteSpace(row.Subtitle) ? "" : row.Subtitle.Trim();
-                    tmp.color = new Color(0.627f, 0.627f, 0.627f, 1f);
+                    tmp.color = row.Disabled ? Theme.TextDisabled : new Color(0.627f, 0.627f, 0.627f, 1f);
                     tmp.enableWordWrapping = false;
                     tmp.overflowMode = Il2CppTMPro.TextOverflowModes.Ellipsis;
                 }

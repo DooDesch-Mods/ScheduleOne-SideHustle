@@ -34,6 +34,14 @@ namespace SideHustle.Multiplayer
         /// Side Hustle compares this to the joining client's local build at join time and warns on mismatch. May be empty.</summary>
         public string BuildId { get; internal set; }
 
+        /// <summary>The gamemode's stable id (lobby key <c>sh_gamemode</c>); used to match a lobby against the
+        /// installed gamemodes and to group "not installed" advertisements by gamemode. May be empty.</summary>
+        public string GamemodeId { get; internal set; }
+
+        /// <summary>Where to get the gamemode mod (lobby key <c>sh_url</c>), advertised by the host so a player who
+        /// does not have it installed can open its download page. May be empty.</summary>
+        public string DownloadUrl { get; internal set; }
+
         /// <summary>Salted hash of the join password (lobby key <c>sh_pwhash</c>); used by the client-side join gate.</summary>
         internal string PwHash { get; set; }
 

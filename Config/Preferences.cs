@@ -22,6 +22,7 @@ namespace SideHustle.Config
 
         private static MelonPreferences_Category _category;
         private static MelonPreferences_Entry<bool> _enabled;
+        private static MelonPreferences_Entry<bool> _showUninstalled;
         private static MelonPreferences_Entry<string> _recent;
         private static MelonPreferences_Entry<string> _modNameMap;
         private static MelonPreferences_Entry<string> _pendingContinue;
@@ -40,6 +41,10 @@ namespace SideHustle.Config
             _enabled = _category.CreateEntry("Enabled", true, "Show the Side Hustle menu entry",
                 "When ON, Side Hustle adds its entry to the main menu and lists installed gamemodes. " +
                 "Turn OFF to hide it without uninstalling. Requires returning to the main menu to take effect.");
+
+            _showUninstalled = _category.CreateEntry("ShowUninstalledGamemodes", true, "Show gamemodes you don't have",
+                "When ON, the Side Hustle menu also lists gamemodes you have NOT installed that currently have live " +
+                "public lobbies, so you can discover them (with a Download link). Turn OFF to show only installed gamemodes.");
 
             _recent = _category.CreateEntry("RecentlyPlayed", "", "Recently played gamemodes",
                 "Internal: a list of recently launched gamemode ids so the hub can list them first. Managed automatically.");
@@ -63,6 +68,9 @@ namespace SideHustle.Config
         }
 
         internal static bool Enabled => _enabled?.Value ?? true;
+
+        /// <summary>Whether the menu also lists not-installed gamemodes that currently have live public lobbies.</summary>
+        internal static bool ShowUninstalledGamemodes => _showUninstalled?.Value ?? true;
 
         /// <summary>Your chosen display name for a given gamemode ("" = use the real Steam persona name). Stored
         /// per-gamemode so you can appear under a different name in each. Applied to the in-game player name for the

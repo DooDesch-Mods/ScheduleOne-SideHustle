@@ -3,6 +3,19 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.8.0] - 2026-07-10
+
+Discover gamemodes you don't have installed yet.
+
+### Added
+- **See what's being played right now.** The Side Hustle menu now also lists gamemodes you do NOT have installed
+  that have live public lobbies, so you can discover new things to play. Opening one shows a "Download Mod" button
+  (Host and Join stay greyed out until you install the mod). You can turn this off under "Show gamemodes you don't
+  have" in the settings.
+- **For gamemode authors:** a gamemode can declare a `DownloadUrl` (shown as the "Download Mod" link, opened in the
+  Steam overlay) and set `Advertise = false` to keep its public lobbies out of that discovery list - e.g. while a
+  mode is still in development. Advertising is on by default and only ever lists public lobbies.
+
 ## [1.7.0] - 2026-07-10
 
 Set a custom display name for multiplayer sessions.

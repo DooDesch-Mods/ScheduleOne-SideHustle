@@ -7,7 +7,7 @@
 > shared entry point that gamemode mods (like an in-game tattoo editor) plug into. Built on
 > [S1API](https://github.com/ifBars/S1API).
 
-![Version](https://img.shields.io/badge/version-1.7.0-blue)
+![Version](https://img.shields.io/badge/version-1.8.0-blue)
 ![Game](https://img.shields.io/badge/game-Schedule%20I-purple)
 ![MelonLoader](https://img.shields.io/badge/MelonLoader-0.7.3+-green)
 ![S1API](https://img.shields.io/badge/S1API-required-orange)
@@ -42,6 +42,9 @@ mod registers itself and shows up under the Side Hustle entry.
 - **Custom display name.** Each gamemode has its own "Your name" field on its Host / Join screen. Fill it in and
   other players see that name - the in-game nametag over your character, scoreboards and the server browser -
   instead of your Steam name. A privacy option for public matches; per gamemode, per session, and never saved.
+- **Discover what's being played.** The menu also lists gamemodes you don't have installed that have live public
+  lobbies right now, with a "Download Mod" button so you can go get them. Toggle it off in the settings; gamemode
+  authors can opt their gamemode out of being advertised.
 - **Host controls + friend invites.** The host can kick a player from the session, and every lobby member - not just
   the host - can invite Steam friends from the pause-menu panel.
 - **World gamemodes.** Gamemodes that need the actual game world get a throwaway session booted for them,
@@ -87,6 +90,7 @@ under `SideHustle_01_Main`.
 | Setting | Default | What it does |
 |---|---|---|
 | `Enabled` | `true` | Show the Side Hustle menu entry. Off hides it without uninstalling (return to the main menu to apply). |
+| `ShowUninstalledGamemodes` | `true` | Also list gamemodes you don't have installed that currently have live public lobbies, with a Download link. Off shows only your installed gamemodes. |
 
 ## For mod authors
 
