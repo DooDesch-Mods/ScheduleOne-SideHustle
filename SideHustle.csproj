@@ -1,5 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!-- Shared release hardening: strip Release debug info + assembly identity, cuts AV false positives (see Workspace/build/Hardening.props). -->
+  <Import Project="$(MSBuildThisFileDirectory)../Workspace/build/Hardening.props" Condition="Exists('$(MSBuildThisFileDirectory)../Workspace/build/Hardening.props')" />
+  <Import Project="$(MSBuildThisFileDirectory)Workspace/build/Hardening.props" Condition="Exists('$(MSBuildThisFileDirectory)Workspace/build/Hardening.props')" />
+
   <!-- CI checks out the shared Workspace repo as a SUBFOLDER of this project, so the SDK's default **/*.cs glob
        would sweep in everything under Workspace (s1api-src, etc.). Remove that sweep FIRST, then re-include ONLY
        the DooDesch.UI design-system source via the props import below (it Includes Workspace/ui/*.cs once). Order
@@ -164,6 +168,11 @@
       <EmbeddedResource Include="Boot/bin/$(Configuration)/net6.0/SideHustle.Boot.dll" LogicalName="SideHustle.Boot.dll" />
     </ItemGroup>
   </Target>
+
+  <!-- The WhatsDab app icon (home-screen icon + notification toasts). -->
+  <ItemGroup Condition="Exists('Assets/messenger_icon.png')">
+    <EmbeddedResource Include="Assets/messenger_icon.png" LogicalName="SideHustle.Assets.messenger_icon.png" />
+  </ItemGroup>
 
   <Target Name="PostBuild" AfterTargets="Build" Condition="'$(OS)' == 'Windows_NT'">
     <Exec Condition="Exists('$(ModsDirectory)')"
