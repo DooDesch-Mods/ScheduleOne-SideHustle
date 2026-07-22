@@ -1,6 +1,6 @@
 # Side Hustle - Gamemode Hub for Schedule I
 
-> 🛟 **Need help or found a bug?** Get support at [support.doodesch.de](https://support.doodesch.de).
+> 🛟 **Need help or found a bug?** Get support at [support.doodesch.de/sidehustle](https://support.doodesch.de/sidehustle).
 
 > **One menu entry for every gamemode.** Side Hustle adds a single button to the main menu that
 > lists every installed gamemode mod and launches it straight from the menu - no savegame required.
