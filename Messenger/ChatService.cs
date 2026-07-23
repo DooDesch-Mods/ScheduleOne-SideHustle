@@ -17,9 +17,9 @@ namespace SideHustle.Messenger
         private static float _nextContactRefresh;
         private static ulong _lobby;
 
-        /// <summary>The thread the app is currently showing (so incoming messages there are not counted unread).
-        /// GroupKey by default; the app sets it as the user navigates. -1 sentinel via ulong not needed.</summary>
-        internal static ulong ActiveThread = ChatStore.GroupKey;
+        /// <summary>The thread the app is currently VIEWING (so incoming messages there are not counted unread).
+        /// NoThread when the app is closed or on the contact list; the app sets it as the user opens a thread.</summary>
+        internal static ulong ActiveThread = ChatStore.NoThread;
 
         /// <summary>Raised on the main thread for an incoming message to a thread that is NOT active (for a toast).</summary>
         internal static Action<ChatMessage> OnBackgroundMessage;
@@ -56,8 +56,11 @@ namespace SideHustle.Messenger
             text = (text ?? "").Trim();
             if (text.Length == 0 || !InLobby) return;
             int seq = _seq++;
+            // Send first and only show the optimistic entry if the bytes actually went out: ChatTransport.Send
+            // returns -1 when the rate limit is active or Steam refuses the message, and a message that never went
+            // out will never echo back - an entry added before this check would stay "pending" for the whole session.
+            if (ChatTransport.Send(recipientKey, seq, text) < 0) return;
             ChatStore.AddLocal(recipientKey, seq, text);
-            ChatTransport.Send(recipientKey, seq, text);
         }
 
         private static void HandleIncoming(ChatMessage m)

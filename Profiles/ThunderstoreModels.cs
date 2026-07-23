@@ -25,7 +25,19 @@ namespace SideHustle.Profiles
         [JsonPropertyName("owner")] public string Owner { get; set; } = "";
         [JsonPropertyName("package_url")] public string PackageUrl { get; set; } = "";
         [JsonPropertyName("is_deprecated")] public bool IsDeprecated { get; set; }
+        // ISO-8601 UTC timestamps - kept as strings on purpose: they sort correctly ordinally and skip DateTime
+        // parsing over thousands of index entries. rating_score backs the "Top rated" sort.
+        [JsonPropertyName("date_created")] public string DateCreated { get; set; } = "";
+        [JsonPropertyName("date_updated")] public string DateUpdated { get; set; } = "";
+        [JsonPropertyName("rating_score")] public long RatingScore { get; set; }
+        [JsonPropertyName("is_pinned")] public bool IsPinned { get; set; }
+        [JsonPropertyName("categories")] public List<string> Categories { get; set; } = new List<string>();
         [JsonPropertyName("versions")] public List<TsVersion> Versions { get; set; } = new List<TsVersion>();
+
+        /// <summary>A curated bundle (mostly dependencies, no standalone mod of its own) rather than a single mod -
+        /// Thunderstore's own "Modpacks" category. Worth flagging so the player knows installing it pulls in a set.</summary>
+        public bool IsModpack => Categories != null &&
+            Categories.Any(c => c != null && c.Equals("Modpacks", StringComparison.OrdinalIgnoreCase));
 
         public TsVersion Latest => Versions.Count > 0 ? Versions[0] : null;   // the index lists newest first
         public TsVersion Get(string version) =>

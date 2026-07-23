@@ -221,6 +221,9 @@ namespace SideHustle.Mods
         // Going through Steam is required so the game initializes Steamworks; a direct exe launch leaves Steamworks
         // uninitialized and breaks multiplayer lobby creation. The steam:// URL drops appended arguments, so
         // -applaunch carries --melonloader.basedir. A profile loads only its mods; no profile loads the full set.
+        // EXCEPTION: a Steam-emulated copy (steam_appid.txt next to the exe, e.g. a Goldberg test install) is not
+        // known to Steam at all - `-applaunch` would boot the REAL install instead. There the emulator initializes
+        // Steamworks for a direct exe start anyway, so the helper relaunches this exe directly.
         private static string WriteRelaunchHelper(string altBase)
         {
             try
@@ -232,17 +235,30 @@ namespace SideHustle.Mods
                 string bat = Path.Combine(dir, "sh_relaunch.bat");
 
                 // The profile path lives in the game folder and can contain spaces, so the value is quoted.
-                string launchArgs = "-applaunch " + SteamAppId + (altBase == null ? "" : " --melonloader.basedir=\"" + altBase + "\"");
+                string basedirArg = altBase == null ? "" : " --melonloader.basedir=\"" + altBase + "\"";
+                bool steamEmu = File.Exists(Path.Combine(root, "steam_appid.txt"));
 
+                // Wait for THIS process (by pid) to exit - matching by image name would also see a second running
+                // instance (the other player in a local two-instance test) and wait forever.
+                int pid = System.Diagnostics.Process.GetCurrentProcess().Id;
                 var sb = new System.Text.StringBuilder();
                 sb.Append("@echo off\r\n:wait\r\n");
-                sb.Append("tasklist /FI \"IMAGENAME eq Schedule I.exe\" 2>NUL | find /I \"Schedule I.exe\" >NUL\r\n");
+                sb.Append("tasklist /FI \"PID eq " + pid + "\" 2>NUL | find \"" + pid + "\" >NUL\r\n");
                 sb.Append("if not errorlevel 1 ( timeout /t 1 /nobreak >NUL & goto wait )\r\n");
-                sb.Append("set \"STEAMEXE=\"\r\n");
-                sb.Append("for /f \"tokens=2,*\" %%a in ('reg query \"HKCU\\Software\\Valve\\Steam\" /v SteamExe 2^>NUL ^| findstr /i \"SteamExe\"') do set \"STEAMEXE=%%b\"\r\n");
-                sb.Append("if not exist \"%STEAMEXE%\" if exist \"%ProgramFiles(x86)%\\Steam\\steam.exe\" set \"STEAMEXE=%ProgramFiles(x86)%\\Steam\\steam.exe\"\r\n");
-                sb.Append("if not exist \"%STEAMEXE%\" if exist \"%ProgramFiles%\\Steam\\steam.exe\" set \"STEAMEXE=%ProgramFiles%\\Steam\\steam.exe\"\r\n");
-                sb.Append("if exist \"%STEAMEXE%\" ( start \"\" \"%STEAMEXE%\" " + launchArgs + " ) else ( start \"\" \"steam://rungameid/" + SteamAppId + "\" )\r\n");
+                if (steamEmu)
+                {
+                    sb.Append("cd /d \"" + root + "\"\r\n");
+                    sb.Append("start \"\" \"" + Path.Combine(root, "Schedule I.exe") + "\"" + basedirArg + "\r\n");
+                }
+                else
+                {
+                    string launchArgs = "-applaunch " + SteamAppId + basedirArg;
+                    sb.Append("set \"STEAMEXE=\"\r\n");
+                    sb.Append("for /f \"tokens=2,*\" %%a in ('reg query \"HKCU\\Software\\Valve\\Steam\" /v SteamExe 2^>NUL ^| findstr /i \"SteamExe\"') do set \"STEAMEXE=%%b\"\r\n");
+                    sb.Append("if not exist \"%STEAMEXE%\" if exist \"%ProgramFiles(x86)%\\Steam\\steam.exe\" set \"STEAMEXE=%ProgramFiles(x86)%\\Steam\\steam.exe\"\r\n");
+                    sb.Append("if not exist \"%STEAMEXE%\" if exist \"%ProgramFiles%\\Steam\\steam.exe\" set \"STEAMEXE=%ProgramFiles%\\Steam\\steam.exe\"\r\n");
+                    sb.Append("if exist \"%STEAMEXE%\" ( start \"\" \"%STEAMEXE%\" " + launchArgs + " ) else ( start \"\" \"steam://rungameid/" + SteamAppId + "\" )\r\n");
+                }
                 File.WriteAllText(bat, sb.ToString());
                 return bat;
             }

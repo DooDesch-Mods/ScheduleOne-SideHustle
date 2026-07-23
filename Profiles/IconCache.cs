@@ -16,7 +16,10 @@ namespace SideHustle.Profiles
     internal static class IconCache
     {
         private static readonly Dictionary<string, Sprite> Sprites = new Dictionary<string, Sprite>(StringComparer.Ordinal);
-        private static readonly HashSet<string> InFlight = new HashSet<string>(StringComparer.Ordinal);
+        // url -> every Image still waiting for this download. A re-render (search/sort) destroys the row that kicked
+        // off the fetch and builds new ones for the same url; without tracking all waiters, the completion would only
+        // fill the first (now-dead) Image and the visible rows would stay iconless until the next render.
+        private static readonly Dictionary<string, List<Image>> Waiting = new Dictionary<string, List<Image>>(StringComparer.Ordinal);
 
         /// <summary>Show the icon at <paramref name="url"/> in <paramref name="target"/> - immediately if cached,
         /// otherwise once the download finishes. No-op for a missing url/target.</summary>
@@ -29,7 +32,8 @@ namespace SideHustle.Profiles
                 if (cached != null) Set(target, cached);
                 return;
             }
-            if (!InFlight.Add(url)) return;   // already downloading for another row; it will fill the cache
+            if (Waiting.TryGetValue(url, out var waiters)) { waiters.Add(target); return; }   // ride the in-flight download
+            Waiting[url] = new List<Image> { target };
 
             System.Threading.Tasks.Task.Run(async () =>
             {
@@ -39,10 +43,13 @@ namespace SideHustle.Profiles
 
                 MainThread.Post(() =>
                 {
-                    InFlight.Remove(url);
                     var sp = bytes != null ? Build(bytes) : null;
                     Sprites[url] = sp;   // cache even a null so we don't hammer a broken url all session
-                    if (sp != null) Set(target, sp);
+                    if (Waiting.TryGetValue(url, out var targets))
+                    {
+                        if (sp != null) foreach (var img in targets) Set(img, sp);
+                        Waiting.Remove(url);   // dead Images among them are skipped by Set's null check
+                    }
                 });
             });
         }

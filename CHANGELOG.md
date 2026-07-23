@@ -24,11 +24,21 @@ Play modded multiplayer with anyone - mods sync themselves, and you can chat in-
   off by default.
 - **Side Hustle Messenger.** A new phone app for chatting with the other players in your lobby - a shared lobby
   chat and private one-to-one conversations, with unread badges and native message notifications.
+- **GitHub mods download themselves too.** Mods whose download link points at a GitHub repository are fetched
+  automatically from the repo's releases (hash-verified against the host's exact file), so fewer mods end up on
+  the manual checklist.
+- **Hands-free manual installs.** For mods that still need a browser download (e.g. Nexus), the checklist now
+  watches your Downloads folder (and Vortex's download folder, if you use Vortex): click the link, download the
+  file, done - Side Hustle spots it, verifies it and installs it on its own. An "Open next link" button walks you
+  through the list, each mod ticks off live with a toast, and if you grab the wrong version the row tells you
+  exactly which one the host runs. Files with the right content are also reused across rejoins.
 
 ### Notes
 - Side Hustle now ships a small startup helper (`SideHustle.Boot`) that it installs into your `Plugins` folder on
   first run. To fully remove Side Hustle, delete that file and the `SideHustle_Profiles` folder alongside the game.
-- Downloads only ever come from Thunderstore's official CDN. Mods are never sent between players directly.
+- Downloads only ever come from Thunderstore's official CDN or a mod's own GitHub releases, and every downloaded
+  file is verified against the host's manifest hash before it is used. Mods are never sent between players directly.
+- Side Hustle only ever reads your Downloads and Vortex folders - nothing there is moved or deleted.
 
 ## [1.8.0] - 2026-07-10
 

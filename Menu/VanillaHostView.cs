@@ -22,7 +22,7 @@ namespace SideHustle.Menu
             int cap = Mathf.Max(2, maxClients);
             int players = Mathf.Clamp(4, 2, cap);
             int visibility = 0;   // 0 = Public, 1 = Private
-            bool enforce = false;
+            bool enforce = true;   // default ON: co-op is most stable when everyone runs the host's synced set
             var syncPrefs = new System.Collections.Generic.HashSet<string>(
                 (prefsCats ?? new System.Collections.Generic.List<PrefsCategory>())
                     .Where(c => c.SyncByDefault).Select(c => c.Id), StringComparer.OrdinalIgnoreCase);
@@ -59,13 +59,14 @@ namespace SideHustle.Menu
             Components.FillSlot(password.gameObject, 6f);
 
             Components.SectionHeader(content, "Mod sync");
-            int total = plan.AutoCount + plan.LinkCount + plan.DroppedCount;
-            Info(content, $"Joiners get your mod set: {plan.AutoCount} of {total} install automatically (Thunderstore)"
-                        + (plan.LinkCount > 0 ? $", {plan.LinkCount} via download link" : "")
+            int auto = plan.AutoCount + plan.GhCount;
+            int total = auto + plan.LinkCount + plan.DroppedCount;
+            Info(content, $"Joiners get your mod set: {auto} of {total} install automatically (Thunderstore{(plan.GhCount > 0 ? "/GitHub" : "")})"
+                        + (plan.LinkCount > 0 ? $", {plan.LinkCount} via download link (picked up automatically once downloaded)" : "")
                         + (plan.DroppedCount > 0 ? $", {plan.DroppedCount} cannot sync (they join without those)" : "") + ".");
 
             Components.FormRow(content, "Synced clients only", "Kick joiners whose mods don't match (friends included).", out var eSlot);
-            Components.Toggle(eSlot, false, v => enforce = v);
+            Components.Toggle(eSlot, true, v => enforce = v);
 
             if (prefsCats != null && prefsCats.Count > 0)
             {
@@ -74,7 +75,9 @@ namespace SideHustle.Menu
                 foreach (var cat in prefsCats)
                 {
                     var c = cat;
-                    string hint = c.SecretRisk ? "Off by default - may contain secrets (lobby data is public)." : "Apply your values to joiners.";
+                    string hint = !string.IsNullOrEmpty(c.Description) ? c.Description
+                                : c.SecretRisk ? "Off by default - may contain secrets (lobby data is public)."
+                                : "Apply your values to joiners.";
                     Components.FormRow(content, c.DisplayName, hint, out var cSlot);
                     Components.Toggle(cSlot, c.SyncByDefault, on => { if (on) syncPrefs.Add(c.Id); else syncPrefs.Remove(c.Id); });
                 }

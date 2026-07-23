@@ -74,6 +74,7 @@ namespace SideHustle.Menu
         {
             try { if (_clone != null) UnityEngine.Object.Destroy(_clone); }
             catch { /* ignore */ }
+            try { DooDesch.UI.Toast.Clear(); } catch { /* scene objects already gone */ }
             _clone = null;
             _cloneScreen = null;
             _formHost = null;
@@ -91,6 +92,8 @@ namespace SideHustle.Menu
             if (RestartCountdownActive) return;   // modal: swallow right-click-back while the restart prompt is up
             if (Input.GetMouseButtonDown(1))
             {
+                if (CloseTopDialogIfAny()) return;   // a modal dialog closes on right-click instead of the screen
+                if (InstallActive) return;           // no backing out mid-install; the screen's Cancel is the only exit
                 if (_back != null) _back();
                 else _cloneScreen.Close(openPrevious: true);
             }
@@ -164,36 +167,58 @@ namespace SideHustle.Menu
             public bool Disabled;   // render greyed (e.g. Host/Join on a not-installed gamemode). OnClick is null then.
         }
 
-        private static int _listGen;   // bumped each time the gamemode list is shown; a late advertised-lobby result only applies if it still matches
+        // Advertised not-installed-gamemode lobbies are queried ONCE when the menu scene loads (Prewarm) and cached,
+        // so opening Side Hustle builds the whole gamemode list - installed rows PLUS discovered ghost rows - in a
+        // single render. Previously the list rendered instantly and the async result appended a moment later, which
+        // resized the panel and made the content visibly jump every time the player opened Side Hustle.
+        private static List<LobbyRow> _advertisedCache;
+        private static bool _advertisedQueried;
+        private static int _advGen;               // bumped per menu visit so a stale Steam callback is dropped
+        private static bool _gamemodeListShowing;  // the gamemode list is the currently rendered view
+
+        /// <summary>Kick off the advertised-lobby query once per menu visit so the cache is warm before the player
+        /// opens Side Hustle. Safe to call every Menu-scene load; it only fires the Steam query the first time.</summary>
+        internal static void PrewarmAdvertised()
+        {
+            if (_advertisedQueried || !Preferences.ShowUninstalledGamemodes) return;
+            _advertisedQueried = true;
+            int gen = ++_advGen;
+            try
+            {
+                ServerBrowser.BeginQueryAdvertised(results =>
+                {
+                    try
+                    {
+                        if (gen != _advGen) return;   // a stale query from a previous menu visit - drop it
+#if DEBUG
+                        results = DebugSeedAdvertised(results);
+#endif
+                        _advertisedCache = results;
+                        // If the player opened Side Hustle before this landed, re-render the list ONCE so the
+                        // discovered rows appear - at most one refresh per menu visit, never the per-open jump.
+                        if (_gamemodeListShowing && _cloneScreen != null && _cloneScreen.IsOpen) ShowGamemodeList();
+                    }
+                    catch (Exception e) { Core.Log?.Warning("[hub] advertised prewarm failed: " + e.Message); }
+                });
+            }
+            catch (Exception e) { Core.Log?.Warning("[hub] advertised prewarm start failed: " + e.Message); }
+        }
+
+        /// <summary>Drop the advertised cache when the menu unloads so a stale set never shows on the next visit; the
+        /// generation bump also invalidates any Steam callback still in flight from this visit.</summary>
+        internal static void ResetAdvertised() { _advertisedCache = null; _advertisedQueried = false; _advGen++; }
 
         private static void ShowGamemodeList()
         {
             _back = null;
             _mpDesc = null;
-            int gen = ++_listGen;
 
-            ShowRows("Choose a gamemode", BuildGamemodeListRows());
-
-            // Also advertise gamemodes the player does NOT have installed but that have live public lobbies right now.
-            // The Steam lobby query is async, so the installed list shows instantly and the discovered entries are
-            // appended a moment later - only while the player is still on this list (same generation, list still open).
-            if (Preferences.ShowUninstalledGamemodes)
-                ServerBrowser.BeginQueryAdvertised(results =>
-                {
-                    try
-                    {
-                        if (_cloneScreen == null || !_cloneScreen.IsOpen || _back != null || gen != _listGen) return;
-#if DEBUG
-                        results = DebugSeedAdvertised(results);
-#endif
-                        var ghosts = BuildGhostRows(results);
-                        if (ghosts.Count == 0) return;
-                        var merged = BuildGamemodeListRows();
-                        merged.AddRange(ghosts);
-                        ShowRows("Choose a gamemode", merged);
-                    }
-                    catch (Exception e) { Core.Log?.Warning("[hub] advertised-gamemode merge failed: " + e.Message); }
-                });
+            // One render: installed rows plus any ghost rows for not-installed gamemodes with live public lobbies,
+            // taken from the cache the menu warmed on entry. No async second render, so the list never jumps.
+            var rows = BuildGamemodeListRows();
+            if (Preferences.ShowUninstalledGamemodes && _advertisedCache != null)
+                rows.AddRange(BuildGhostRows(_advertisedCache));
+            ShowRows("Choose a gamemode", rows);
         }
 
         // The installed gamemode rows (recently played first) + the "Restore my mods" row when a profile is active.
@@ -206,15 +231,8 @@ namespace SideHustle.Menu
 
             var rows = new List<Row>();
 
-            // While a gamemode profile is running, offer to switch back to the player's full mod set.
-            if (Mods.ModSwitcher.HasRestorePending)
-                rows.Add(new Row
-                {
-                    Name = "Restore my mods",
-                    Subtitle = "Switch back to your full set of mods (restarts the game).",
-                    Corner = "Mods",
-                    OnClick = () => Mods.ModSwitcher.RestoreAndRestart()
-                });
+            // "Restore my mods" now lives on the main menu itself (MenuInjector) as a back-arrow entry, not tucked
+            // inside this panel - so it is reachable without opening Side Hustle first.
 
             rows.Add(BuildVanillaRow());   // pinned above the gamemodes: vanilla co-op is a session type too
 
@@ -359,6 +377,7 @@ namespace SideHustle.Menu
         // rows do the same); returns its transform for the view to fill.
         private static Transform CreateFormHost(string name, float formH)
         {
+            _gamemodeListShowing = false;   // a form view is up, not the gamemode row list
             var rootRt = _clone.GetComponent<RectTransform>();
             if (rootRt != null) rootRt.sizeDelta = new Vector2(PanelWidth, PanelChrome + formH + 24f);
 
@@ -418,6 +437,7 @@ namespace SideHustle.Menu
         {
             if (_clone == null) return;
             ClearFormHost();
+            _gamemodeListShowing = title == "Choose a gamemode";   // tracked so a late advertised query can refresh it
             try
             {
                 SetTmp(_clone.transform, "Title", title);

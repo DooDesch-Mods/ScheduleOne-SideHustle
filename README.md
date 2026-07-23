@@ -67,9 +67,11 @@ mod registers itself and shows up under the Side Hustle entry.
   external managers keep working. A short startup prompt lets you pick the profile to load (or the full set).
 - **Vanilla Co-op with mod sync.** Host your own savegame as a public lobby (from the menu, or when you click
   Continue). When someone joins, Side Hustle compares mods and offers to set up a matching profile automatically -
-  download from Thunderstore, restart, rejoin - so you can play modded co-op with anyone without hand-matching mod
-  lists. Mods that can't be fetched automatically get a link + "open folder" checklist. Optionally require synced
-  clients. Downloads only ever come from Thunderstore's CDN; mods are never sent between players directly.
+  download from Thunderstore or a mod's GitHub releases, restart, rejoin - so you can play modded co-op with anyone
+  without hand-matching mod lists. Mods that still need a browser download (e.g. Nexus) get a guided checklist:
+  open the link, download the file, and Side Hustle picks it up from your Downloads folder (or Vortex's), verifies
+  it and installs it on its own. Optionally require synced clients. Downloads only ever come from Thunderstore's
+  CDN or GitHub releases, every file is hash-verified, and mods are never sent between players directly.
 - **Sync mod settings (optional).** A host can apply chosen mods' settings to everyone in the session only, never
   touching their real settings; anything that looks like a secret is off by default.
 - **Side Hustle Messenger.** A phone app to chat with the other players in your lobby - shared lobby chat and

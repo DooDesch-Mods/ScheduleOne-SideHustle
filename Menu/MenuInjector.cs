@@ -211,6 +211,10 @@ namespace SideHustle.Menu
         /// entry stays, so the full list (and "Restore my mods") is still reachable. Idempotent: safe to re-run on
         /// every menu (re)initialisation - it adopts an existing gamemode entry and re-hides the campaign buttons.
         /// </summary>
+        // The main-menu "Restore my mods" entry, shown in any alt session so the player can drop back to the full
+        // installed mod set without digging into the Side Hustle gamemode panel.
+        private const string RestoreButtonName = "SideHustle_RestoreButton";
+
         private static void ApplyProfileMenu(MainMenuScreen home)
         {
             try
@@ -220,9 +224,11 @@ namespace SideHustle.Menu
                 if (buttons == null || buttons.Length == 0) return;
 
                 Button template = PickTemplate(buttons);   // Settings, for styling (never one of the hidden entries)
+                bool namedProfile = Mods.AltBase.IsNamedProfileSession();
 
-                // Hide the campaign entries and remember the topmost slot they occupied, so the gamemode entry can
-                // take that spot. Never touch our own injected buttons.
+                // Find the topmost campaign slot. Only a POLICY/gamemode profile (a stripped mod set with no campaign
+                // save) hides the campaign entries; a NAMED profile keeps them - its Continue is rewired to open the
+                // gamemode chooser (ContinueInterstitial), and New Game starts a normal save with the profile's mods.
                 Button existing = null;
                 int topIdx = int.MaxValue;
                 for (int i = 0; i < buttons.Length; i++)
@@ -231,18 +237,35 @@ namespace SideHustle.Menu
                     if (b == null) continue;
                     string n = b.gameObject.name;
                     if (n == GamemodeButtonName) { existing = b; continue; }
-                    if (n == MenuButtonName) continue;
-                    if (MatchesAny(GetLabel(b.gameObject), HiddenInProfileLabels))
+                    if (n == MenuButtonName || n == RestoreButtonName) continue;
+                    string lbl = GetLabel(b.gameObject);
+                    if (MatchesAny(lbl, HiddenInProfileLabels))
                     {
                         topIdx = Math.Min(topIdx, b.transform.GetSiblingIndex());
-                        if (b.gameObject.activeSelf) b.gameObject.SetActive(false);
+                        if (!namedProfile)
+                        {
+                            if (b.gameObject.activeSelf) b.gameObject.SetActive(false);   // policy/gamemode profile: no campaign
+                        }
+                        else if (lbl != null && lbl.IndexOf("continue", StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            // Named profile: Continue opens the gamemode chooser DIRECTLY (no vanilla save picker), so it
+                            // never pops the picker with the chooser overlaid on top. Idempotent - NeutralizeClick drops
+                            // any prior wiring first (including our own from an earlier re-init).
+                            NeutralizeClick(b);
+                            b.onClick.AddListener((UnityAction)Hub.OpenScreen);
+                            b.interactable = true;
+                        }
                     }
                 }
+
+                int slot = topIdx == int.MaxValue ? 0 : topIdx;
+                InjectRestoreEntry(buttons, template, slot);
+
+                if (namedProfile) return;   // no gamemode descriptor to inject for a named profile
 
                 GamemodeDescriptor desc = ActiveProfileGamemode();
                 if (desc == null) return;   // gamemode mod not registered (missing DLL); the Side Hustle entry recovers it
 
-                int slot = topIdx == int.MaxValue ? 0 : topIdx;
                 if (existing == null)
                 {
                     if (template == null) return;
@@ -262,6 +285,33 @@ namespace SideHustle.Menu
                 }
             }
             catch (Exception e) { Core.Log?.Warning("[menu] profile menu failed: " + e.Message); }
+        }
+
+        // Clone (or adopt, on a menu re-init) a home-screen "<- Restore my mods" entry pointing at the full-set
+        // restore. Idempotent and gated on there actually being an alt session to restore from.
+        private static void InjectRestoreEntry(Il2CppInterop.Runtime.InteropTypes.Arrays.Il2CppArrayBase<Button> buttons,
+            Button template, int slot)
+        {
+            try
+            {
+                if (!Mods.ModSwitcher.HasRestorePending) return;
+                const string label = "← Restore mods";
+                for (int i = 0; i < buttons.Length; i++)
+                {
+                    Button b = buttons[i];
+                    if (b == null || b.gameObject.name != RestoreButtonName) continue;
+                    SetLabel(b.gameObject, label);
+                    NeutralizeClick(b);
+                    b.onClick.AddListener((UnityAction)Mods.ModSwitcher.RestoreAndRestart);
+                    b.interactable = true;
+                    if (!b.gameObject.activeSelf) b.gameObject.SetActive(true);
+                    return;   // adopted the existing one
+                }
+                if (template != null &&
+                    CloneNavButton(template, RestoreButtonName, label, (UnityAction)Mods.ModSwitcher.RestoreAndRestart, slot) != null)
+                    Core.Log?.Msg("[menu] Restore-my-mods entry injected.");
+            }
+            catch (Exception e) { Core.Log?.Warning("[menu] restore entry failed: " + e.Message); }
         }
 
         /// <summary>The gamemode whose profile the current process is running, or null (no policy session, or its mod
@@ -308,9 +358,16 @@ namespace SideHustle.Menu
         private static void SetLabel(GameObject go, string label)
         {
             var tmp = go.GetComponentInChildren<Il2CppTMPro.TextMeshProUGUI>(true);
-            if (tmp != null) { tmp.text = label; return; }
+            if (tmp != null)
+            {
+                tmp.text = label;
+                // Our labels ("Mod Profiles", "Restore my mods") can be wider than the cloned nav button; keep them on
+                // one line (extend, not wrap) so a longer entry does not break onto a second row like the vanilla ones.
+                try { tmp.enableWordWrapping = false; tmp.overflowMode = Il2CppTMPro.TextOverflowModes.Overflow; } catch { }
+                return;
+            }
             var txt = go.GetComponentInChildren<Text>(true);
-            if (txt != null) txt.text = label;
+            if (txt != null) { txt.text = label; try { txt.horizontalOverflow = HorizontalWrapMode.Overflow; } catch { } }
         }
     }
 }

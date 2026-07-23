@@ -1,5 +1,6 @@
 #if DEBUG
 using System;
+using System.Linq;
 using SideHustle.Config;
 using SideHustle.Mods;
 
@@ -186,10 +187,22 @@ namespace SideHustle.Dev
             if (mode == "detail") Menu.Hub.OpenFirstProfileDetailForTest();
             else if (mode.StartsWith("install:", StringComparison.Ordinal)) Menu.Hub.InstallForTest(mode.Substring(8));
             else if (mode == "browser") Menu.Hub.OpenBrowserForTest();
+            else if (mode.StartsWith("browsersort:", StringComparison.Ordinal))
+            {
+                if (int.TryParse(mode.Substring(12), out var sm)) Menu.PackageBrowserView.SetSortForTest(sm);
+                Menu.Hub.OpenBrowserForTest();
+            }
+            else if (mode.StartsWith("removedlg:", StringComparison.Ordinal)) Menu.Hub.OpenRemoveDialogForTest(mode.Substring(10));
+            else if (mode.StartsWith("removeall:", StringComparison.Ordinal)) Menu.Hub.RemoveAllForTest(mode.Substring(10));
+            else if (mode.StartsWith("remove:", StringComparison.Ordinal)) Menu.Hub.RemoveForTest(mode.Substring(7));
+            else if (mode.StartsWith("installcancel:", StringComparison.Ordinal)) Menu.Hub.InstallCancelForTest(mode.Substring(14));
+            else if (mode == "runtimecheck") RuntimeCheck();
+            else if (mode == "runtimedialog") Menu.Hub.ShowRuntimeNoticeForTest();
             else if (mode == "updates") Menu.Hub.OpenUpdatesForTest();
             else if (mode == "addbase") Menu.Hub.OpenAddBaseForTest();
             else if (mode == "consent") Menu.Hub.OpenConsentForTest();
             else if (mode == "manual") Menu.Hub.OpenManualForTest();
+            else if (mode == "ghdl") GhDownloadCheck();
             else if (mode == "interstitial") Menu.ContinueInterstitial.ShowForTest();
             else if (mode == "messenger" || mode == "messengerthread") MelonLoader.MelonCoroutines.Start(MessengerScreenshot(mode == "messengerthread"));
             else if (mode == "switchbuild")
@@ -217,6 +230,60 @@ namespace SideHustle.Dev
                 else Core.Log?.Error("[selftest] vanillahost: session did not go live within 150s.");
             }
             else Menu.Hub.OpenProfilesForTest();
+        }
+
+        /// <summary>SIDEHUSTLE_SELFTEST_UI=ghdl: run the real GitHub-releases download path in-game against a
+        /// live repo and log the outcome. Target via SIDEHUSTLE_SELFTEST_GH="owner/repo|version|sha256"
+        /// (default: the released LooseEnds 1.1.0).</summary>
+        private static void GhDownloadCheck()
+        {
+            string spec = Environment.GetEnvironmentVariable("SIDEHUSTLE_SELFTEST_GH")
+                          ?? "DooDesch/ScheduleOne-LooseEnds|1.1.0|4b433ea1009bd4ab5d722c8b2cc66e9a8f382d75227df85510de779936b91bbf";
+            var parts = spec.Split('|');
+            if (parts.Length != 3) { Core.Log?.Error("[selftest] ghdl: bad SIDEHUSTLE_SELFTEST_GH spec."); return; }
+            var mod = new Sync.ManifestMod
+            {
+                File = parts[0].Split('/').Last() + ".dll",
+                Name = parts[0],
+                Version = parts[1],
+                Sha256 = parts[2],
+                Source = "nx:https://github.com/" + parts[0],
+            };
+            var diff = new Sync.SyncDiff();
+            diff.Entries.Add(new Sync.DiffEntry { Mod = mod, Status = Sync.DiffStatus.Download });
+            System.Threading.Tasks.Task.Run(async () =>
+            {
+                bool ok = false;
+                try { ok = await Sync.SyncResolver.DownloadMissingAsync(diff, null, System.Threading.CancellationToken.None); }
+                catch (Exception e) { Core.Log?.Error("[selftest] ghdl failed: " + e.Message); }
+                var e0 = diff.Entries[0];
+                Core.Log?.Msg($"[selftest] ghdl: ok={ok} status={e0.Status} path={e0.SourcePath ?? "(none)"}");
+            });
+        }
+
+        /// <summary>Classify every mod DLL in the real Mods folder and log a table (read-only) - the offline
+        /// false-positive sweep for the runtime classifier.</summary>
+        private static void RuntimeCheck()
+        {
+            try
+            {
+                string mods = System.IO.Path.Combine(Profiles.ProfileEngine.GameRoot ?? ".", "Mods");
+                var files = System.IO.Directory.GetFiles(mods, "*.dll", System.IO.SearchOption.TopDirectoryOnly)
+                    .Concat(System.IO.Directory.GetFiles(mods, "*.dll.disabled", System.IO.SearchOption.TopDirectoryOnly))
+                    .OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToList();
+                Core.Log?.Msg($"[selftest] runtimecheck: {files.Count} file(s) in {mods}");
+                var sw = new System.Diagnostics.Stopwatch();
+                foreach (var f in files)
+                {
+                    string name = System.IO.Path.GetFileName(f);
+                    var byName = Shared.RuntimeClassifier.FromNameTokens(name);
+                    sw.Restart();
+                    var r = Shared.RuntimeClassifier.ClassifyFile(f);
+                    sw.Stop();
+                    Core.Log?.Msg($"[selftest] runtimecheck: {name,-42} {Shared.RuntimeClassifier.ToTag(r),-9} name-token={Shared.RuntimeClassifier.ToTag(byName),-9} {sw.ElapsedMilliseconds}ms");
+                }
+            }
+            catch (Exception e) { Core.Log?.Error("[selftest] runtimecheck failed: " + e); }
         }
 
         /// <summary>SIDEHUSTLE_SELFTEST_TS=Owner-Name: run the live Thunderstore index+download path INSIDE the

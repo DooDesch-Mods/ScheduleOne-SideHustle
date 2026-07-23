@@ -46,7 +46,7 @@ namespace SideHustle.Menu
             {
                 if (_bypass) return true;                                   // our own resumed "Just play"
                 if (!Preferences.AskHostOnContinue) return true;           // player opted out
-                if (Mods.AltBase.IsAltSession()) return true;              // inside a curated profile
+                if (Mods.AltBase.IsAltSession()) return true;              // inside a curated profile (named Continue is rewired in MenuInjector)
                 if (Multiplayer.LobbyCoordinator.IsInLobby) return true;   // a co-op/friends flow already underway
 
                 var save = Il2CppScheduleOne.Persistence.LoadManager.SaveGames[index];
@@ -68,6 +68,10 @@ namespace SideHustle.Menu
         private static void ShowDialog(Transform root, ContinueScreen screen, int index,
             Il2CppScheduleOne.Persistence.SaveInfo save)
         {
+            // Hide the vanilla save picker so it can't bleed through the dialog scrim (openPrevious:false keeps the
+            // home screen from popping up); the reference is kept so Just-play still loads and dismiss can reopen it.
+            try { screen.Close(openPrevious: false); } catch { }
+
             GameObject scrim = DooDesch.UI.Components.CountdownDialog(root,
                 "Host this save publicly?",
                 $"Open '{SafeOrg(save)}' as a public Side Hustle lobby so others can join with matching mods - or just play it solo.",
@@ -83,7 +87,12 @@ namespace SideHustle.Menu
                     try { _bypass = true; screen.LoadGame(index); }
                     finally { _bypass = false; }
                 },
-                out var countdown);
+                out var countdown,
+                onDismiss: () =>
+                {
+                    DestroyScrim();
+                    try { screen.Open(closePrevious: false); } catch { }   // back to the save picker; nothing hosted or loaded
+                });
 
             _scrim = scrim;
             if (countdown != null) countdown.text = "";   // no timer: a deliberate choice, not a countdown

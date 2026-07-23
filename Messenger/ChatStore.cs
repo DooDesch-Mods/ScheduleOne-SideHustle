@@ -13,6 +13,11 @@ namespace SideHustle.Messenger
     {
         internal const ulong GroupKey = 0UL;
 
+        /// <summary>Sentinel for "no thread is being viewed" (app closed or on the contact list). Never a real key
+        /// (keys are the group key 0 or a SteamID), so with this active EVERY incoming message - lobby chat included
+        /// - counts as unread and alerts.</summary>
+        internal const ulong NoThread = ulong.MaxValue;
+
         private static readonly Dictionary<ulong, List<ChatMessage>> _threads = new Dictionary<ulong, List<ChatMessage>>();
         private static readonly Dictionary<ulong, int> _unread = new Dictionary<ulong, int>();
 

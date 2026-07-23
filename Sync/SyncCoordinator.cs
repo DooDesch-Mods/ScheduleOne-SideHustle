@@ -30,6 +30,7 @@ namespace SideHustle.Sync
         private static bool _isClient;
         private static Callback<LobbyDataUpdate_t> _dataCallback;   // static-held: a GC'd Callback dies silently
         private static bool _dataArrived;
+        private static float _lobbyRetry;   // paces the re-request/re-discover while waiting for the lobby data
 
         internal static bool IsBusy => _state != State.Idle;
         internal static bool IsInSession => _state == State.InSession;
@@ -51,6 +52,7 @@ namespace SideHustle.Sync
             NetworkTuning.EnsureIceEnabled();   // non-friend clients need all ICE candidate types
             PublicLobbyAccess.Enable();         // stop the vanilla host from kicking non-friends
             LobbyInviteAccess.Enable();         // every member may invite from the pause panel
+            PlayerAlias.Enable(Config.Preferences.GetAlias("vanilla"));   // the host's chosen "Your name" for vanilla lobbies
 
             Core.Log?.Msg($"[sync] hosting vanilla save '{_org}' publicly (max {_opts.MaxPlayers})...");
             if (!LobbyCoordinator.CreateLobby(_opts.MaxPlayers, _opts.Visibility)) { Abort("could not create a lobby"); return; }
@@ -77,6 +79,7 @@ namespace SideHustle.Sync
 
             NetworkTuning.EnsureIceEnabled();
             LobbyInviteAccess.Enable();
+            PlayerAlias.Enable(Config.Preferences.GetAlias("vanilla"));   // carry the joiner's chosen name into the session
             _isClient = true;
             _dataArrived = false;
             try
@@ -93,13 +96,39 @@ namespace SideHustle.Sync
 
             Core.Log?.Msg($"[sync] rejoining lobby {_joinLobbyId} after the mod-sync restart...");
             _timer = 0f;
+            _lobbyRetry = 0f;
+            // Prime lobby discovery: a fresh (just-restarted) client must re-learn the host's lobby exists before
+            // RequestLobbyData will resolve it. A vanilla lobby-list query repopulates that registry.
+            try { Multiplayer.ServerBrowser.BeginQueryVanilla(_ => { }); } catch { }
             _state = State.ClientCheckingLobby;
+        }
+
+        /// <summary>Join a lobby whose mods already match ours in place (no restart needed) but still announce the
+        /// synced handshake: an enforcing host's gate reads the sh_sync member data, so a client that skipped the
+        /// restart path would otherwise be kicked as "unsynced". Reuses the ClientJoining wait-for-world + sh_sync.</summary>
+        internal static void StartInPlaceJoin(ulong lobbyId, string mhash)
+        {
+            if (_state != State.Idle) { Core.Log?.Warning("[sync] a session is already active; ignoring in-place join."); return; }
+            if (lobbyId == 0) return;
+            _isClient = true;
+            _joinLobbyId = lobbyId;
+            _joinMHash = mhash ?? "";
+            NetworkTuning.EnsureIceEnabled();
+            LobbyInviteAccess.Enable();
+            PlayerAlias.Enable(Config.Preferences.GetAlias("vanilla"));
+            LobbyCoordinator.JoinLobby(lobbyId);
+            _timer = 0f;
+            _state = State.ClientJoining;   // waits for the world, sets sh_sync, then InSession
+            Core.Log?.Msg($"[sync] in-place synced join to lobby {lobbyId}.");
         }
 
         private static void OnLobbyData(LobbyDataUpdate_t data)
         {
             if (_state != State.ClientCheckingLobby || data.m_ulSteamIDLobby != _joinLobbyId) return;
-            if (data.m_bSuccess == 0) { RejoinFailed("the lobby closed while you restarted"); return; }
+            // A just-restarted client often has not re-discovered the still-open host lobby yet, so the very first
+            // request can report failure even though the lobby is alive. Don't give up here - Tick keeps
+            // re-requesting (and re-running a lobby-list discovery pass) until the data arrives or the window elapses.
+            if (data.m_bSuccess == 0) return;
             _dataArrived = true;
         }
 
@@ -107,9 +136,19 @@ namespace SideHustle.Sync
         {
             Core.Log?.Warning("[sync] rejoin failed: " + reason);
             LobbyInviteAccess.Disable();
+            PlayerAlias.Disable();   // OnMenuScene early-returns once Idle, so the alias must be cleared here too
             _state = State.Idle;
             _isClient = false;
+            _joinLobbyId = 0;
+            _joinMHash = null;
             Menu.Hub.OpenScreen();   // land the player on the hub (with "Restore my mods") instead of a dead menu
+            // Tell the player why, instead of a silent bounce back to the menu - their mods are already restored.
+            try
+            {
+                DooDesch.UI.Toast.Init(Menu.Hub.DialogRootStatic());
+                DooDesch.UI.Toast.Show("Couldn't join: " + reason + ". Your mods are restored - try again.", DooDesch.UI.Severity.Warning);
+            }
+            catch { /* purely cosmetic */ }
         }
 
         internal static void Tick()
@@ -134,7 +173,19 @@ namespace SideHustle.Sync
                         _timer = 0f;
                         _state = State.ClientJoining;
                     }
-                    else if (_timer > 15f) RejoinFailed("no answer from Steam about the lobby");
+                    else if (_timer > 20f) RejoinFailed("the lobby could not be reached (host may have left, or a network issue)");
+                    else
+                    {
+                        // Keep re-requesting the lobby data and re-running discovery while we wait: a restarted
+                        // client can take a couple of seconds to see the still-open host lobby.
+                        _lobbyRetry += Time.unscaledDeltaTime;
+                        if (_lobbyRetry >= 2f)
+                        {
+                            _lobbyRetry = 0f;
+                            try { SteamMatchmaking.RequestLobbyData(new CSteamID(_joinLobbyId)); } catch { }
+                            try { Multiplayer.ServerBrowser.BeginQueryVanilla(_ => { }); } catch { }
+                        }
+                    }
                     break;
 
                 case State.ClientJoining:
@@ -182,11 +233,13 @@ namespace SideHustle.Sync
             }
         }
 
-        /// <summary>Pumped from Core.OnUpdate: an enforcing host scans for unsynced members and kicks them.</summary>
+        /// <summary>Pumped from Core.OnUpdate: an enforcing host scans for unsynced members and kicks them. The backend
+        /// directory heartbeat runs separately in VanillaLobby (every frame), so a live-published lobby that is not a
+        /// Side Hustle session is kept alive on the web directory too.</summary>
         internal static void TickGate()
         {
-            if (_state == State.InSession && !_isClient && _enforce)
-                SyncGate.Tick(LobbyCoordinator.CurrentLobbyId);
+            if (_state != State.InSession || _isClient) return;
+            if (_enforce) SyncGate.Tick(LobbyCoordinator.CurrentLobbyId);
         }
 
         /// <summary>Menu scene (re)initialized: a live session ended via the vanilla save+quit flow - clean up.</summary>
@@ -199,6 +252,7 @@ namespace SideHustle.Sync
             LivePublish.Reset();
             PublicLobbyAccess.Disable();
             LobbyInviteAccess.Disable();
+            PlayerAlias.Disable();
             _state = State.Idle;
             _save = null;
             _isClient = false;
@@ -211,6 +265,7 @@ namespace SideHustle.Sync
             VanillaLobby.Untag();
             PublicLobbyAccess.Disable();
             LobbyInviteAccess.Disable();
+            PlayerAlias.Disable();
             _state = State.Idle;
             _save = null;
             Menu.Hub.ReopenAfterSession();

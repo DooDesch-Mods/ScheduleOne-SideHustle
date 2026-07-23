@@ -17,6 +17,10 @@ namespace SideHustle.Profiles
         [JsonPropertyName("ignored")] public List<string> Ignored { get; set; } = new List<string>();
         /// <summary>file name -> lowercase sha256 for every classified DLL (diffing against a lobby manifest).</summary>
         [JsonPropertyName("hashes")] public Dictionary<string, string> Hashes { get; set; } = new Dictionary<string, string>();
+        /// <summary>file name -> game-branch tag ("il2cpp"|"mono"|"universal"|"unknown"), classified at extract
+        /// time. A UI convenience (install summary); the resolver classifies the resolved PATH authoritatively.
+        /// Absent in manifests written by older builds - fall back to on-demand classification.</summary>
+        [JsonPropertyName("runtime")] public Dictionary<string, string> Runtime { get; set; } = new Dictionary<string, string>();
     }
 
     /// <summary>
@@ -86,6 +90,7 @@ namespace SideHustle.Profiles
                     string p = FindExtractedFile(destDir, f);
                     string h = p != null ? Shared.ProfileBuilder.Sha256OfFile(p) : null;
                     if (h != null) manifest.Hashes[f] = h;
+                    if (p != null) manifest.Runtime[f] = Shared.RuntimeClassifier.ToTag(Shared.RuntimeClassifier.ClassifyFile(p));
                 }
 
                 File.WriteAllText(Path.Combine(destDir, ManifestName), JsonSerializer.Serialize(manifest, JsonOpts));
@@ -108,6 +113,20 @@ namespace SideHustle.Profiles
                                 .FirstOrDefault();
             }
             catch { return null; }
+        }
+
+        /// <summary>All occurrences of a DLL name inside a package dir, shallowest first. Dual-branch packages can
+        /// ship the SAME file name under Mods/Mono/ and Mods/IL2CPP/ - the resolver classifies each occurrence and
+        /// picks the one that loads on this game.</summary>
+        internal static List<string> FindExtractedFileAll(string packageDir, string fileName)
+        {
+            try
+            {
+                return Directory.GetFiles(packageDir, fileName, SearchOption.AllDirectories)
+                                .OrderBy(p => p.Length)
+                                .ToList();
+            }
+            catch { return new List<string>(); }
         }
 
         // Thunderstore MelonLoader packages nest their payload under Mods/ (or MelonLoader/Mods/), Plugins/ and

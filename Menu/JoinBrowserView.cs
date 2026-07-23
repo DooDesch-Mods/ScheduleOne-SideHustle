@@ -17,6 +17,9 @@ namespace SideHustle.Menu
     {
         private const float Pad = 30f;
 
+        // The public web lobby directory. Always the live site regardless of any LobbyDirectory API-base override.
+        private const string WebDirectoryUrl = "https://sidehustle.doodesch.de";
+
         /// <summary>Build the scroll area + footer; returns the scroll content the caller fills via SetStatus/Populate.</summary>
         internal static Transform Build(Transform formHost, Action onBack, Action onRefresh)
         {
@@ -37,6 +40,14 @@ namespace SideHustle.Menu
             var (refGO, refBtn, _r) = UIFactory.ButtonWithLabel("Refresh", "Refresh", footer.transform, Theme.Accent, 160, 40);
             PlaceFooter(refGO, left: false);
             refBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => onRefresh?.Invoke()));
+
+            // Centre link to the public web directory (SideHustle.doodesch.de) - every open lobby, filterable, in a
+            // browser. Opens via the Steam overlay; joining still happens here in-game.
+            var (webGO, webBtn, _w) = UIFactory.ButtonWithLabel("Web", "Browse online", footer.transform, Theme.Button, 190, 40);
+            var wrt = webGO.GetComponent<RectTransform>();
+            wrt.anchorMin = wrt.anchorMax = new Vector2(0.5f, 0.5f); wrt.pivot = new Vector2(0.5f, 0.5f);
+            wrt.anchoredPosition = Vector2.zero; wrt.sizeDelta = new Vector2(190, 40);
+            webBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => DownloadLink.Open(WebDirectoryUrl)));
 
             Interactions.PolishButtons(formHost);
             return content;
@@ -84,7 +95,10 @@ namespace SideHustle.Menu
             var nrt = name.rectTransform; nrt.anchorMin = new Vector2(0, 0.5f); nrt.anchorMax = new Vector2(1, 1); nrt.offsetMin = new Vector2(16, 0); nrt.offsetMax = new Vector2(-124, -4);
 
             var subT = UIFactory.Text("sub", sub, card.transform, Theme.Caption, TextAnchor.UpperLeft);
-            subT.color = versionMismatch ? Theme.WarningText : Theme.TextMuted; subT.raycastTarget = false; subT.horizontalOverflow = HorizontalWrapMode.Overflow;
+            // Clip within the card (never draw under the Join button on the right): a long subtitle - e.g. a vanilla
+            // lobby's "... · save 'Long Org Name' · synced-only · Locked" - would otherwise overflow across the button.
+            subT.color = versionMismatch ? Theme.WarningText : Theme.TextMuted; subT.raycastTarget = false;
+            subT.horizontalOverflow = HorizontalWrapMode.Wrap; subT.verticalOverflow = VerticalWrapMode.Truncate;
             var srt = subT.rectTransform; srt.anchorMin = new Vector2(0, 0); srt.anchorMax = new Vector2(1, 0.5f); srt.offsetMin = new Vector2(16, 4); srt.offsetMax = new Vector2(-124, 0);
 
             var (joinGO, joinBtn, _j) = UIFactory.ButtonWithLabel("Join", "Join", card.transform, Theme.Accent, 96, 40);

@@ -18,13 +18,18 @@ namespace SideHustle.Messenger
             {
                 var mgr = Singleton<NotificationsManager>.Instance;
                 if (mgr == null) return;
-                string who = Contacts.NameOf(m.SenderId);
+                string who = Clamp(Contacts.NameOf(m.SenderId), 22);   // a long custom alias would overflow the toast
                 string title = m.RecipientId == ChatStore.GroupKey ? "Lobby chat" : who;
                 string subtitle = m.RecipientId == ChatStore.GroupKey ? who + ": " + m.Text : m.Text;
                 if (subtitle.Length > 80) subtitle = subtitle.Substring(0, 79) + "…";
-                mgr.SendNotification(title, subtitle, null, 5f, true);
+                mgr.SendNotification(title, subtitle, MessengerApp.NotifIcon, 5f, true);
             }
             catch (Exception e) { Core.Log?.Warning("[messenger] notification failed: " + e.Message); }
         }
+
+        // Keep a name short enough for the native notification's single line (a long custom alias otherwise runs
+        // off the right edge of the toast).
+        private static string Clamp(string s, int max) =>
+            string.IsNullOrEmpty(s) || s.Length <= max ? s : s.Substring(0, max - 1).TrimEnd() + "…";
     }
 }

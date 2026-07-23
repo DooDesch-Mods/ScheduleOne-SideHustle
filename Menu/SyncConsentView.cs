@@ -46,34 +46,47 @@ namespace SideHustle.Menu
             int manual = diff.Count(DiffStatus.Manual);
             int dropped = diff.Count(DiffStatus.Dropped);
 
+            int reuse = diff.Entries.Count(x => x.OwnCopyReuse);
+
             Components.SectionHeader(content, "What syncing sets up");
-            if (download == 0 && present > 0)
+            bool allExact = diff.Entries.Where(x => x.Status == DiffStatus.Present).All(x => !x.HashWarn && !x.OwnCopyReuse);
+            if (download == 0 && present > 0 && allExact)
                 Note(content, $"All {Plural(present, "synced mod")} already match yours byte-for-byte.", Theme.TextPrimary);
-            foreach (var e in diff.Entries.Where(x => x.Status == DiffStatus.Download || x.Status == DiffStatus.Cached))
-                Note(content, $"+  {Label(e)}   ({(e.Status == DiffStatus.Cached ? "already downloaded" : "Thunderstore")})"
+            foreach (var e in diff.Entries.Where(x => (x.Status == DiffStatus.Download || x.Status == DiffStatus.Cached) && !x.OwnCopyReuse))
+                Note(content, $"+  {Label(e)}   ({(e.Status == DiffStatus.Cached ? "already downloaded" : SourceLabel(e))})"
                               + (e.HashWarn ? "  - replaces your same-version copy (different build)" : ""), Theme.SuccessText);
-            if (present > 0 && download > 0)
+            if (present > 0 && download > 0 && allExact)
                 Note(content, $"=  {Plural(present, "mod")} already match and stay as they are.", Theme.TextMuted);
+
+            if (reuse > 0)
+            {
+                Components.SectionHeader(content, "Using mods you already have");
+                foreach (var e in diff.Entries.Where(x => x.OwnCopyReuse))
+                    Note(content, $"=  {Label(e)} - using your own installed copy"
+                                  + (e.VersionWarn ? "  (version differs / unverified)" : ""), Theme.TextPrimary);
+            }
 
             if (manual > 0)
             {
-                Components.SectionHeader(content, "Only via download link (not fetched automatically yet)");
+                Components.SectionHeader(content, "Only via download link (picked up automatically)");
                 foreach (var e in diff.Entries.Where(x => x.Status == DiffStatus.Manual))
                     Note(content, $"~  {Label(e)}", Theme.WarningText);
+                Note(content, "The next step opens each link - download in your browser and SideHustle spots the file in your Downloads folder and installs it on its own.", Theme.TextMuted);
             }
 
             if (dropped > 0)
             {
-                Components.SectionHeader(content, "Cannot sync (the session runs without them for you)");
+                Components.SectionHeader(content, "Only on Nexus (search link on the next step)");
                 foreach (var e in diff.Entries.Where(x => x.Status == DiffStatus.Dropped))
-                    Note(content, $"-  {Label(e)}", Theme.DangerText);
+                    Note(content, $"~  {Label(e)}", Theme.WarningText);
+                Note(content, "Not on Thunderstore - the next step gives you a Nexus search for each (downloads are picked up automatically). If you can't find one, the session just runs without it.", Theme.TextMuted);
             }
 
             if (diff.LocalOnly.Count > 0)
             {
-                Components.SectionHeader(content, "Your mods that pause for this session");
-                Note(content, string.Join(", ", diff.LocalOnly), Theme.TextPrimary);
-                Note(content, "They stay installed - only the session profile runs without them.", Theme.TextMuted);
+                int n = diff.LocalOnly.Count;
+                Components.SectionHeader(content, "Your mods pause for this session");
+                Note(content, $"{n} of your mod{(n == 1 ? "" : "s")} pause for this session - they stay installed, only the session profile runs without them.", Theme.TextMuted);
             }
 
             if (hasPrefs)
@@ -109,6 +122,9 @@ namespace SideHustle.Menu
 
         private static string Label(DiffEntry e) =>
             string.IsNullOrEmpty(e.Mod.Name) ? e.Mod.File : $"{e.Mod.Name} {e.Mod.Version}";
+
+        private static string SourceLabel(DiffEntry e) =>
+            GhReleases.IsGitHubSource(e.Mod.Source) ? "GitHub" : "Thunderstore";
 
         private static void Note(RectTransform content, string text, bool warn) =>
             Note(content, text, warn ? Theme.WarningText : Theme.TextMuted);

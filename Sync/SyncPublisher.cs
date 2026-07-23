@@ -12,7 +12,8 @@ namespace SideHustle.Sync
     {
         public SyncManifest Manifest;
         public int AutoCount;     // ts: sources - clients install these automatically
-        public int LinkCount;     // nx: sources - clients get a manual install checklist
+        public int GhCount;       // nx: GitHub sources - clients auto-download these from GitHub releases
+        public int LinkCount;     // other nx: sources - clients get the manual install checklist
         public int DroppedCount;  // no source - ignored by the sync (clients join without them)
     }
 
@@ -40,6 +41,7 @@ namespace SideHustle.Sync
                 string sha = modsPath != null ? ModInventory.Sha256OfFile(Path.Combine(modsPath, m.File)) : null;
                 string source = ResolveSource(m, index);
                 if (source.StartsWith("ts:", StringComparison.Ordinal)) plan.AutoCount++;
+                else if (GhReleases.IsGitHubSource(source)) plan.GhCount++;
                 else if (source.StartsWith("nx:", StringComparison.Ordinal)) plan.LinkCount++;
                 else plan.DroppedCount++;
 
@@ -73,23 +75,28 @@ namespace SideHustle.Sync
             try { return MelonLoader.Properties.BuildInfo.Version ?? ""; } catch { return ""; }
         }
 
-        // Side Hustle is the sync infrastructure itself: required to browse/join these lobbies at all, not on
-        // Thunderstore, and version-checked via the manifest header instead.
-        private static bool IsInfraFile(string file)
-        {
-            string f = Norm(file);
-            return f.Contains("sidehustle");
-        }
+        // Side Hustle AND its S1API layer are the sync infrastructure itself: a joiner must already have them to
+        // browse/join a Side Hustle lobby at all (the client treats them as essentials that ride along - see
+        // SyncResolver.IsClientEssential), so counting them in the host's syncable set is pointless and misleading
+        // ("12 of 15" when 3 were really SideHustle + S1API). They are never part of the sync plan.
+        private static bool IsInfraFile(string file) => Profiles.Essentials.IsEssentialFile(file);
 
         private static string ResolveSource(LoadedMod m, TsIndex index)
         {
             try
             {
                 var pkg = ModMatcher.ConfirmedFullName(m.File) is string full ? index?.Find(full) : ModMatcher.Suggest(m, index);
-                // ts: only when the EXACT installed version exists on Thunderstore - the client verifies the
-                // download by hash, and a self-built DLL with a store version's number would just fail there.
-                if (pkg != null && !string.IsNullOrEmpty(m.Version) && pkg.Get(m.Version) != null)
-                    return "ts:" + pkg.FullName + "-" + m.Version;
+                // ts: when the installed version exists on Thunderstore. The exact version string wins; failing that
+                // a tolerant semver match (so "1.2.3" and "1.2.3.0" agree) picks the store's own version string so
+                // the client downloads the right file. The client still verifies the download by hash, so a
+                // self-built DLL sharing a store version number harmlessly falls back to manual/dropped there.
+                if (pkg != null && !string.IsNullOrEmpty(m.Version))
+                {
+                    string storeVer = pkg.Get(m.Version) != null
+                        ? m.Version
+                        : pkg.Versions.FirstOrDefault(v => TsIndex.CompareVersions(v.VersionNumber, m.Version) == 0)?.VersionNumber;
+                    if (storeVer != null) return "ts:" + pkg.FullName + "-" + storeVer;
+                }
                 if (Menu.DownloadLink.IsAllowed(m.DownloadLink))
                     return "nx:" + m.DownloadLink;
                 return "";

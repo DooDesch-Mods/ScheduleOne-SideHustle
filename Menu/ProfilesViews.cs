@@ -22,7 +22,7 @@ namespace SideHustle.Menu
         private const float RowH = 54f;
 
         internal static void BuildList(Transform formHost, Action<string> onOpen, Action onSwitchFullSet,
-            Action onNew, Action onBack)
+            Action onNew, Action onBack, (string Host, int ModCount)? lastSync = null, Action onCreateFromLastSync = null)
         {
             var (content, footer) = Scaffold(formHost);
 
@@ -31,6 +31,12 @@ namespace SideHustle.Menu
 
             if (!writable)
                 Note(content, "Profiles are read-only: profiles.json is unreadable or from a newer Side Hustle.");
+
+            // Quick-create from the last lobby you synced into (its mods are still cached), pinned at the very top.
+            if (writable && lastSync.HasValue && onCreateFromLastSync != null)
+                Row(content, "From last lobby: " + lastSync.Value.Host,
+                    $"Save the {lastSync.Value.ModCount} mod(s) you synced there as a permanent profile.",
+                    "Create", Theme.Accent, onCreateFromLastSync);
 
             if (!string.IsNullOrEmpty(active))
                 Row(content, "Full mod set", "Switch back to everything in your Mods folder (restarts the game).",
@@ -44,7 +50,11 @@ namespace SideHustle.Menu
                 ProfileDef def = p;
                 bool isActive = def.Id.Equals(active, StringComparison.OrdinalIgnoreCase);
                 bool isDefault = def.Id.Equals(doc.Settings.DefaultProfileId, StringComparison.OrdinalIgnoreCase);
-                string sub = $"{def.Mods.Count} mod(s)"
+                // Count only the mods the player actually added - the always-included essentials (Side Hustle + S1API)
+                // are seeded into every profile and would otherwise make a brand-new, empty profile read "2 mod(s)".
+                int modCount = (def.Mods ?? new List<ProfileModRef>())
+                    .Count(m => !(m.Source == "base" && Essentials.IsEssentialFile(m.File)));
+                string sub = $"{modCount} mod(s)"
                              + (isActive ? " - ACTIVE" : isDefault ? " - default" : "")
                              + (string.IsNullOrEmpty(def.Notes) ? "" : " - " + def.Notes);
                 Row(content, def.Name, sub, "Open", isActive ? Theme.Accent : Theme.Button, () => onOpen(def.Id));
@@ -58,7 +68,8 @@ namespace SideHustle.Menu
         internal static void BuildDetail(Transform formHost, ProfileDef p, bool writable, Func<string, bool> isEssential,
             Action onActivate, Action onAddThunderstore, Action onAddInstalled, Action onCheckUpdates,
             Action<ProfileModRef> onRemoveMod, Action onDelete, Action onBack,
-            Action onRename = null, Action onOpenFolder = null, Action onEditDescription = null)
+            Action onRename = null, Action onOpenFolder = null, Action onEditDescription = null,
+            Func<ProfileModRef, string> annotate = null)
         {
             var (content, footer) = Scaffold(formHost);
             bool isActive = p.Id.Equals(ProfileEngine.ActiveProfileId, StringComparison.OrdinalIgnoreCase);
@@ -83,32 +94,54 @@ namespace SideHustle.Menu
             if (essentials.Count > 0)
                 Note(content, "Always included: " + string.Join(", ", essentials) + " (Side Hustle manages this profile).");
 
-            bool any = false;
-            foreach (var m in (p.Mods ?? new List<ProfileModRef>()))
+            // Split the removable mods into what the player chose ("manual" - base/local links and directly
+            // installed Thunderstore packages) and what only came along as a dependency. The chosen mods sit on top
+            // where the player primarily manages them; the dependencies drop to the bottom under their own header,
+            // visually recessed so they are not removed by accident.
+            var removable = (p.Mods ?? new List<ProfileModRef>())
+                .Where(m => !(m.Source == "base" && isEssential(m.File)))
+                .ToList();
+            var manual = removable.Where(m => !(m.Source == "thunderstore" && m.AsDependency)).ToList();
+            var deps = removable.Where(m => m.Source == "thunderstore" && m.AsDependency).ToList();
+
+            void EmitRow(ProfileModRef mref, bool dependency)
             {
-                if (m.Source == "base" && isEssential(m.File)) continue;
-                any = true;
-                ProfileModRef mref = m;
+                string extra = annotate?.Invoke(mref);
                 string title, sub;
                 switch (mref.Source)
                 {
                     case "thunderstore":
                         title = mref.FullName;
-                        sub = $"Thunderstore {mref.Version} - {(mref.Files == null || mref.Files.Count == 0 ? "?" : string.Join(", ", mref.Files))}";
+                        // Lead with the dependency hint (the useful part) and fall back to the DLL list only when
+                        // there is no hint, so "required by ..." is never pushed past the row's truncation.
+                        sub = !string.IsNullOrEmpty(extra)
+                            ? $"Thunderstore {mref.Version}  -  {extra}"
+                            : $"Thunderstore {mref.Version} - {(mref.Files == null || mref.Files.Count == 0 ? "?" : string.Join(", ", mref.Files))}";
                         break;
                     case "local":
                         title = StripDllName(mref.File);
                         sub = "Local file inside this profile (managed by you).";
+                        if (!string.IsNullOrEmpty(extra)) sub += "  -  " + extra;
                         break;
                     default:
                         title = StripDllName(mref.File);
                         sub = "Linked from your Mods folder.";
+                        if (!string.IsNullOrEmpty(extra)) sub += "  -  " + extra;
                         break;
                 }
-                if (writable) Row(content, title, sub, "Remove", Theme.Button, () => onRemoveMod(mref));
+                if (writable) Row(content, title, sub, "Remove", Theme.Button, () => onRemoveMod(mref), dependency);
                 else Note(content, title + " - " + sub);
             }
-            if (!any)
+
+            foreach (var m in manual) EmitRow(m, dependency: false);
+
+            if (deps.Count > 0)
+            {
+                Components.SectionHeader(content, "Dependencies (installed automatically)");
+                foreach (var m in deps) EmitRow(m, dependency: true);
+            }
+
+            if (removable.Count == 0)
                 Note(content, "No extra mods yet - add some from Thunderstore or your Mods folder.");
 
             if (writable)
@@ -130,8 +163,9 @@ namespace SideHustle.Menu
             }
 
             FooterButton(footer, "Back", Theme.Button, left: true, onBack);
-            var activate = FooterButton(footer, isActive ? "Active" : "Activate", Theme.Accent, left: false, onActivate);
-            if (isActive && activate != null) activate.interactable = false;
+            // When this profile is already active, Activate becomes "Restart" so an edit (a removed mod) can actually
+            // be applied - SwitchTo rebuilds the profile and relaunches into it. Never a dead disabled button.
+            FooterButton(footer, isActive ? "Restart" : "Activate", Theme.Accent, left: false, onActivate);
             Interactions.PolishButtons(formHost);
         }
 
@@ -184,6 +218,31 @@ namespace SideHustle.Menu
             if (onBack != null) FooterButton(footer, "Back", Theme.Button, left: true, onBack);
         }
 
+        /// <summary>A prominent, centred "please wait" status - a large headline over a smaller subtitle - so the
+        /// player clearly sees what is happening (e.g. the mod-sync restart) instead of a small grey note.</summary>
+        internal static void BuildBigStatus(Transform formHost, string headline, string subtitle)
+        {
+            var panel = UIFactory.Panel("bigStatus", formHost, Theme.Clear);
+            var prt = panel.GetComponent<RectTransform>();
+            prt.anchorMin = Vector2.zero; prt.anchorMax = Vector2.one;
+            prt.offsetMin = new Vector2(Pad, Pad); prt.offsetMax = new Vector2(-Pad, -Pad);
+
+            var head = UIFactory.Text("headline", headline, panel.transform, 34, TextAnchor.LowerCenter, FontStyle.Bold);
+            head.color = Theme.TextPrimary; head.horizontalOverflow = HorizontalWrapMode.Wrap;
+            var hrt = head.rectTransform;
+            hrt.anchorMin = new Vector2(0, 0.5f); hrt.anchorMax = new Vector2(1, 1f);
+            hrt.offsetMin = new Vector2(10, 0); hrt.offsetMax = new Vector2(-10, -20);
+
+            if (!string.IsNullOrEmpty(subtitle))
+            {
+                var sub = UIFactory.Text("subtitle", subtitle, panel.transform, 18, TextAnchor.UpperCenter);
+                sub.color = Theme.TextMuted; sub.horizontalOverflow = HorizontalWrapMode.Wrap;
+                var srt = sub.rectTransform;
+                srt.anchorMin = new Vector2(0, 0f); srt.anchorMax = new Vector2(1, 0.5f);
+                srt.offsetMin = new Vector2(20, 10); srt.offsetMax = new Vector2(-20, -14);
+            }
+        }
+
         // --- scaffold + primitives ---
 
         private static (RectTransform Content, Transform Footer) Scaffold(Transform formHost)
@@ -204,17 +263,33 @@ namespace SideHustle.Menu
         }
 
         private static void Row(RectTransform content, string title, string subtitle, string actionLabel,
-            Color actionColor, Action onAction)
+            Color actionColor, Action onAction, bool dependency = false)
         {
-            var row = UIFactory.Panel("row_" + title, content, Theme.BgElevated);
+            // Dependency rows sit below the mods the player actually chose and read as secondary: a recessed panel
+            // with a coloured left accent bar and a muted title, so "installed by you" stays visually primary.
+            var row = UIFactory.Panel("row_" + title, content, dependency ? Theme.BgPanel : Theme.BgElevated);
             var rle = row.AddComponent<LayoutElement>();
             rle.minHeight = RowH; rle.preferredHeight = RowH; rle.flexibleWidth = 1;
 
+            float textLeft = 12f;
+            if (dependency)
+            {
+                var accent = UIFactory.Panel("depaccent", row.transform, Theme.Info);
+                var art = accent.GetComponent<RectTransform>();
+                art.anchorMin = new Vector2(0, 0); art.anchorMax = new Vector2(0, 1); art.pivot = new Vector2(0, 0.5f);
+                art.offsetMin = new Vector2(0, 8f); art.offsetMax = new Vector2(4f, -8f);
+                var aimg = accent.GetComponent<Image>(); if (aimg != null) aimg.raycastTarget = false;
+                textLeft = 18f;
+            }
+
             var t = UIFactory.Text("name", title, row.transform, Theme.H3, TextAnchor.UpperLeft, FontStyle.Bold);
-            PlaceLine(t, topInset: 9f, height: 20f);
+            t.color = dependency ? Theme.TextMuted : Theme.TextPrimary;
+            PlaceLine(t, topInset: 9f, height: 20f, left: textLeft);
             var s = UIFactory.Text("sub", subtitle ?? "", row.transform, Theme.Body, TextAnchor.UpperLeft);
-            s.color = Theme.TextMuted; s.horizontalOverflow = HorizontalWrapMode.Overflow;
-            PlaceLine(s, topInset: 30f, height: 16f);
+            // Clip within the 72%-wide line instead of overflowing: the annotate suffix ("required by ..., missing ...")
+            // makes subtitles long, and Overflow would draw them straight across the Remove button on the right.
+            s.color = Theme.TextMuted; s.horizontalOverflow = HorizontalWrapMode.Wrap; s.verticalOverflow = VerticalWrapMode.Truncate;
+            PlaceLine(s, topInset: 30f, height: 16f, left: textLeft);
 
             var (btnGO, btn, _) = UIFactory.ButtonWithLabel("action", actionLabel, row.transform, actionColor, 120f, 36f);
             var brt = btnGO.GetComponent<RectTransform>();
@@ -250,11 +325,11 @@ namespace SideHustle.Menu
         // one to the top and the other to the bottom of the row (which left an ugly gap between them). Each line
         // gets a fixed-height band [rowTop - topInset - height .. rowTop - topInset], left-inset, capped at 72%
         // width so the action button on the right stays clear.
-        private static void PlaceLine(Text t, float topInset, float height)
+        private static void PlaceLine(Text t, float topInset, float height, float left = 12f)
         {
             var rt = t.GetComponent<RectTransform>();
             rt.anchorMin = new Vector2(0, 1); rt.anchorMax = new Vector2(0.72f, 1); rt.pivot = new Vector2(0, 1);
-            rt.offsetMin = new Vector2(12, -(topInset + height));
+            rt.offsetMin = new Vector2(left, -(topInset + height));
             rt.offsetMax = new Vector2(0, -topInset);
         }
 

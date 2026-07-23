@@ -24,7 +24,10 @@ namespace SideHustle.Profiles
     internal static class ModMatcher
     {
         private static readonly JsonSerializerOptions JsonOpts = new JsonSerializerOptions { WriteIndented = true };
-        private static Dictionary<string, ModMapEntry> _map;   // key: dll file name, lowercase
+        private static Dictionary<string, ModMapEntry> _map;   // key: dll file name (matched case-insensitively)
+        // Confirm() runs on the install worker while the profile UI reads ConfirmedFullName on the main thread;
+        // a plain Dictionary would race (torn read / resize). All _map access goes through this lock.
+        private static readonly object _lock = new object();
 
         private static string MapPath()
         {
@@ -38,9 +41,19 @@ namespace SideHustle.Profiles
             try
             {
                 string p = MapPath();
-                _map = p != null && File.Exists(p)
-                    ? JsonSerializer.Deserialize<Dictionary<string, ModMapEntry>>(File.ReadAllText(p), JsonOpts)
-                    : null;
+                if (p != null && File.Exists(p))
+                {
+                    // JsonSerializer builds a case-SENSITIVE dictionary; rebuild it with the same OrdinalIgnoreCase
+                    // comparer the fallback uses, so a confirmed mapping is found regardless of DLL-name casing (a
+                    // package's zip entry name and the on-disk file name can differ in case). Iterate rather than the
+                    // copy-constructor, which would throw on a case-variant duplicate key.
+                    var loaded = JsonSerializer.Deserialize<Dictionary<string, ModMapEntry>>(File.ReadAllText(p), JsonOpts);
+                    if (loaded != null)
+                    {
+                        _map = new Dictionary<string, ModMapEntry>(StringComparer.OrdinalIgnoreCase);
+                        foreach (var kv in loaded) _map[kv.Key] = kv.Value;
+                    }
+                }
             }
             catch { _map = null; }
             return _map ??= new Dictionary<string, ModMapEntry>(StringComparer.OrdinalIgnoreCase);
@@ -59,19 +72,28 @@ namespace SideHustle.Profiles
         }
 
         /// <summary>The CONFIRMED package for a DLL, or null (suggestions are never returned here).</summary>
-        internal static string ConfirmedFullName(string dllFile) =>
-            !string.IsNullOrEmpty(dllFile) && Map().TryGetValue(dllFile, out var e) ? e.FullName : null;
+        internal static string ConfirmedFullName(string dllFile)
+        {
+            if (string.IsNullOrEmpty(dllFile)) return null;
+            lock (_lock) return Map().TryGetValue(dllFile, out var e) ? e.FullName : null;
+        }
 
         internal static void Confirm(string dllFile, string fullName, string confirmedBy)
         {
             if (string.IsNullOrEmpty(dllFile) || string.IsNullOrEmpty(fullName)) return;
-            Map()[dllFile] = new ModMapEntry { FullName = fullName, ConfirmedBy = confirmedBy };
-            SaveMap();
+            lock (_lock)
+            {
+                Map()[dllFile] = new ModMapEntry { FullName = fullName, ConfirmedBy = confirmedBy };
+                SaveMap();
+            }
         }
 
         internal static void Forget(string dllFile)
         {
-            if (Map().Remove(dllFile ?? "")) SaveMap();
+            lock (_lock)
+            {
+                if (Map().Remove(dllFile ?? "")) SaveMap();
+            }
         }
 
         /// <summary>
@@ -89,7 +111,8 @@ namespace SideHustle.Profiles
             foreach (var p in index.Packages)
             {
                 string pn = Norm(p.Name);
-                if (pn.Length > 0 && (pn == dllNorm || pn == nameNorm)) return p;
+                string fn = Norm(p.FullName);   // Owner-Name, for a DLL named after the full package
+                if (pn.Length > 0 && (pn == dllNorm || pn == nameNorm || fn == dllNorm || fn == nameNorm)) return p;
             }
 
             var candidates = new List<TsPackage>();

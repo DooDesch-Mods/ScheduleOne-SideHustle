@@ -12,6 +12,7 @@ namespace SideHustle.Sync
     {
         public string Id;           // section id, e.g. "PropHunt_01_Main"
         public string DisplayName;
+        public string Description;  // optional friendlier hint (overrides the generic one in the host form)
         public bool SyncByDefault = true;
         public bool SecretRisk;     // contains a key that looks like a token/secret (world-readable lobby data!)
     }
@@ -50,11 +51,15 @@ namespace SideHustle.Sync
                     }
                     catch { /* ignore */ }
 
+                    // FullHouse is Side Hustle's embedded bigger-lobby engine, not a third-party mod - name it clearly
+                    // so hosts don't wonder what it is, and always sync it so everyone agrees on the max lobby size.
+                    bool isFullHouse = id.Equals("FullHouse", StringComparison.OrdinalIgnoreCase);
                     cats.Add(new PrefsCategory
                     {
                         Id = id,
-                        DisplayName = string.IsNullOrEmpty(c.DisplayName) ? id : c.DisplayName,
-                        SyncByDefault = !secret,
+                        DisplayName = isFullHouse ? "Bigger lobbies" : (string.IsNullOrEmpty(c.DisplayName) ? id : c.DisplayName),
+                        Description = isFullHouse ? "Part of Side Hustle - keeps everyone's max lobby size in sync." : null,
+                        SyncByDefault = isFullHouse || !secret,
                         SecretRisk = secret,
                     });
                 }

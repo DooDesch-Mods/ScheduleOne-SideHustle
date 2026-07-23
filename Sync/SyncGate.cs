@@ -70,10 +70,23 @@ namespace SideHustle.Sync
 
                     Core.Log?.Msg($"[sync] gate: player {code} is not synced after {Grace:n0}s - kicking.");
                     HostControls.KickBySteamId(ulong.Parse(code), "This lobby requires the host's synced mods (Side Hustle Sync).");
+                    NotifyHost("Side Hustle Sync", "A player was removed - they couldn't sync your mods.");
                     _firstSeen.Remove(code);
                 }
             }
             catch (Exception e) { Core.Log?.Warning("[sync] gate scan failed: " + e.Message); }
+        }
+
+        /// <summary>Surface a host-facing message through the game's own in-world notification popup (the host is in
+        /// the world, not the menu, when the gate runs - a menu toast would never show). Best-effort.</summary>
+        private static void NotifyHost(string title, string subtitle)
+        {
+            try
+            {
+                var mgr = Il2CppScheduleOne.DevUtilities.Singleton<Il2CppScheduleOne.UI.NotificationsManager>.Instance;
+                if (mgr != null) mgr.SendNotification(title, subtitle, null, 6f, true);
+            }
+            catch { /* notification is best-effort */ }
         }
     }
 }

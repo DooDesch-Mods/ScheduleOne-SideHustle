@@ -36,7 +36,9 @@
     <Compile Include="../Shared/ProfileStore.cs" Link="Shared/ProfileStore.cs" />
     <Compile Include="../Shared/ProfileBuilder.cs" Link="Shared/ProfileBuilder.cs" />
     <Compile Include="../Shared/ProfileResolver.cs" Link="Shared/ProfileResolver.cs" />
+    <Compile Include="../Shared/RuntimeClassifier.cs" Link="Shared/RuntimeClassifier.cs" />
     <Compile Include="../Profiles/PackageCache.cs" Link="Shared/PackageCache.cs" />
+    <Compile Include="../Profiles/Essentials.cs" Link="Shared/Essentials.cs" />
   </ItemGroup>
 
   <ItemGroup>

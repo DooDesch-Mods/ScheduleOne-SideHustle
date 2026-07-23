@@ -20,6 +20,10 @@ namespace SideHustle.Shared
         public string Version { get; set; }
         /// <summary>The DLL file names this thunderstore package contributes (from the cache classification).</summary>
         public List<string> Files { get; set; }
+        /// <summary>True when this ref entered the profile only as a DEPENDENCY of another install (apt-style
+        /// auto-installed marker). Explicitly installing the same package later promotes it back to false. Absent
+        /// in profiles written by older builds, which deserializes to false = treated as manually chosen.</summary>
+        public bool AsDependency { get; set; }
     }
 
     internal sealed class ProfileBuildInfo
@@ -27,6 +31,9 @@ namespace SideHustle.Shared
         public string Path { get; set; } = "";
         public string Fingerprint { get; set; } = "";
         public string BuiltAt { get; set; } = "";
+        /// <summary>Mod file names this build dropped ENTIRELY as wrong-runtime Mono builds (dual-variant skips
+        /// are routine and not listed). Null/absent = none. Read by the next session to inform the player.</summary>
+        public List<string> ExcludedWrongRuntime { get; set; }
     }
 
     internal sealed class ProfileDef
@@ -38,6 +45,9 @@ namespace SideHustle.Shared
         public string Modified { get; set; } = "";
         public List<ProfileModRef> Mods { get; set; } = new List<ProfileModRef>();
         public ProfileBuildInfo Build { get; set; }
+        /// <summary>Key (hash) of the ExcludedWrongRuntime set the one-time "mods were disabled" dialog was last
+        /// shown for - the set changing re-arms the dialog; an unchanged set only gets a small toast.</summary>
+        public string RuntimeNoticeKey { get; set; }
     }
 
     /// <summary>A committed profile switch the boot plugin consumes on the next start (no prompt).</summary>

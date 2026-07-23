@@ -51,6 +51,29 @@ namespace SideHustle.Menu
             catch (Exception e) { Core.Log?.Warning("[hub] could not open download link: " + e.Message); }
         }
 
+        /// <summary>A Nexus search URL for a mod NAME - the fallback for a manual/nx: mod whose exact download page we
+        /// do not have. Lands on nexusmods.com (already a trusted host), so it opens through the normal path.</summary>
+        internal static string SearchUrl(string modName) =>
+            "https://www.nexusmods.com/games/schedule1/search?keyword=" + Uri.EscapeDataString(SearchTerm(modName));
+
+        /// <summary>A clean Nexus search keyword: letters/digits/spaces only. Special characters (e.g. the "&" in
+        /// "Mod Manager & Phone App") make the site's search miss the mod, so collapse every run of other characters
+        /// to a single space.</summary>
+        internal static string SearchTerm(string name) =>
+            string.IsNullOrEmpty(name) ? "" : System.Text.RegularExpressions.Regex.Replace(name, @"[^\p{L}\p{N}]+", " ").Trim();
+
+        /// <summary>Open a Nexus search for a mod name (Steam overlay first, external browser fallback).</summary>
+        internal static void OpenSearch(string modName) => Open(SearchUrl(modName));
+
+        /// <summary>Open a trusted URL in the EXTERNAL browser only (skips the Steam overlay). Used for "open all",
+        /// where the single overlay would collapse to the last page - separate external tabs let every mod open.</summary>
+        internal static void OpenExternal(string url)
+        {
+            if (!IsAllowed(url)) { Core.Log?.Warning("[hub] refusing to open a link that is not on a trusted host: " + url); return; }
+            try { Application.OpenURL(url); }
+            catch (Exception e) { Core.Log?.Warning("[hub] could not open link: " + e.Message); }
+        }
+
         // Open the URL in the Steam overlay browser. Invoked via reflection because the Il2Cpp binding of
         // SteamFriends.ActivateGameOverlayToWebPage may or may not keep the optional overlay-mode parameter; this
         // binds to whichever arity exists and returns false (falling back to the external browser) on any failure.

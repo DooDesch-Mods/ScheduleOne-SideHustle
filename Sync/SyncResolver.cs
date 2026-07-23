@@ -24,6 +24,14 @@ namespace SideHustle.Sync
         public string SourcePath;   // set for Present/Cached
         /// <summary>Same file+version installed but different bytes (recompiled/self-built) - shown as a warning.</summary>
         public bool HashWarn;
+        /// <summary>Satisfied from the client's OWN installed copy of a manual/nx: mod (not the host's exact bytes and
+        /// not a download), so they don't have to re-fetch a mod they already have.</summary>
+        public bool OwnCopyReuse;
+        /// <summary>The reused own copy is a DIFFERENT (or unverifiable) version than the host published.</summary>
+        public bool VersionWarn;
+        /// <summary>Client-side hint for the manual checklist (near-miss guidance from the folder watcher);
+        /// never part of the manifest.</summary>
+        public string ManualNote;
     }
 
     internal sealed class SyncDiff
@@ -38,6 +46,10 @@ namespace SideHustle.Sync
         /// the syncable manifest, so the client can join in place with no restart.</summary>
         public bool NeedsRestart =>
             Entries.Any(e => e.Status == DiffStatus.Cached || e.Status == DiffStatus.Download) || LocalOnly.Count > 0;
+
+        /// <summary>Any entry is satisfied from the client's own copy at a DIFFERENT/unverified version - the join
+        /// must route through the consent screen so the player sees the version warning before joining.</summary>
+        public bool AnyVersionWarn => Entries.Any(e => e.VersionWarn);
     }
 
     /// <summary>
@@ -64,15 +76,36 @@ namespace SideHustle.Sync
                 }
             }
             var cacheByHash = BuildCacheHashIndex();
+            var loadedList = ModInventory.Loaded();
 
             foreach (var m in manifest.Mods)
             {
                 var e = new DiffEntry { Mod = m };
-                if (localByFile.TryGetValue(m.File, out var local) && !string.IsNullOrEmpty(m.Sha256)
-                    && string.Equals(local.Sha, m.Sha256, StringComparison.OrdinalIgnoreCase))
+                bool haveLocal = localByFile.TryGetValue(m.File, out var local);
+                bool shaMatch = haveLocal && !string.IsNullOrEmpty(m.Sha256)
+                                && string.Equals(local.Sha, m.Sha256, StringComparison.OrdinalIgnoreCase);
+
+                // Version-based match: the Thunderstore version is the compatibility unit. If the client already
+                // has the SAME package version the host published, accept the client's own copy even when the bytes
+                // differ (a self-built or re-downloaded copy of the same release) instead of forcing a re-download.
+                // A DIFFERENT version still falls through to Download below, so the session aligns to the host's
+                // version. Only for ts: (Thunderstore) mods, where the version string is authoritative.
+                var loaded = loadedList.FirstOrDefault(x => string.Equals(x.File, m.File, StringComparison.OrdinalIgnoreCase));
+                bool versionMatch = haveLocal && !shaMatch && loaded != null && !string.IsNullOrEmpty(m.Version)
+                                    && m.Source.StartsWith("ts:", StringComparison.Ordinal)
+                                    && string.Equals(loaded.Version ?? "", m.Version, StringComparison.OrdinalIgnoreCase)
+                                    && SamePackageIdentity(m);
+
+                if (shaMatch)
                 {
                     e.Status = DiffStatus.Present;
                     e.SourcePath = local.Path;
+                }
+                else if (versionMatch)
+                {
+                    e.Status = DiffStatus.Present;
+                    e.SourcePath = local.Path;
+                    e.HashWarn = true;   // same version, different bytes - kept your copy, but noted
                 }
                 else if (!string.IsNullOrEmpty(m.Sha256) && cacheByHash.TryGetValue(m.Sha256, out var cached))
                 {
@@ -80,22 +113,19 @@ namespace SideHustle.Sync
                     e.SourcePath = cached;
                 }
                 else if (m.Source.StartsWith("ts:", StringComparison.Ordinal)) e.Status = DiffStatus.Download;
-                else if (m.Source.StartsWith("nx:", StringComparison.Ordinal)) e.Status = DiffStatus.Manual;
-                else e.Status = DiffStatus.Dropped;
+                // A GitHub-hosted link mod downloads like ts: - releases are an open CDN and the hash check gates
+                // the result, so the session aligns to the host's exact bytes instead of reusing a local variant.
+                else if (GhReleases.IsGitHubSource(m.Source)) e.Status = DiffStatus.Download;
+                // nx: / unsourced: before forcing a hand-download or dropping it, reuse the client's OWN installed
+                // copy of the same mod (its exact bytes aren't fetchable anyway) so they don't re-download what they have.
+                else if (m.Source.StartsWith("nx:", StringComparison.Ordinal)) { if (!TryReuseOwnCopy(m, e, localByFile, loadedList)) e.Status = DiffStatus.Manual; }
+                else { if (!TryReuseOwnCopy(m, e, localByFile, loadedList)) e.Status = DiffStatus.Dropped; }
 
-                // Same name+version present with different bytes: a recompiled/self-built copy. The synced file
-                // still wins (identical bytes for everyone), but the player should see why their copy is replaced.
-                if (e.Status != DiffStatus.Present && localByFile.TryGetValue(m.File, out var l2))
-                {
-                    var loaded = ModInventory.Loaded().FirstOrDefault(x => string.Equals(x.File, m.File, StringComparison.OrdinalIgnoreCase));
-                    if (loaded != null && string.Equals(loaded.Version ?? "", m.Version ?? "", StringComparison.OrdinalIgnoreCase))
-                        e.HashWarn = true;
-                }
                 diff.Entries.Add(e);
             }
 
             var inManifest = new HashSet<string>(manifest.Mods.Select(m => m.File), StringComparer.OrdinalIgnoreCase);
-            foreach (var m in ModInventory.Loaded())
+            foreach (var m in loadedList)
             {
                 if (m.File == null || inManifest.Contains(m.File)) continue;
                 if (IsClientEssential(m.File)) continue;   // rides along anyway
@@ -104,15 +134,40 @@ namespace SideHustle.Sync
             return diff;
         }
 
-        /// <summary>Download every ts: entry that is not yet available locally. Returns false when one failed
-        /// (the caller re-computes the diff and shows what is still missing).</summary>
+        /// <summary>Download every auto-fetchable entry (ts: Thunderstore, GitHub releases) that is not yet
+        /// available locally. Returns false when one failed (the caller re-computes the diff and shows what is
+        /// still missing).</summary>
         internal static async System.Threading.Tasks.Task<bool> DownloadMissingAsync(SyncDiff diff,
             IProgress<(string Label, long Done, long Total)> progress, System.Threading.CancellationToken ct)
         {
-            var index = await ThunderstoreClient.GetIndexAsync(ProfileEngine.GameRoot, false, ct).ConfigureAwait(false);
+            TsIndex index = null;   // fetched lazily - a gh-only diff never needs the Thunderstore index
             bool allOk = true;
             foreach (var e in diff.Entries.Where(x => x.Status == DiffStatus.Download))
             {
+                if (GhReleases.IsGitHubSource(e.Mod.Source))
+                {
+                    progress?.Report((e.Mod.File, 0, 0));
+                    byte[] bytes = null;
+                    try { bytes = await GhReleases.TryFetchAsync(e.Mod.Source.Substring(3), e.Mod.Version, e.Mod.Sha256, ct).ConfigureAwait(false); }
+                    catch (OperationCanceledException) { throw; }
+                    catch (Exception ex) { Core.Log?.Warning($"[sync] '{e.Mod.File}': GitHub fetch failed: {ex.Message}"); }
+                    string ghPromoted = bytes != null
+                        ? ManualInstall.PromoteBytes(bytes, e.Mod.File, e.Mod.Sha256.ToLowerInvariant()) : null;
+                    if (ghPromoted != null)
+                    {
+                        e.Status = DiffStatus.Cached;
+                        e.SourcePath = ghPromoted;
+                    }
+                    else
+                    {
+                        Core.Log?.Warning($"[sync] '{e.Mod.File}': no GitHub release asset matched the host's hash; falling back to the manual link.");
+                        e.Status = DiffStatus.Manual;
+                        allOk = false;
+                    }
+                    continue;
+                }
+
+                index ??= await ThunderstoreClient.GetIndexAsync(ProfileEngine.GameRoot, false, ct).ConfigureAwait(false);
                 if (!TsIndex.SplitDependency(e.Mod.Source.Substring(3), out var fullName, out var version)) { allOk = false; continue; }
                 string dir = await ThunderstoreClient.EnsurePackageAsync(ProfileEngine.GameRoot, index, fullName, version, progress, ct).ConfigureAwait(false);
                 if (dir == null) { allOk = false; continue; }
@@ -160,6 +215,85 @@ namespace SideHustle.Sync
                 }
             }
             return inputs;
+        }
+
+        // For a manual/nx: (or unsourced) manifest mod whose exact bytes we cannot fetch, reuse the client's OWN
+        // installed copy of the same mod instead of forcing a hand-download. Byte-exact hash/cache matches already
+        // won in Compute, so this is the identity fallback: tiered, first hit wins, and never masquerades a different
+        // mod as the wanted one. Sets OwnCopyReuse (+ HashWarn since bytes aren't exact) and VersionWarn when the
+        // reused copy's version differs from or can't be verified against the host's. Returns true when it resolved.
+        private static bool TryReuseOwnCopy(ManifestMod m, DiffEntry e,
+            Dictionary<string, (string Path, string Sha)> localByFile, List<LoadedMod> loadedList)
+        {
+            try
+            {
+                // TIER 0: byte-identical copy under ANY file name (exact bytes, just renamed) - fully safe, no warn.
+                if (!string.IsNullOrEmpty(m.Sha256))
+                    foreach (var kv in localByFile)
+                        if (string.Equals(kv.Value.Sha, m.Sha256, StringComparison.OrdinalIgnoreCase))
+                        {
+                            bool live = loadedList.Any(x => string.Equals(x.File, kv.Key, StringComparison.OrdinalIgnoreCase));
+                            e.Status = live ? DiffStatus.Present : DiffStatus.Cached;
+                            e.SourcePath = kv.Value.Path; e.OwnCopyReuse = true;
+                            return true;
+                        }
+
+                // Same DLL file name in the client's install?
+                if (localByFile.TryGetValue(m.File, out var same))
+                {
+                    var loadedSame = loadedList.FirstOrDefault(x => string.Equals(x.File, m.File, StringComparison.OrdinalIgnoreCase));
+                    if (loadedSame != null)
+                    {
+                        // TIER 1: same file name, currently loaded. Abort if BOTH mod names are known and differ (a
+                        // different mod sharing a generic DLL name) - never masquerade.
+                        if (!string.IsNullOrEmpty(m.Name) && !string.IsNullOrEmpty(loadedSame.Name)
+                            && Norm(m.Name) != Norm(loadedSame.Name)) return false;
+                        e.Status = DiffStatus.Present; e.SourcePath = same.Path;
+                        e.OwnCopyReuse = true; e.HashWarn = true;
+                        e.VersionWarn = !(!string.IsNullOrEmpty(m.Version)
+                            && string.Equals(loadedSame.Version ?? "", m.Version, StringComparison.OrdinalIgnoreCase));
+                        return true;
+                    }
+                    // TIER 3: same file present on disk but NOT loaded (disabled/failed). Version unreadable while
+                    // unloaded -> flag it and load it via the restart (Cached).
+                    e.Status = DiffStatus.Cached; e.SourcePath = same.Path;
+                    e.OwnCopyReuse = true; e.HashWarn = true; e.VersionWarn = true;
+                    return true;
+                }
+
+                // TIER 2: exactly one loaded mod with the same NAME under a different file that exists on disk.
+                if (!string.IsNullOrEmpty(m.Name))
+                {
+                    var byName = loadedList.Where(x => !string.IsNullOrEmpty(x.Name) && Norm(x.Name) == Norm(m.Name)
+                                                       && x.File != null && localByFile.ContainsKey(x.File)).ToList();
+                    if (byName.Count == 1)
+                    {
+                        var only = byName[0];
+                        e.Status = DiffStatus.Present; e.SourcePath = localByFile[only.File].Path;
+                        e.OwnCopyReuse = true; e.HashWarn = true;
+                        e.VersionWarn = !(!string.IsNullOrEmpty(m.Version)
+                            && string.Equals(only.Version ?? "", m.Version, StringComparison.OrdinalIgnoreCase));
+                        return true;
+                    }
+                }
+                return false;
+            }
+            catch { return false; }
+        }
+
+        // Same-version acceptance is only safe when the client's local copy is the SAME Thunderstore package the
+        // host published - otherwise a coincidental same-name+same-version DLL from a DIFFERENT package would
+        // masquerade as it and the session would run the wrong mod. Requires a confirmed local mapping; an unmapped
+        // (hand-dropped) copy falls through to the hash/download path, which fetches the host's exact package.
+        private static bool SamePackageIdentity(ManifestMod m)
+        {
+            try
+            {
+                if (!TsIndex.SplitDependency(m.Source.Substring(3), out var full, out _)) return false;
+                string local = ModMatcher.ConfirmedFullName(m.File);
+                return local != null && string.Equals(local, full, StringComparison.OrdinalIgnoreCase);
+            }
+            catch { return false; }
         }
 
         // Side Hustle must ride into every sync profile (it drives the rejoin + the switch-back UI); S1API is

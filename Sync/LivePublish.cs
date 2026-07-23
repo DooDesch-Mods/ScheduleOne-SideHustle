@@ -128,11 +128,11 @@ namespace SideHustle.Sync
                 string org = "";
                 try { org = SteamFriends.GetPersonaName(); } catch { }
                 bool ok = VanillaLobby.Tag(opts, plan.Manifest.ToCanonicalText(), "", false, org + "'s game",
-                    $"{plan.AutoCount}/{plan.LinkCount}/{plan.DroppedCount}");
+                    $"{plan.AutoCount + plan.GhCount}/{plan.LinkCount}/{plan.DroppedCount}");
                 if (!ok) { Core.Log?.Warning("[sync] could not publish the lobby."); return; }
                 PublicLobbyAccess.Enable();
                 _published = true;
-                Core.Log?.Msg($"[sync] lobby published live ({plan.AutoCount}/{plan.LinkCount}/{plan.DroppedCount} mods).");
+                Core.Log?.Msg($"[sync] lobby published live ({plan.AutoCount + plan.GhCount}/{plan.LinkCount}/{plan.DroppedCount} mods).");
             }
             catch (Exception e) { Core.Log?.Warning("[sync] publish toggle failed: " + e.Message); }
         }

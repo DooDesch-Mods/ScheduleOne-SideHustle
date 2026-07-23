@@ -77,6 +77,25 @@ namespace SideHustle.Multiplayer
             catch (Exception e) { Core.Log?.Error("[mp] BootHostWorld failed: " + e); return false; }
         }
 
+        /// <summary>Materialize a fresh REAL save in slot N (0..4) from the DefaultSave template - the same recipe
+        /// the vanilla New Game screen uses - and refresh the save registry. Returns the new SaveInfo (for the
+        /// normal vanilla host flow to publish), or null on failure. Unlike the scratch world this creates a real
+        /// "SaveGame_N" folder, so RefreshSaveInfo lists it and the player keeps the save.</summary>
+        internal static Il2CppScheduleOne.Persistence.SaveInfo CreateNewSave(int slot, string orgName)
+        {
+            try
+            {
+                var sm = Singleton<SaveManager>.Instance;
+                if (sm == null) { Core.Log?.Warning("[mp] SaveManager unavailable for new game."); return null; }
+                string folder = Path.Combine(sm.IndividualSavesContainerPath, "SaveGame_" + (slot + 1));
+                BuildScratchSave(folder, orgName);   // the SetupScreen.StartGame recipe (copy + Game/Metadata json)
+                Singleton<LoadManager>.Instance.RefreshSaveInfo();
+                var saves = LoadManager.SaveGames;
+                return saves != null && slot >= 0 && slot < saves.Length ? saves[slot] : null;
+            }
+            catch (Exception e) { Core.Log?.Error("[mp] CreateNewSave failed: " + e); return null; }
+        }
+
         /// <summary>Leave the world back to the menu. The game's ExitToMenu also leaves the Steam lobby.</summary>
         internal static void ExitToMenu()
         {

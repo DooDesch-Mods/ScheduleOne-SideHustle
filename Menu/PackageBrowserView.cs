@@ -24,7 +24,12 @@ namespace SideHustle.Menu
         private const float TextLeft = 62f;    // clears the icon (10 + IconSize + gap)
         private const float TextRight = 194f;  // clears the Info + Install buttons on the right
 
-        internal static void Build(Transform formHost, Action onBack, Action<string, string> onInstall)
+        // The same four orderings as thunderstore.io, in its order, with its default (Last updated). Session-sticky.
+        private static readonly string[] SortLabels = { "Last updated", "Newest", "Downloads", "Top rated" };
+        private static int _sortMode;
+
+        internal static void Build(Transform formHost, Action onBack, Action<string, string> onInstall,
+            Func<string, bool> isInstalled = null)
         {
             const float Pad = 30f;
 
@@ -38,10 +43,15 @@ namespace SideHustle.Menu
             sart.anchorMin = new Vector2(0, 1); sart.anchorMax = new Vector2(1, 1); sart.pivot = new Vector2(0.5f, 1);
             sart.offsetMin = new Vector2(Pad, -50); sart.offsetMax = new Vector2(-Pad, 0);
 
+            var sortArea = UIFactory.Panel("sort", formHost, Theme.Clear);
+            var sortRt = sortArea.GetComponent<RectTransform>();
+            sortRt.anchorMin = new Vector2(0, 1); sortRt.anchorMax = new Vector2(1, 1); sortRt.pivot = new Vector2(0.5f, 1);
+            sortRt.offsetMin = new Vector2(Pad, -90); sortRt.offsetMax = new Vector2(-Pad, -56);
+
             var listArea = UIFactory.Panel("list", formHost, Theme.Clear);
             var lrt = listArea.GetComponent<RectTransform>();
             lrt.anchorMin = new Vector2(0, 0); lrt.anchorMax = new Vector2(1, 1);
-            lrt.offsetMin = new Vector2(Pad, 64); lrt.offsetMax = new Vector2(-Pad, -56);
+            lrt.offsetMin = new Vector2(Pad, 64); lrt.offsetMax = new Vector2(-Pad, -96);
 
             var content = Components.ScrollList(listArea.transform, out var scroll, 6f, Theme.ScrimPanel);
             SmoothScroll.Attach(scroll);
@@ -61,12 +71,16 @@ namespace SideHustle.Menu
                 }
 
                 var q = Norm(query);
-                var results = index.Packages
+                var filtered = index.Packages
                     .Where(p => !p.IsDeprecated && p.Latest != null)
-                    .Where(p => q.Length == 0 || Norm(p.Name).Contains(q) || Norm(p.Owner).Contains(q) || Norm(p.FullName).Contains(q))
-                    .OrderByDescending(p => p.TotalDownloads)
-                    .Take(MaxResults)
-                    .ToList();
+                    // Essentials (Side Hustle / S1API) are in every profile already - never offer them for install.
+                    .Where(p => !Profiles.Essentials.IsEssentialPackageName(p.FullName))
+                    .Where(p => q.Length == 0 || Norm(p.Name).Contains(q) || Norm(p.Owner).Contains(q) || Norm(p.FullName).Contains(q));
+                var results = Sorted(filtered).Take(MaxResults).ToList();
+#if DEBUG
+                Core.Log?.Msg($"[browser] sort={SortLabels[_sortMode]} top3: " + string.Join(" | ",
+                    results.Take(3).Select(p => $"{p.FullName} (upd {p.DateUpdated}, dl {p.TotalDownloads}, rt {p.RatingScore})")));
+#endif
 
                 if (results.Count == 0)
                 {
@@ -92,17 +106,48 @@ namespace SideHustle.Menu
 
                     var title = UIFactory.Text("name", p.Name, row.transform, Theme.H3, TextAnchor.UpperLeft, FontStyle.Bold);
                     PlaceLine(title, topInset: 11f, height: 20f);
+
+                    // A curated modpack (bundle of dependencies) reads very differently from a single mod - flag it
+                    // with a violet pill leading the meta line so the player knows Install pulls in a whole set.
+                    float metaLeft = TextLeft;
+                    if (p.IsModpack)
+                    {
+                        const float PillW = 74f;
+                        var pill = UIFactory.Panel("modpack", row.transform, Theme.Accent);
+                        var pimg = pill.GetComponent<Image>(); if (pimg != null) { pimg.sprite = Theme.RoundedSprite(); pimg.type = Image.Type.Sliced; }
+                        var prt = pill.GetComponent<RectTransform>();
+                        prt.anchorMin = new Vector2(0, 1); prt.anchorMax = new Vector2(0, 1); prt.pivot = new Vector2(0, 1);
+                        prt.sizeDelta = new Vector2(PillW, 18f); prt.anchoredPosition = new Vector2(TextLeft, -33f);
+                        var pl = UIFactory.Text("t", "Modpack", pill.transform, Theme.Caption, TextAnchor.MiddleCenter, FontStyle.Bold);
+                        pl.color = Color.white; pl.raycastTarget = false;
+                        var plrt = pl.rectTransform; plrt.anchorMin = Vector2.zero; plrt.anchorMax = Vector2.one; plrt.offsetMin = Vector2.zero; plrt.offsetMax = Vector2.zero;
+                        metaLeft = TextLeft + PillW + 8f;
+                    }
+
                     var meta = UIFactory.Text("meta", $"by {p.Owner} - v{p.Latest.VersionNumber} - {Downloads(p.TotalDownloads)} downloads",
                         row.transform, Theme.Body, TextAnchor.UpperLeft);
                     meta.color = Theme.TextMuted; meta.horizontalOverflow = HorizontalWrapMode.Overflow;
-                    PlaceLine(meta, topInset: 32f, height: 16f);
+                    var metaRt = meta.rectTransform;
+                    metaRt.anchorMin = new Vector2(0, 1); metaRt.anchorMax = new Vector2(1, 1); metaRt.pivot = new Vector2(0, 1);
+                    metaRt.offsetMin = new Vector2(metaLeft, -48f); metaRt.offsetMax = new Vector2(-TextRight, -32f);
 
-                    var (btnGO, btn, _) = UIFactory.ButtonWithLabel("install", "Install", row.transform, Theme.Accent, InstallW, 36f);
+                    // Already in this profile: a green, non-actionable "Installed" chip instead of the Install button.
+                    bool installed = isInstalled != null && isInstalled(p.FullName);
+                    var (btnGO, btn, btnLbl) = UIFactory.ButtonWithLabel(installed ? "installed" : "install",
+                        installed ? "Installed" : "Install", row.transform, installed ? Theme.Success : Theme.Accent, InstallW, 36f);
                     var brt = btnGO.GetComponent<RectTransform>();
                     brt.anchorMin = new Vector2(1, 0.5f); brt.anchorMax = new Vector2(1, 0.5f); brt.pivot = new Vector2(1, 0.5f);
                     brt.anchoredPosition = new Vector2(-10f, 0f);
-                    btn.onClick.AddListener((UnityEngine.Events.UnityAction)(() =>
-                        onInstall?.Invoke(p.FullName, p.Latest.VersionNumber)));
+                    if (installed)
+                    {
+                        btn.interactable = false;
+                        if (btnLbl != null) btnLbl.color = Theme.SuccessText;
+                    }
+                    else
+                    {
+                        btn.onClick.AddListener((UnityEngine.Events.UnityAction)(() =>
+                            onInstall?.Invoke(p.FullName, p.Latest.VersionNumber)));
+                    }
 
                     // Info: open the package's Thunderstore page (Steam overlay browser, external as fallback).
                     var (infoGO, infoBtn, _i) = UIFactory.ButtonWithLabel("info", "Info", row.transform, Theme.Button, InfoW, 36f);
@@ -120,6 +165,9 @@ namespace SideHustle.Menu
                 srt2.anchorMin = new Vector2(0, 0); srt2.anchorMax = new Vector2(1, 1);
                 srt2.offsetMin = Vector2.zero; srt2.offsetMax = Vector2.zero;
             }
+
+            var seg = Components.Segmented(sortArea.transform, SortLabels, _sortMode, i => { _sortMode = i; Render(); }, out _);
+            Components.FillSlot(seg);
 
             var (backGO, backBtn, _b) = UIFactory.ButtonWithLabel("Back", "Back", footer.transform, Theme.Button, 140, 40);
             var bprt = backGO.GetComponent<RectTransform>();
@@ -146,6 +194,23 @@ namespace SideHustle.Menu
 
         // Two tight lines anchored from the row's top edge (name over meta), between the left icon and the right
         // buttons, instead of pinning one to the top and one to the bottom of the row with a gap between.
+        // ISO-8601 timestamps compare correctly as ordinal strings, so the date sorts stay allocation-free.
+        private static IEnumerable<TsPackage> Sorted(IEnumerable<TsPackage> src)
+        {
+            switch (_sortMode)
+            {
+                case 1: return src.OrderByDescending(p => p.DateCreated, StringComparer.Ordinal);
+                case 2: return src.OrderByDescending(p => p.TotalDownloads);
+                case 3: return src.OrderByDescending(p => p.RatingScore).ThenByDescending(p => p.TotalDownloads);
+                default: return src.OrderByDescending(p => p.DateUpdated, StringComparer.Ordinal);
+            }
+        }
+
+#if DEBUG
+        /// <summary>Dev.SelfTest only: pick a sort mode before the browser opens (the rig cannot click).</summary>
+        internal static void SetSortForTest(int mode) => _sortMode = Math.Max(0, Math.Min(SortLabels.Length - 1, mode));
+#endif
+
         private static void PlaceLine(Text t, float topInset, float height)
         {
             var rt = t.GetComponent<RectTransform>();

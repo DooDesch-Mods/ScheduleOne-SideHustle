@@ -46,9 +46,9 @@ namespace SideHustle.Menu
                 MainThread.Post(() =>
                 {
                     if (plan == null) return;
-                    Core.Log?.Msg($"[selftest] vanillahost: plan auto={plan.AutoCount} link={plan.LinkCount} dropped={plan.DroppedCount}");
+                    Core.Log?.Msg($"[selftest] vanillahost: plan auto={plan.AutoCount} gh={plan.GhCount} link={plan.LinkCount} dropped={plan.DroppedCount}");
                     SyncCoordinator.StartHostVanilla(save, new HostOptions { MaxPlayers = 4 },
-                        plan.Manifest.ToCanonicalText(), "", $"{plan.AutoCount}/{plan.LinkCount}/{plan.DroppedCount}", false);
+                        plan.Manifest.ToCanonicalText(), "", $"{plan.AutoCount + plan.GhCount}/{plan.LinkCount}/{plan.DroppedCount}", false);
                 });
             });
         }
@@ -78,17 +78,21 @@ namespace SideHustle.Menu
         {
             var manifest = new SyncManifest { GameVersion = "0.4.5f2", MelonLoaderVersion = "0.7.3", SideHustleVersion = "2.0.0" };
             var diff = new SyncDiff();
-            void Add(string file, string name, string ver, DiffStatus status, string source, bool hashWarn = false)
+            void Add(string file, string name, string ver, DiffStatus status, string source, bool hashWarn = false, string sha = "deadbeef")
             {
-                var mod = new ManifestMod { File = file, Name = name, Version = ver, Sha256 = "deadbeef", Source = source };
+                var mod = new ManifestMod { File = file, Name = name, Version = ver, Sha256 = sha, Source = source };
                 manifest.Mods.Add(mod);
                 diff.Entries.Add(new DiffEntry { Mod = mod, Status = status, HashWarn = hashWarn });
             }
             Add("Siesta.dll", "Siesta", "1.2.0", DiffStatus.Present, "ts:DooDesch-Siesta-1.2.0");
             Add("Litterally.dll", "Litterally", "1.0.0", DiffStatus.Download, "ts:DooDesch-Litterally-1.0.0");
             Add("Backrooms.dll", "Backrooms", "2.0.0", DiffStatus.Cached, "ts:DooDesch-Backrooms-2.0.0", hashWarn: true);
-            Add("SecretMod.dll", "Nexus Only Mod", "3.1.0", DiffStatus.Manual, "nx:https://www.nexusmods.com/schedule1/mods/123");
-            Add("HomeBrew.dll", "Home-brewed Mod", "0.0.1", DiffStatus.Dropped, "");
+            // The manual entries carry REAL hashes of tiny deterministic payloads so the folder watcher can be
+            // exercised live: a file whose ASCII content is "SIDEHUSTLE SYNTHETIC PAYLOAD <stem>" resolves the row.
+            Add("SecretMod.dll", "Nexus Only Mod", "3.1.0", DiffStatus.Manual, "nx:https://www.nexusmods.com/schedule1/mods/123",
+                sha: "13d4dbd989bf57ab12d072d5a0918cd37cfa8508680a0a13ba53a2dce3c4082f");
+            Add("HomeBrew.dll", "Home-brewed Mod", "0.0.1", DiffStatus.Dropped, "",
+                sha: "bf89a3abb406ca4ab7bf38a76d7a150a70235092a28781d2cfbf515f737dde9d");
             diff.LocalOnly.Add("Your Private HUD");
             diff.LocalOnly.Add("Cheat Menu");
             var row = new VanillaLobbyRow
@@ -226,13 +230,13 @@ namespace SideHustle.Menu
                 },
                 new Row
                 {
-                    Name = "Browse lobbies",
-                    Subtitle = "Public vanilla lobbies published by other Side Hustle hosts.",
+                    Name = "Join a lobby",
+                    Subtitle = "Browse public vanilla lobbies other Side Hustle hosts are running.",
                     OnClick = ShowVanillaBrowser
                 },
                 new Row { Name = "Back", Subtitle = "Back to the gamemode list.", OnClick = ShowGamemodeList }
             };
-            ShowRows("Vanilla Co-op", rows);
+            ShowRows("Vanilla Co-op", rows, aliasForGamemodeId: "vanilla");
         }
 
         private static void ShowVanillaSavePicker()
@@ -267,13 +271,75 @@ namespace SideHustle.Menu
             }
             catch (Exception e) { Core.Log?.Warning("[sync] save enumeration failed: " + e.Message); }
 
-            if (rows.Count == 0)
-                rows.Add(new Row { Name = "No saves found", Subtitle = "Start a normal game first - the host loads a real save.", Disabled = true });
+            // A fresh start, mirroring the main menu's "New Game": create a real save and host it directly. Offered
+            // whenever a save slot is free (also the only action when the player has no saves yet, so "Host a save"
+            // is never a dead end); hidden when all five slots are full, since a new save could not be created anyway.
+            if (FirstFreeSaveSlot() >= 0)
+                rows.Insert(0, new Row
+                {
+                    Name = "New game",
+                    Subtitle = "Create a fresh save and host it right away.",
+                    Corner = "New",
+                    OnClick = PromptNewGame
+                });
             rows.Add(new Row { Name = "Back", Subtitle = "Back to Vanilla Co-op.", OnClick = ShowVanillaChoice });
             ShowRows("Host a save", rows);
         }
 
-        private static void ShowVanillaHostForm(Il2CppScheduleOne.Persistence.SaveInfo save)
+        // Name the organisation (like the vanilla New Game setup screen), then create + host a fresh save.
+        private static void PromptNewGame()
+        {
+            var root = DialogRoot();
+            if (root == null) return;
+            DooDesch.UI.Components.PromptDialog(root, "New game",
+                "Name your organisation - a fresh save is created and hosted as a public lobby.",
+                "Organisation name", "Create and host",
+                name =>
+                {
+                    if (string.IsNullOrWhiteSpace(name)) return "Enter an organisation name.";
+                    HostNewGame(name.Trim());
+                    return null;
+                });
+        }
+
+        private static void HostNewGame(string orgName)
+        {
+            if (FirstFreeSaveSlot() < 0)
+            {
+                ShowRows("Host a save", new List<Row>
+                {
+                    new Row { Name = "All save slots are full", Subtitle = "Delete a save in the main menu first, then create a new game.", Disabled = true },
+                    new Row { Name = "Back", Subtitle = "Back to your saves.", OnClick = ShowVanillaSavePicker }
+                });
+                return;
+            }
+            // The fresh save is created only when the player presses Host (in ShowVanillaHostForm's onHost), so
+            // abandoning the form never leaves an orphaned slot.
+            ShowVanillaHostForm(null, orgName);
+        }
+
+        // The first empty save slot (0..4), or -1 when all five are occupied.
+        private static int FirstFreeSaveSlot()
+        {
+            try
+            {
+                var saves = Il2CppScheduleOne.Persistence.LoadManager.SaveGames;
+                for (int i = 0; i < (saves?.Length ?? 0); i++)
+                {
+                    var info = saves[i];
+                    string org = null;
+                    try { org = info?.OrganisationName; } catch { /* treat as empty */ }
+                    if (info == null || string.IsNullOrEmpty(org)) return i;
+                }
+            }
+            catch (Exception e) { Core.Log?.Warning("[sync] free-slot scan failed: " + e.Message); }
+            return -1;
+        }
+
+        // Host an existing save, or - when newGameOrg is set - a fresh new game. For a new game the save is NOT
+        // created here: it is materialized only when the player actually presses Host (in the onHost callback), so
+        // backing out of the form or a failed plan build never leaves an orphaned, never-played save slot behind.
+        private static void ShowVanillaHostForm(Il2CppScheduleOne.Persistence.SaveInfo save, string newGameOrg = null)
         {
             if (_clone == null) return;
             _back = ShowVanillaSavePicker;
@@ -297,7 +363,9 @@ namespace SideHustle.Menu
 
                 MainThread.Post(() =>
                 {
-                    if (_cloneScreen == null || !_cloneScreen.IsOpen) return;
+                    // Only rebuild if the host form is still the active view (the player may have navigated away
+                    // during the async index fetch).
+                    if (_cloneScreen == null || !_cloneScreen.IsOpen || _formHost == null || _formHost.name != "SH_VanillaHost") return;
                     ClearFormHost();
                     var h = CreateFormHost("SH_VanillaHost", 560f);
                     if (plan == null)
@@ -309,50 +377,85 @@ namespace SideHustle.Menu
                         onBack: ShowVanillaSavePicker,
                         onHost: (opts, enforce, syncedCats) =>
                         {
+                            var target = save;
+                            if (target == null && newGameOrg != null)
+                            {
+                                // Create the fresh save now, at the moment of hosting, so an abandoned form leaves nothing.
+                                int slot = FirstFreeSaveSlot();
+                                target = slot >= 0 ? Multiplayer.WorldBoot.CreateNewSave(slot, newGameOrg) : null;
+                                if (target == null)
+                                {
+                                    ProfilesViews.BuildInstalling(CreateFormHost("SH_VanillaHost", 560f),
+                                        "Couldn't create the new save (no free slot or an error - see the log).", ShowVanillaSavePicker);
+                                    return;
+                                }
+                            }
+                            if (target == null) return;
                             string prefsText = PrefsCatalog.BuildOverlay(syncedCats);
                             CloseHubScreen();
-                            SyncCoordinator.StartHostVanilla(save, opts,
+                            SyncCoordinator.StartHostVanilla(target, opts,
                                 plan.Manifest.ToCanonicalText(), prefsText,
-                                $"{plan.AutoCount}/{plan.LinkCount}/{plan.DroppedCount}", enforce);
+                                $"{plan.AutoCount + plan.GhCount}/{plan.LinkCount}/{plan.DroppedCount}", enforce);
                         });
                 });
             });
         }
 
+        // The row behind each browser card, so a card's Join can recover the full vanilla row (manifest hash,
+        // enforce flag, owner trust) that the generic LobbyRow card model does not carry.
+        private static readonly Dictionary<ulong, VanillaLobbyRow> _vanillaRowsById = new Dictionary<ulong, VanillaLobbyRow>();
+
+        // The vanilla lobby browser now uses the SAME card list as the gamemode Join browser (JoinBrowserView) -
+        // scrollable lobby cards with a per-card Join button and a Refresh/Back footer - instead of the old plain
+        // text rows. Both back onto the identical Steam lobby query; only the row DTO and post-select flow differ.
         private static void ShowVanillaBrowser()
         {
+            if (_clone == null) return;
             _back = ShowVanillaChoice;
-            ShowRows("Browsing...", new List<Row>
+            ClearFormHost();
+            SetTmp(_clone.transform, "Title", "Join a vanilla lobby");
+
+            var host = CreateFormHost("SH_VanillaBrowser", 560f);
+            var content = JoinBrowserView.Build(host, ShowVanillaChoice, ShowVanillaBrowser);
+            JoinBrowserView.SetStatus(content, "Searching for public vanilla lobbies...");
+            ServerBrowser.BeginQueryVanilla(rows => MainThread.Post(() =>
             {
-                new Row { Name = "Searching for public vanilla lobbies...", Subtitle = "Steam lobby query in flight.", Disabled = true }
-            });
-            ServerBrowser.BeginQueryVanilla(rows => MainThread.Post(() => ShowVanillaBrowserResults(rows)));
+                if (_cloneScreen == null || !_cloneScreen.IsOpen || _formHost == null || _formHost.name != "SH_VanillaBrowser") return;
+                _vanillaRowsById.Clear();
+                var mapped = new List<LobbyRow>();
+                foreach (var r in rows ?? new List<VanillaLobbyRow>())
+                {
+                    _vanillaRowsById[r.LobbyId] = r;
+                    mapped.Add(MapVanillaRow(r));
+                }
+                JoinBrowserView.Populate(content, mapped, lr =>
+                {
+                    if (_vanillaRowsById.TryGetValue(lr.LobbyId, out var vr)) StartVanillaJoin(vr);
+                });
+            }));
         }
 
-        private static void ShowVanillaBrowserResults(List<VanillaLobbyRow> lobbies)
+        // Adapt a vanilla lobby summary to the generic browser-card model: the save name, published mod counts and
+        // enforce flag ride in the card's secondary line (LobbyRow.Mode, shown after "Vanilla Co-op").
+        private static LobbyRow MapVanillaRow(VanillaLobbyRow r)
         {
-            if (_cloneScreen == null || !_cloneScreen.IsOpen) return;
-            _back = ShowVanillaChoice;
-            var rows = new List<Row>();
-            foreach (var l in lobbies ?? new List<VanillaLobbyRow>())
+            // Keep the card's secondary line short (it already leads with "Vanilla Co-op" + the player count, and
+            // BuildCard appends a "Locked" flag): just the save name plus a compact synced-only marker. The full
+            // published mod breakdown is shown on the sync-consent screen after the player picks the lobby.
+            string extra = $"save '{r.Org}'";
+            if (r.Enforced) extra += "  ·  synced-only";
+            return new LobbyRow
             {
-                var row = l;
-                string counts = row.ModSummary;   // "auto/manual/dropped" as published
-                string sub = $"{row.Members}/{Math.Max(row.Members, row.MaxPlayers)} players - save '{row.Org}'"
-                             + (string.IsNullOrEmpty(counts) ? "" : $" - mods {counts}")
-                             + (row.Enforced ? " - synced clients only" : "");
-                rows.Add(new Row
-                {
-                    Name = string.IsNullOrEmpty(row.LobbyName) ? row.HostName : row.LobbyName,
-                    Subtitle = sub,
-                    Corner = row.HasPassword ? "Locked" : "Open",
-                    OnClick = () => StartVanillaJoin(row)
-                });
-            }
-            if (rows.Count == 0)
-                rows.Add(new Row { Name = "No public vanilla lobbies right now", Subtitle = "Hosts publish theirs via Vanilla Co-op -> Host a save.", Disabled = true });
-            rows.Add(new Row { Name = "Back", Subtitle = "Back to Vanilla Co-op.", OnClick = ShowVanillaChoice });
-            ShowRows("Vanilla lobbies", rows);
+                LobbyId = r.LobbyId,
+                LobbyName = r.LobbyName,
+                HostName = r.HostName,
+                Members = r.Members,
+                MaxPlayers = r.MaxPlayers,
+                HasPassword = r.HasPassword,
+                PwHash = r.PwHash,
+                GamemodeName = "Vanilla Co-op",
+                Mode = extra,
+            };
         }
 
         private static void StartVanillaJoin(VanillaLobbyRow row)
@@ -387,12 +490,72 @@ namespace SideHustle.Menu
         {
             _back = ShowVanillaBrowser;
 
-            if (!VanillaLobby.TryReadPayloads(row.LobbyId, out var manifest, out var hostPrefs, out var mhash))
+            // The browse read the card off Steam's lobby-LIST snapshot, which delivers big values (the chunked
+            // manifest) late and unreliably - so a first read can miss the manifest entirely, producing a false
+            // "Sync unavailable". Request the full lobby data and retry a few times before declaring it unsyncable.
+            ShowRows("Reading the host's mods...", new List<Row>
             {
-                ShowUnsyncableJoin(row, "Couldn't read the host's mod list - nothing can be compared or synced.");
+                new Row { Name = "Reading the host's mod list...", Subtitle = "Fetching the details from Steam.", Disabled = true }
+            });
+            try { Il2CppSteamworks.SteamMatchmaking.RequestLobbyData(new Il2CppSteamworks.CSteamID(row.LobbyId)); } catch { }
+            WaitForManifest(row, 0);
+        }
+
+        // Retry reading the host's chunked manifest (re-requesting lobby data each attempt) until it validates or the
+        // ~3s window elapses. The read + UI run on the main thread; only the delay rides a background task.
+        private static void WaitForManifest(VanillaLobbyRow row, int attempt)
+        {
+            if (_cloneScreen == null || !_cloneScreen.IsOpen) return;
+            if (VanillaLobby.TryReadPayloads(row.LobbyId, out var manifest, out var hostPrefs, out var mhash))
+            {
+                BeginSyncCompare(row, manifest, hostPrefs, mhash);
                 return;
             }
+            if (attempt >= 7)   // ~5s of Steam (the primary path) before falling back to the backend directory
+            {
+                TryDirectoryFallback(row);
+                return;
+            }
+            try { Il2CppSteamworks.SteamMatchmaking.RequestLobbyData(new Il2CppSteamworks.CSteamID(row.LobbyId)); } catch { }
+            System.Threading.Tasks.Task.Run(async () =>
+            {
+                await System.Threading.Tasks.Task.Delay(700);
+                MainThread.Post(() => WaitForManifest(row, attempt + 1));
+            });
+        }
 
+        // Steam couldn't produce the manifest (likely too large to propagate) - fall back to the backend directory.
+        // The backend is untrusted, so its manifest is only accepted when it hashes to the mhash the host wrote to the
+        // real Steam lobby (see VanillaLobby.TryReadFromDirectoryAsync).
+        private static void TryDirectoryFallback(VanillaLobbyRow row)
+        {
+            Core.Log?.Msg("[sync] Steam manifest unavailable; trying the backend fallback...");
+            ShowRows("Reading the host's mods...", new List<Row>
+            {
+                new Row { Name = "Reading the host's mod list (backend)...", Subtitle = "Steam couldn't share it - using the fallback.", Disabled = true }
+            });
+            System.Threading.Tasks.Task.Run(async () =>
+            {
+                var res = await VanillaLobby.TryReadFromDirectoryAsync(row.LobbyId);
+                MainThread.Post(() =>
+                {
+                    if (_cloneScreen == null || !_cloneScreen.IsOpen) return;
+                    if (res != null)
+                    {
+                        Core.Log?.Msg("[sync] backend fallback provided the manifest.");
+                        BeginSyncCompare(row, res.Manifest, res.Prefs, res.Mhash);
+                    }
+                    else
+                    {
+                        Core.Log?.Warning("[sync] manifest unreadable via Steam AND backend: " + VanillaLobby.DescribeReadFailure(row.LobbyId));
+                        ShowUnsyncableJoin(row, "Couldn't read the host's mod list from Steam or the backend. The host may be on a different build. Go Back and try again.");
+                    }
+                });
+            });
+        }
+
+        private static void BeginSyncCompare(VanillaLobbyRow row, SyncManifest manifest, string hostPrefs, string mhash)
+        {
             ShowRows("Comparing mods...", new List<Row>
             {
                 new Row { Name = "Comparing the host's mods with yours...", Subtitle = "Hashing your installed mods.", Disabled = true }
@@ -409,16 +572,19 @@ namespace SideHustle.Menu
                     if (diff == null) { ShowUnsyncableJoin(row, "Comparing failed (see log)."); return; }
 
                     bool nothingToFetch = diff.Count(DiffStatus.Download) == 0 && diff.Count(DiffStatus.Manual) == 0;
-                    if (!diff.NeedsRestart && string.IsNullOrEmpty(hostPrefs))
+                    if (!diff.NeedsRestart && !diff.AnyVersionWarn && string.IsNullOrEmpty(hostPrefs))
                     {
-                        // Everything already matches byte-for-byte and there is nothing to overlay: join in place.
+                        // Our mods already match the manifest and there is nothing to overlay: join in place, but
+                        // through the coordinator so the synced handshake (sh_sync member data) is still set -
+                        // otherwise an enforcing host's gate would kick us after the grace period for never syncing.
                         CloseHubScreen();
-                        LobbyCoordinator.JoinLobby(row.LobbyId);
+                        SyncCoordinator.StartInPlaceJoin(row.LobbyId, mhash);
                         return;
                     }
                     if (nothingToFetch && TrustStore.IsTrusted(row.OwnerSteamId, mhash))
                     {
-                        StartSyncAndJoin(row, manifest, diff, mhash, hostPrefs);   // consent already given for THIS manifest
+                        // Consent already given for THIS manifest: rejoin seamlessly, no checklist even if dropped mods remain.
+                        StartSyncAndJoin(row, manifest, diff, mhash, hostPrefs, offerChecklist: false);
                         return;
                     }
                     ShowVanillaConsent(row, manifest, diff, mhash, hostPrefs);
@@ -460,14 +626,17 @@ namespace SideHustle.Menu
         }
 
         /// <summary>Consent given: download what's missing, build the session profile from the EXACT resolved
-        /// bytes, remember the trust, and restart with the rejoin token. Manual (nx:) mods are not fetchable
-        /// here yet - they ride as absent this round (their checklist is the next build step).</summary>
-        private static void StartSyncAndJoin(VanillaLobbyRow row, SyncManifest manifest, SyncDiff diff, string mhash, string hostPrefs = null)
+        /// bytes, remember the trust, and restart with the rejoin token. Hand-fetched mods (an nx: link mod or a
+        /// source-less Nexus-only one) are not fetchable here yet - they ride as absent this round (their checklist
+        /// is the next build step). <paramref name="offerChecklist"/> is false for a trusted rejoin that already
+        /// consented to this exact manifest, so it is not re-nagged with the checklist.</summary>
+        private static void StartSyncAndJoin(VanillaLobbyRow row, SyncManifest manifest, SyncDiff diff, string mhash, string hostPrefs = null, bool offerChecklist = true)
         {
-            // Manual (nx:) mods first: if any need fetching by hand, show the checklist and only build+restart
-            // once the player continues (resolved manual files land in the cache the resolver reads). The dev
-            // test path has no open screen, so it skips straight to the build.
-            if (diff.Entries.Any(e => e.Status == DiffStatus.Manual) && _clone != null && _cloneScreen != null && _cloneScreen.IsOpen)
+            // Anything the client must fetch by hand - an nx: link mod (Manual) or a source-less Nexus-only mod
+            // (Dropped) - gets the checklist: show it, and only build+restart once the player continues (resolved
+            // files land in the cache the resolver reads). The dev/trusted path skips straight to the build.
+            if (offerChecklist && diff.Entries.Any(e => e.Status == DiffStatus.Manual || e.Status == DiffStatus.Dropped)
+                && _clone != null && _cloneScreen != null && _cloneScreen.IsOpen)
             {
                 _back = () => ShowVanillaConsent(row, manifest, diff, mhash, hostPrefs);
                 ClearFormHost();
@@ -490,9 +659,10 @@ namespace SideHustle.Menu
             {
                 _back = null;
                 ClearFormHost();
-                SetTmp(_clone.transform, "Title", "Syncing...");
+                SetTmp(_clone.transform, "Title", "Joining the host");
                 var host = CreateFormHost("SH_Syncing", 560f);
-                ProfilesViews.BuildInstalling(host, "Syncing the host's mods - the game restarts and rejoins on its own...");
+                ProfilesViews.BuildBigStatus(host, "RESTARTING WITH HOST MODS",
+                    "The game restarts and rejoins the host on its own - hang tight, this can take a moment. Don't close the game.");
             }
 
             System.Threading.Tasks.Task.Run(async () =>
@@ -516,6 +686,8 @@ namespace SideHustle.Menu
                         return;
                     }
                     TrustStore.Trust(row.OwnerSteamId, mhash, row.HostName);
+                    // Remember this lobby's mod set so the player can turn it into a permanent named profile later.
+                    LastSync.Save(row.HostName, new SyncManifest { Mods = diff.Entries.Select(e => e.Mod).ToList() });
                     var token = ConfigCodec.Encode(new[]
                     {
                         new KeyValuePair<string, string>("lobby", row.LobbyId.ToString()),

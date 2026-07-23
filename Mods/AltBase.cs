@@ -133,7 +133,11 @@ namespace SideHustle.Mods
                     string target = Path.Combine(root, d);
                     if (!Directory.Exists(target)) continue;   // Plugins/UserLibs may be absent on a minimal install
                     string link = Path.Combine(altPath, d);
-                    if (!MakeJunction(link, target))
+                    // MelonLoader gets the per-session split (own Logs + Latest.log); Plugins/UserLibs junction whole.
+                    bool ok = d.Equals("MelonLoader", StringComparison.OrdinalIgnoreCase)
+                        ? BuildMelonLoaderBase(altPath, target)
+                        : MakeJunction(link, target);
+                    if (!ok)
                     {
                         Core.Log?.Error($"[modpolicy] could not junction {d}; aborting alt-base build.");
                         Teardown(altPath);
@@ -221,9 +225,9 @@ namespace SideHustle.Mods
                 Directory.CreateDirectory(altPath);
 
                 string mlTarget = Path.Combine(root, "MelonLoader");
-                if (Directory.Exists(mlTarget) && !MakeJunction(Path.Combine(altPath, "MelonLoader"), mlTarget))
+                if (Directory.Exists(mlTarget) && !BuildMelonLoaderBase(altPath, mlTarget))
                 {
-                    Core.Log?.Error("[profiles] could not junction the MelonLoader runtime; aborting isolated build.");
+                    Core.Log?.Error("[profiles] could not build the profile MelonLoader base; aborting isolated build.");
                     Teardown(altPath);
                     return false;
                 }
@@ -241,6 +245,29 @@ namespace SideHustle.Mods
                 try { Teardown(altPath); } catch { /* ignore */ }
                 return false;
             }
+        }
+
+        // Give an alt base its OWN MelonLoader/Logs + Latest.log (so a client can send a clean per-profile/-session
+        // log) while sharing the loader runtime: junction every MelonLoader subdirectory EXCEPT Logs, and leave Logs
+        // a real per-profile folder. MelonLoader then writes Latest.log + dated logs INTO the profile base, not the
+        // shared install. A junction failure aborts the build (the caller's Teardown removes any links link-only).
+        private static bool BuildMelonLoaderBase(string altPath, string mlTarget)
+        {
+            try
+            {
+                string mlLink = Path.Combine(altPath, "MelonLoader");
+                Directory.CreateDirectory(mlLink);
+                foreach (var sub in Directory.GetDirectories(mlTarget))
+                {
+                    string name = Path.GetFileName(sub);
+                    if (name.Equals("Logs", StringComparison.OrdinalIgnoreCase)) continue;   // per-profile, kept real
+                    if (IsReparsePoint(sub)) continue;                                        // never chain a junction
+                    if (!MakeJunction(Path.Combine(mlLink, name), sub)) return false;
+                }
+                Directory.CreateDirectory(Path.Combine(mlLink, "Logs"));
+                return true;
+            }
+            catch (Exception e) { Core.Log?.Warning("[profiles] MelonLoader base build failed: " + e.Message); return false; }
         }
 
         // A profile Plugins/UserLibs folder = every DLL from the matching global folder (seeded, so nothing that

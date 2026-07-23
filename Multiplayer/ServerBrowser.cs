@@ -119,6 +119,9 @@ namespace SideHustle.Multiplayer
                     CSteamID id = SteamMatchmaking.GetLobbyByIndex(i);
                     if (id.m_SteamID == 0UL) break;
                     rows.Add(Sync.VanillaLobby.ReadSummary(id.m_SteamID));
+                    // Warm the FULL lobby data (incl. the big chunked manifest) in our Steam cache while the player
+                    // browses, so a later sync-check reads complete data on the first try instead of racing propagation.
+                    try { SteamMatchmaking.RequestLobbyData(id); } catch { }
                 }
             }
             catch (Exception e) { Core.Log?.Warning("[sync] vanilla-lobby parse error: " + e.Message); }

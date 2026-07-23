@@ -160,6 +160,25 @@ namespace SideHustle.Profiles
         }
 
         /// <summary>
+        /// The index WITHOUT any network round-trip: the session copy if one is loaded, else a synchronous parse of
+        /// the on-disk cache, else null. Safe on the main thread (a few MB of JSON, no gate). Used where the UI
+        /// needs dependency/sort data NOW and must degrade gracefully offline instead of blocking. Deliberately does
+        /// NOT populate <see cref="_session"/> - that would suppress GetIndexAsync's once-per-session network refresh
+        /// and freeze the browser/installs on a stale disk cache.
+        /// </summary>
+        internal static TsIndex GetCachedIndexOrNull(string gameRoot)
+        {
+            if (_session != null) return _session;
+            try
+            {
+                string cachePath = IndexCachePath(gameRoot);
+                if (!File.Exists(cachePath)) return null;
+                return TsIndex.Parse(File.ReadAllText(cachePath));
+            }
+            catch { return null; }
+        }
+
+        /// <summary>
         /// Make sure a package version sits extracted in the cache; download + extract when missing. Returns the
         /// package directory, or null when the package is unknown, the download fails, or the zip is rejected
         /// (traversal guard). <paramref name="progress"/> reports (label, bytesDone, bytesTotal).

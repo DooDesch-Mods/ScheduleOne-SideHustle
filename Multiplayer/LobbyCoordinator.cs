@@ -123,6 +123,24 @@ namespace SideHustle.Multiplayer
             catch (Exception e) { Core.Log?.Warning("[mp] JoinLobby failed: " + e.Message); }
         }
 
+        /// <summary>Menu safety net: if we still OWN a Steam lobby but no Side Hustle session is live or starting, it
+        /// is a leftover from a prior host (a MenuSpace gamemode, an aborted host, or a co-op host that did not leave
+        /// cleanly). The owner leaving DESTROYS the lobby, so a stray one can never be discovered or joined before the
+        /// player explicitly hosts again. Host-only (a client's membership is torn down elsewhere); no-op when not in a
+        /// lobby. Returns true if it left one.</summary>
+        internal static bool LeaveStrayHostLobby()
+        {
+            var l = LobbyOrNull();
+            try
+            {
+                if (l == null || !l.IsInLobby || !l.IsHost) return false;
+                l.LeaveLobby();
+                Core.Log?.Msg("[mp] left a stray host lobby at the menu (no active session).");
+                return true;
+            }
+            catch (Exception e) { Core.Log?.Warning("[mp] leaving a stray lobby failed: " + e.Message); return false; }
+        }
+
         /// <summary>Best-effort: stop advertising the lobby before we leave (the host went back to the hub).</summary>
         internal static void Unlist()
         {
