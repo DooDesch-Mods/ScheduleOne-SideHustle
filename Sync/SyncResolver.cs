@@ -171,9 +171,17 @@ namespace SideHustle.Sync
                 }
 
                 index ??= await ThunderstoreClient.GetIndexAsync(ProfileEngine.GameRoot, false, ct).ConfigureAwait(false);
-                if (!TsIndex.SplitDependency(e.Mod.Source.Substring(3), out var fullName, out var version)) { allOk = false; continue; }
+                // A failed auto-download must not stay "Download": that status means "will be fetched", so the entry
+                // would silently vanish from the profile inputs while the checklist (which lists manual/dropped rows)
+                // never shows it. Demote it to what it actually is - a mod the player has to fetch by hand.
+                if (!TsIndex.SplitDependency(e.Mod.Source.Substring(3), out var fullName, out var version))
+                { Downgrade(e); allOk = false; continue; }
                 string dir = await ThunderstoreClient.EnsurePackageAsync(ProfileEngine.GameRoot, index, fullName, version, progress, ct).ConfigureAwait(false);
-                if (dir == null) { allOk = false; continue; }
+                if (dir == null)
+                {
+                    Core.Log?.Warning($"[sync] '{e.Mod.File}': {fullName} {version} could not be downloaded; falling back to the manual link.");
+                    Downgrade(e); allOk = false; continue;
+                }
                 string src = PackageCache.FindExtractedFile(dir, e.Mod.File);
                 string sha = src != null ? ProfileBuilder.Sha256OfFile(src) : null;
                 if (src != null && string.Equals(sha, e.Mod.Sha256, StringComparison.OrdinalIgnoreCase))
@@ -212,6 +220,11 @@ namespace SideHustle.Sync
             }
             return allOk;
         }
+
+        /// <summary>An entry that could not be auto-fetched becomes a hand-install (or a drop when nothing points at
+        /// it), so every "not in the session" mod is visible in exactly one place: the manual checklist.</summary>
+        private static void Downgrade(DiffEntry e) =>
+            e.Status = string.IsNullOrEmpty(e.Mod.Source) ? DiffStatus.Dropped : DiffStatus.Manual;
 
         /// <summary>How deep the dependency walk goes, and how many library packages it may fetch - a runaway
         /// closure must never turn one join into dozens of downloads.</summary>

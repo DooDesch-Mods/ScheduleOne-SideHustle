@@ -97,8 +97,13 @@ namespace SideHustle
                 // into _vanillaJoinPayload below - without the second term, a re-init would see the cleared token,
                 // treat the sync profile as a normal policy profile, and RestoreAndRestart() its host-built (always
                 // "stale") mods, re-dropping the rejoin this exemption exists to protect.
+                // The gamemode-install profile (join a gamemode you don't own) is built from the host's bytes exactly
+                // like a sync profile, so it needs the same exemption: a client that already owns a DIFFERENT build
+                // of a mod the gamemode requires would read as "stale" against its own install, bounce, and lose the
+                // join token that only exists in this profile's cloned config.
                 bool syncJoinPending = policySession
-                    && (!string.IsNullOrEmpty(Preferences.PendingVanillaJoin) || !string.IsNullOrEmpty(_vanillaJoinPayload));
+                    && (!string.IsNullOrEmpty(Preferences.PendingVanillaJoin) || !string.IsNullOrEmpty(_vanillaJoinPayload)
+                        || !string.IsNullOrEmpty(Preferences.PendingGamemodeJoin) || !string.IsNullOrEmpty(_gamemodeJoinPayload));
 
                 // If this gamemode profile no longer matches your installed mods (you updated a mod - a new beta - after
                 // the profile was built), it would run STALE DLLs. Bounce back to your full, current mod set: the next

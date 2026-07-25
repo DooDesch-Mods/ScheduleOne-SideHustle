@@ -6,7 +6,7 @@
 > lists every installed gamemode mod and launches it straight from the menu - no savegame required.
 > It is the shared hub that gamemode mods plug into.
 
-![Version](https://img.shields.io/badge/version-1.8.0-blue)
+![Version](https://img.shields.io/badge/version-2.0.0-blue)
 ![Game](https://img.shields.io/badge/game-Schedule%20I-purple)
 ![MelonLoader](https://img.shields.io/badge/MelonLoader-0.7.3+-green)
 ![S1API](https://img.shields.io/badge/S1API-required-orange)
@@ -19,6 +19,18 @@ launches immediately in its own self-contained session - gamemodes never load or
 
 If you installed Side Hustle as a dependency of another mod, there is nothing to do: that mod registers
 itself and shows up under the Side Hustle entry.
+
+## New in 2.0
+
+- **Mod Profiles** - an in-game mod manager. Separate sets of mods you switch between; the game restarts into the
+  one you pick. Build one from your installed mods or install from Thunderstore, dependencies included. Your real
+  Mods folder is never managed, so r2modman and friends keep working.
+- **Vanilla co-op with mod sync** - host your normal savegame as a public lobby. A joiner's mods are compared to
+  yours and set up automatically: Thunderstore and GitHub downloads run on their own, everything else lands on a
+  checklist with a direct link. Every file is hash-verified; mods are never sent between players.
+- **Join a gamemode you don't have installed** - a public gamemode lobby lists what it needs. Pick "Join (installs
+  the mods)", choose a session, and Side Hustle installs it, restarts and joins that lobby.
+- **Messenger** - a phone app for lobby chat and one-to-one messages, with unread badges and notifications.
 
 ## Features
 

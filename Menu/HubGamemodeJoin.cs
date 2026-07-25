@@ -22,6 +22,9 @@ namespace SideHustle.Menu
     {
         private const int JoinManifestAttempts = 7;
 
+        // One retry through the checklist when a download failed; a second pass installs whatever is there.
+        private static bool _ghostRetried;
+
         /// <summary>
         /// The lobby browser for a gamemode the player does NOT have - deliberately the same view an installed
         /// player gets, so "join a session" works the same way; only the install runs in between. No build-mismatch
@@ -54,6 +57,7 @@ namespace SideHustle.Menu
         private static void StartGhostJoin(Ghost g, LobbyRow row)
         {
             if (g == null || row == null || row.LobbyId == 0) return;
+            _ghostRetried = false;   // a fresh attempt gets its own "show me what is missing" pass
             // Ask for the password BEFORE installing anything - nobody wants to download a gamemode for a lobby they
             // cannot enter (same client-side hash check the normal join browser uses).
             if (row.HasPassword && !string.IsNullOrEmpty(row.PwHash))
@@ -230,7 +234,8 @@ namespace SideHustle.Menu
 
             System.Threading.Tasks.Task.Run(async () =>
             {
-                try { await SyncResolver.DownloadMissingAsync(diff, null, System.Threading.CancellationToken.None); }
+                bool allFetched = false;
+                try { allFetched = await SyncResolver.DownloadMissingAsync(diff, null, System.Threading.CancellationToken.None); }
                 catch (Exception e) { Core.Log?.Warning("[mp] gamemode join: downloads failed: " + e.Message); }
 
                 var inputs = SyncResolver.ToInputs(diff);
@@ -249,6 +254,27 @@ namespace SideHustle.Menu
                     {
                         Core.Log?.Error("[mp] gamemode join: the gamemode's own mod could not be installed; staying in the menu.");
                         ShowGhostMissingMod(g);
+                        return;
+                    }
+
+                    // A download that failed leaves a mod the host does run out of the session. The gamemode itself is
+                    // there (checked above), so this is not fatal - but the player gets the checklist ONCE with what is
+                    // still missing instead of being restarted into a quietly incomplete set. Continuing from the
+                    // checklist a second time proceeds regardless (that is what "skip missing" means).
+                    if (!allFetched && !_ghostRetried
+                        && diff.Entries.Any(e => e.Status == DiffStatus.Manual || e.Status == DiffStatus.Dropped)
+                        && _clone != null && _cloneScreen != null && _cloneScreen.IsOpen)
+                    {
+                        _ghostRetried = true;
+                        Core.Log?.Warning("[mp] gamemode join: not every mod could be fetched - showing what is still missing.");
+                        SyncManualInstallView.PrefetchLinks(diff);
+                        _back = null;
+                        ClearFormHost();
+                        SetTmp(_clone.transform, "Title", "Still missing");
+                        var mh2 = CreateFormHost("SH_GhostManualRetry", 560f);
+                        SyncManualInstallView.Build(mh2, diff,
+                            onContinue: () => GhostBuildAndRestart(g, row, diff, mhash),
+                            onBack: () => ShowGhostBrowser(g));
                         return;
                     }
                     var token = ConfigCodec.Encode(new[]
@@ -297,12 +323,61 @@ namespace SideHustle.Menu
                 return;
             }
 
+            // This is a FRESH process: it has no cached lobby data yet, so reading metadata right away returns blanks
+            // and every check would pass vacuously. Ask Steam and retry until the lobby actually answers - then verify
+            // it is still the same gamemode lobby before entering it.
             try { Il2CppSteamworks.SteamMatchmaking.RequestLobbyData(new Il2CppSteamworks.CSteamID(lobbyId)); } catch { }
+            VerifyThenJoin(desc, lobbyId, wantHash, 0);
+        }
+
+        /// <summary>How long the post-install join waits for the lobby to answer before giving up (7 x 700ms).</summary>
+        private const int RejoinDataAttempts = 7;
+
+        private static void VerifyThenJoin(GamemodeDescriptor desc, ulong lobbyId, string wantHash, int attempt)
+        {
             var info = LobbyCoordinator.ReadInfo(lobbyId);
             string liveHash = "";
             try { liveHash = Il2CppSteamworks.SteamMatchmaking.GetLobbyData(new Il2CppSteamworks.CSteamID(lobbyId), VanillaLobby.KeyMHash); } catch { }
-            if (!string.IsNullOrEmpty(wantHash) && !string.IsNullOrEmpty(liveHash) && liveHash != wantHash)
-                Core.Log?.Warning("[mp] the host's mod set changed while installing - joining anyway with what was installed.");
+            // "Answered" means the keys we verify against are actually there. A half-propagated lobby (id present,
+            // hash still empty) must keep waiting, otherwise the mod-set check passes vacuously.
+            bool answered = !string.IsNullOrEmpty(info.GamemodeId)
+                            && (string.IsNullOrEmpty(wantHash) || !string.IsNullOrEmpty(liveHash));
+            if (!answered)
+            {
+                if (attempt < RejoinDataAttempts)
+                {
+                    try { Il2CppSteamworks.SteamMatchmaking.RequestLobbyData(new Il2CppSteamworks.CSteamID(lobbyId)); } catch { }
+                    System.Threading.Tasks.Task.Run(async () =>
+                    {
+                        await System.Threading.Tasks.Task.Delay(700);
+                        MainThread.Post(() => VerifyThenJoin(desc, lobbyId, wantHash, attempt + 1));
+                    });
+                    return;
+                }
+                // The lobby never answered - it is most likely gone. Joining would strand the player on a loading
+                // screen until the coordinator's timeout, so stay in the hub where the gamemode is now installed.
+                Core.Log?.Warning($"[mp] lobby {lobbyId} did not answer after the install - it is probably closed. " +
+                                  $"'{desc.DisplayName}' is installed; pick a session from the browser.");
+                ShowInstalledButLobbyGone(desc);
+                return;
+            }
+
+            if (!string.Equals(info.GamemodeId, desc.Id, StringComparison.OrdinalIgnoreCase))
+            {
+                Core.Log?.Warning($"[mp] lobby {lobbyId} is no longer a '{desc.Id}' lobby (now '{info.GamemodeId}') - not joining.");
+                ShowInstalledButLobbyGone(desc);
+                return;
+            }
+
+            // The host changed their mods while we were installing: what we just built is not what this lobby needs
+            // anymore, so entering it would be exactly the "join something else than agreed" case. Back to the
+            // gamemode's browser - one click re-reads the new list and installs the difference.
+            if (!string.IsNullOrEmpty(wantHash) && liveHash != wantHash)
+            {
+                Core.Log?.Warning($"[mp] lobby {lobbyId} now advertises a different mod set - not joining with the old one.");
+                ShowInstalledButLobbyGone(desc, $"{desc.DisplayName} is installed - the host changed their mods, pick the session again.");
+                return;
+            }
 
             Core.Log?.Msg($"[mp] installed '{desc.DisplayName}'; joining lobby {lobbyId} now.");
             CloseHubScreen();
@@ -316,6 +391,27 @@ namespace SideHustle.Menu
                 MaxPlayers = info.MaxPlayers,
                 BuildId = info.BuildId,
             });
+        }
+
+        // The install worked but the session is not there anymore: land on this gamemode's own screen, so the player
+        // is one click from another lobby instead of staring at a menu wondering what happened.
+        private static void ShowInstalledButLobbyGone(GamemodeDescriptor desc, string message = null)
+        {
+            try
+            {
+                EnsureClone();
+                if (_cloneScreen == null) return;
+                if (!_cloneScreen.IsOpen) { ShowGamemodeList(); _cloneScreen.Open(closePrevious: true); }
+                OpenGamemode(desc);
+                ShowToastSafe(message ?? $"{desc.DisplayName} is installed - that session has closed, pick another one.");
+            }
+            catch (Exception e) { Core.Log?.Warning("[mp] could not show the post-install screen: " + e.Message); }
+        }
+
+        private static void ShowToastSafe(string message)
+        {
+            try { DooDesch.UI.Toast.Init(DialogRootStatic()); DooDesch.UI.Toast.Show(message, DooDesch.UI.Severity.Info); }
+            catch { /* menu mid-transition */ }
         }
     }
 }

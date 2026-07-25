@@ -61,6 +61,9 @@ mod registers itself and shows up under the Side Hustle entry.
 
 ## New in 2.0: Profiles, Sync and Messenger
 
+- **Join a gamemode you don't have installed.** A public gamemode lobby lists the mod files a joiner needs. Pick
+  "Join (installs the mods)", choose a session, and Side Hustle installs the gamemode (Thunderstore automatically,
+  anything else via the checklist with a direct Nexus link), restarts and joins that lobby. Your own mods stay put.
 - **Mod Profiles (in-game mod manager).** A separate "Mod Profiles" main-menu entry keeps isolated sets of mods you
   can switch between (the game restarts into the one you pick). Build a profile from your installed mods or browse
   and install straight from Thunderstore with dependencies resolved. Your real Mods folder is never managed, so

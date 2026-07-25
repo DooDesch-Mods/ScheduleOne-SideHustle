@@ -464,6 +464,7 @@ namespace SideHustle.Menu
 
         private static void StartVanillaJoin(VanillaLobbyRow row)
         {
+            _vanillaRetried = false;   // a newly picked lobby gets its own "show me what is missing" pass
             // Password gate first (client-side hash compare, the casual gate the gamemode browser also uses).
             if (row.HasPassword && !string.IsNullOrEmpty(row.PwHash))
             {
@@ -655,6 +656,9 @@ namespace SideHustle.Menu
             BuildAndRestart(row, diff, mhash, hostPrefs);
         }
 
+        // One pass through the checklist when a download failed; continuing a second time builds with what is there.
+        private static bool _vanillaRetried;
+
         private static void BuildAndRestart(VanillaLobbyRow row, SyncDiff diff, string mhash, string hostPrefs)
         {
             // The UI update is optional (the dev-loop test drives this without an open hub); the download +
@@ -685,6 +689,26 @@ namespace SideHustle.Menu
                 SyncResolver.ResolveExtras(diff, out var pluginInputs, out var userLibInputs);
                 MainThread.Post(() =>
                 {
+                    // A download that failed (CDN hiccup, a package pulled from the store) leaves a mod the host runs
+                    // out of the session - and an enforcing host would bounce the player right back out. Show what is
+                    // missing ONCE, with its links, instead of restarting into a quietly incomplete set; continuing
+                    // from that checklist is the deliberate "skip missing" and proceeds.
+                    if (!downloadsOk && !_vanillaRetried
+                        && diff.Entries.Any(e => e.Status == DiffStatus.Manual || e.Status == DiffStatus.Dropped)
+                        && _clone != null && _cloneScreen != null && _cloneScreen.IsOpen)
+                    {
+                        _vanillaRetried = true;
+                        Core.Log?.Warning("[sync] not every mod could be fetched - showing what is still missing.");
+                        SyncManualInstallView.PrefetchLinks(diff);
+                        _back = null;
+                        ClearFormHost();
+                        SetTmp(_clone.transform, "Title", "Still missing");
+                        var mh = CreateFormHost("SH_SyncRetry", 560f);
+                        SyncManualInstallView.Build(mh, diff,
+                            onContinue: () => BuildAndRestart(row, diff, mhash, hostPrefs),
+                            onBack: ShowVanillaBrowser);
+                        return;
+                    }
                     if (!downloadsOk)
                         Core.Log?.Warning("[sync] not every mod could be fetched - the session runs without the missing ones.");
                     if (inputs.Count == 0)

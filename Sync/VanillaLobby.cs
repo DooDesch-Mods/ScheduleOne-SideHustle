@@ -90,12 +90,21 @@ namespace SideHustle.Sync
                 SteamMatchmaking.SetLobbyData(sid, KeyOrg, orgName ?? "");
                 SteamMatchmaking.SetLobbyData(sid, KeyEnforce, enforce ? "1" : "0");
                 SteamMatchmaking.SetLobbyData(sid, KeyModSummary, modSummary ?? "");
-                SteamMatchmaking.SetLobbyData(sid, KeyMHash, SyncCodec.Hash(manifestText, prefsText));
-
                 var mChunks = SyncCodec.Pack(manifestText);
                 var pChunks = SyncCodec.Pack(prefsText);
-                WriteChunks(sid, ManifestChunkPrefix, KeyManifestChunks, mChunks);
-                WriteChunks(sid, PrefsChunkPrefix, KeyPrefsChunks, pChunks);
+                // Chunks first, hash last, and only when everything landed: a manifest that is advertised (hash set)
+                // but not fully written can never validate on a joiner - they would retry a payload that cannot exist.
+                // On a refused write the manifest keys are cleared instead, so the lobby is simply "unsynced" and the
+                // backend copy takes over, rather than looking published and being unreadable.
+                bool payloadOk = WriteChunks(sid, ManifestChunkPrefix, KeyManifestChunks, mChunks)
+                                 & WriteChunks(sid, PrefsChunkPrefix, KeyPrefsChunks, pChunks);
+                bool hashOk = payloadOk && SteamMatchmaking.SetLobbyData(sid, KeyMHash, SyncCodec.Hash(manifestText, prefsText));
+                if (!hashOk)
+                {
+                    SteamMatchmaking.SetLobbyData(sid, KeyMHash, "");
+                    SteamMatchmaking.SetLobbyData(sid, KeyManifestChunks, "");
+                    Core.Log?.Warning("[sync] the lobby refused the manifest - publishing it without one (joiners use the backend copy or join unsynced).");
+                }
                 int maxChunk = 0; foreach (var c in mChunks) if (c.Length > maxChunk) maxChunk = c.Length;
                 Core.Log?.Msg($"[sync] vanilla lobby published (version={UnityEngine.Application.version}, enforce={enforce}, " +
                               $"manifest {manifestText.Length} chars -> {mChunks.Length} chunk(s), biggest {maxChunk}b, prefs {pChunks.Length} chunk(s)).");
@@ -150,9 +159,23 @@ namespace SideHustle.Sync
                 string mhash = SyncCodec.Hash(manifestText, "");
                 var mChunks = SyncCodec.Pack(manifestText);
                 var pChunks = SyncCodec.Pack("");
-                SteamMatchmaking.SetLobbyData(sid, KeyMHash, mhash);
-                WriteChunks(sid, ManifestChunkPrefix, KeyManifestChunks, mChunks);
-                WriteChunks(sid, PrefsChunkPrefix, KeyPrefsChunks, pChunks);
+                // Write the payload FIRST and only claim the hash when every chunk landed: Steam can reject a lobby
+                // data write (size limits, transient failure), and a half-written manifest that still advertises a
+                // hash is worse than none - a joiner would keep retrying a payload that can never validate.
+                if (!WriteChunks(sid, ManifestChunkPrefix, KeyManifestChunks, mChunks)
+                    || !WriteChunks(sid, PrefsChunkPrefix, KeyPrefsChunks, pChunks))
+                {
+                    SteamMatchmaking.SetLobbyData(sid, KeyMHash, "");
+                    SteamMatchmaking.SetLobbyData(sid, KeyManifestChunks, "");
+                    Core.Log?.Warning("[sync] the lobby refused part of the mod set - not advertising it.");
+                    return "";
+                }
+                if (!SteamMatchmaking.SetLobbyData(sid, KeyMHash, mhash))
+                {
+                    Core.Log?.Warning("[sync] the lobby refused the mod-set hash - not advertising it.");
+                    SteamMatchmaking.SetLobbyData(sid, KeyManifestChunks, "");
+                    return "";
+                }
                 return mhash;
             }
             catch (Exception e) { Core.Log?.Warning("[sync] publishing the gamemode mod set failed: " + e.Message); return ""; }
@@ -245,11 +268,14 @@ namespace SideHustle.Sync
             catch (Exception e) { Core.Log?.Warning("[dir] directory read failed: " + e.Message); return null; }
         }
 
-        private static void WriteChunks(CSteamID sid, string prefix, string countKey, string[] chunks)
+        /// <summary>Write a chunked payload. False when Steam rejected ANY chunk - a partial payload can never be
+        /// reassembled by a joiner, so the caller must not advertise it as published.</summary>
+        private static bool WriteChunks(CSteamID sid, string prefix, string countKey, string[] chunks)
         {
-            SteamMatchmaking.SetLobbyData(sid, countKey, chunks.Length.ToString());
+            bool ok = SteamMatchmaking.SetLobbyData(sid, countKey, chunks.Length.ToString());
             for (int i = 0; i < chunks.Length; i++)
-                SteamMatchmaking.SetLobbyData(sid, prefix + i, chunks[i]);
+                ok &= SteamMatchmaking.SetLobbyData(sid, prefix + i, chunks[i]);
+            return ok;
         }
 
         internal static VanillaLobbyRow ReadSummary(ulong lobbyId)
