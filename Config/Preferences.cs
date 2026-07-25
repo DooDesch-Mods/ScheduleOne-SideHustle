@@ -34,6 +34,7 @@ namespace SideHustle.Config
         private static MelonPreferences_Entry<string> _activeGamemodeId;
         private static MelonPreferences_Entry<string> _pendingHostOptions;
         private static MelonPreferences_Entry<string> _pendingVanillaJoin;
+        private static MelonPreferences_Entry<string> _pendingGamemodeJoin;
         private static MelonPreferences_Entry<string> _aliases;
 
         internal static void Initialize()
@@ -71,6 +72,8 @@ namespace SideHustle.Config
                 "Internal: the host's chosen lobby options to apply after a mod-policy restart, so it hosts directly. Managed automatically.");
             _pendingVanillaJoin = _category.CreateEntry("PendingVanillaJoin", "", "Pending vanilla join (internal)",
                 "Internal: the lobby to auto-rejoin after a mod-sync restart (only ever present in a profile's cloned config). Managed automatically.");
+            _pendingGamemodeJoin = _category.CreateEntry("PendingGamemodeJoin", "", "Pending gamemode join (internal)",
+                "Internal: the gamemode lobby to join after installing that gamemode's mods (only ever present in a profile's cloned config). Managed automatically.");
 
             _aliases = _category.CreateEntry("Aliases", "", "Display names (internal)",
                 "Internal: your chosen display name for each gamemode, shown to other players instead of your Steam " +
@@ -182,6 +185,14 @@ namespace SideHustle.Config
         {
             get => _pendingVanillaJoin?.Value ?? "";
             set { if (_pendingVanillaJoin != null) { _pendingVanillaJoin.Value = value ?? ""; Save(); } }
+        }
+
+        /// <summary>The gamemode lobby to join once its mods are installed ("" = none): encoded lobby + gamemode id +
+        /// manifest hash, written into the session profile's cloned config before the restart.</summary>
+        internal static string PendingGamemodeJoin
+        {
+            get => _pendingGamemodeJoin?.Value ?? "";
+            set { if (_pendingGamemodeJoin != null) { _pendingGamemodeJoin.Value = value ?? ""; Save(); } }
         }
 
         /// <summary>The ids of recently launched gamemodes, most recent first.</summary>

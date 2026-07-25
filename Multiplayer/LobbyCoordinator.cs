@@ -29,6 +29,7 @@ namespace SideHustle.Multiplayer
         internal const string KeyBuild = "sh_build";
         internal const string KeyAdvertise = "sh_adv";   // "1" on a public lobby whose gamemode opted in to discovery
         internal const string KeyUrl = "sh_url";         // where to get the gamemode mod (for the "Download Mod" button)
+        internal const string KeyGamemodeFile = "sh_gmfile";   // the gamemode's OWN dll in the published join mod set
 
         private static Lobby LobbyOrNull()
         {
@@ -112,8 +113,81 @@ namespace SideHustle.Multiplayer
                     SteamMatchmaking.SetLobbyData(sid, KeyAdvertise, "1");
                     SteamMatchmaking.SetLobbyData(sid, KeyUrl, desc.DownloadUrl ?? "");
                 }
+                PublishJoinMods(sid, desc, opts);
             }
             catch (Exception e) { Core.Log?.Warning("[mp] TagLobby failed: " + e.Message); }
+        }
+
+        /// <summary>
+        /// Advertise the exact mod files a joiner needs for this gamemode (the gamemode's own DLL + its policy's
+        /// required mods, each with version + SHA256 + where to get it). That is what lets a player WITHOUT the
+        /// gamemode join at all: Side Hustle can fetch precisely the host's build instead of guessing, and a mod
+        /// nobody can fetch automatically still shows up on the manual checklist.
+        ///
+        /// Best-effort and silent on failure: without it the lobby simply behaves as before (installed players only).
+        /// </summary>
+        private static void PublishJoinMods(CSteamID sid, GamemodeDescriptor desc, HostOptions opts)
+        {
+            try
+            {
+                var files = Mods.ModPolicyResolver.RequiredFilesForJoin(desc);
+                if (files.Count == 0) return;
+                // Name the gamemode's OWN dll so a joiner can tell "the gamemode itself arrived" from "some extra
+                // mod did" - restarting without the gamemode would land them in the menu with nothing gained.
+                SteamMatchmaking.SetLobbyData(sid, KeyGamemodeFile, Mods.ModPolicyResolver.OwnFileOf(desc) ?? "");
+                var index = Profiles.ThunderstoreClient.GetCachedIndexOrNull(Profiles.ProfileEngine.GameRoot);
+                var plan = Sync.SyncPublisher.BuildPlan(index, excludeFiles: null, includeFiles: files);
+                if (plan.Manifest.Mods.Count == 0) return;
+                string manifestText = plan.Manifest.ToCanonicalText();
+                string mhash = Sync.VanillaLobby.PublishJoinManifest(sid, manifestText);
+                if (string.IsNullOrEmpty(mhash)) return;
+                Core.Log?.Msg($"[mp] join mod set published: {plan.Manifest.Mods.Count} file(s) " +
+                              $"({plan.AutoCount} auto, {plan.GhCount} github, {plan.LinkCount} link, {plan.DroppedCount} unsourced).");
+
+                // Also list this session in the public directory the website browses - PUBLIC lobbies only, a
+                // friends-only session is nobody else's business.
+                if (opts.Visibility != LobbyVisibility.Private)
+                    PublishDirectoryEntry(sid, desc, opts, manifestText, mhash, plan);
+            }
+            catch (Exception e) { Core.Log?.Warning("[mp] could not publish the join mod set: " + e.Message); }
+        }
+
+        // The directory entry for a hosted gamemode session: same shape the vanilla co-op host publishes, tagged as a
+        // gamemode so the website can show what is being played. Carries the join mod set, so the site (and a joiner
+        // whose Steam read failed) can tell what the session needs.
+        private static void PublishDirectoryEntry(CSteamID sid, GamemodeDescriptor desc, HostOptions opts,
+            string manifestText, string mhash, Sync.PublishPlan plan)
+        {
+            try
+            {
+                int members = 1;
+                try { var l = LobbyOrNull(); if (l != null) members = Math.Max(1, l.PlayerCount); } catch { }
+                string summary = $"{plan.Manifest.Mods.Count} mod(s), {plan.AutoCount} auto-installable";
+                Sync.VanillaLobby.PublishDirectory(sid.m_SteamID, secret => new Sync.DirPublish
+                {
+                    LobbyId = sid.m_SteamID.ToString(),
+                    OwnerSteamId = SteamUser.GetSteamID().m_SteamID.ToString(),
+                    Secret = secret,
+                    HostName = LocalPersonaName(),
+                    LobbyName = string.IsNullOrEmpty(opts.LobbyName) ? LocalPersonaName() : opts.LobbyName,
+                    Kind = "gamemode",
+                    Gamemode = desc.Id ?? "",
+                    GamemodeName = desc.DisplayName ?? desc.Id ?? "",
+                    Enforce = false,
+                    MaxPlayers = Math.Max(2, opts.MaxPlayers),
+                    Members = members,
+                    HasPassword = opts.HasPassword,
+                    PwHash = opts.HasPassword ? HashPassword(opts.Password) : "",
+                    ModSummary = summary,
+                    GameVersion = UnityEngine.Application.version,
+                    AppBuild = "",
+                    Mhash = mhash,
+                    Manifest = manifestText,
+                    Prefs = "",
+                });
+                Core.Log?.Msg($"[mp] lobby listed in the public directory as '{desc.DisplayName}'.");
+            }
+            catch (Exception e) { Core.Log?.Warning("[mp] directory publish failed: " + e.Message); }
         }
 
         /// <summary>Join a lobby by id. The game's OnLobbyEntered then drives the client world-load handshake.</summary>
@@ -144,6 +218,7 @@ namespace SideHustle.Multiplayer
         /// <summary>Best-effort: stop advertising the lobby before we leave (the host went back to the hub).</summary>
         internal static void Unlist()
         {
+            Sync.VanillaLobby.UnpublishDirectory();   // drop the website listing too, even if the Steam lobby is gone
             var l = LobbyOrNull();
             if (l == null || !l.IsInLobby) return;
             try
@@ -151,6 +226,7 @@ namespace SideHustle.Multiplayer
                 CSteamID sid = l.LobbySteamID;
                 SteamMatchmaking.SetLobbyJoinable(sid, false);
                 SteamMatchmaking.SetLobbyData(sid, KeyGamemode, "");
+                SteamMatchmaking.SetLobbyData(sid, KeyAdvertise, "");
             }
             catch { /* ignore */ }
         }

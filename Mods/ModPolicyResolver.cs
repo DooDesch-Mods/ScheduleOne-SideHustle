@@ -87,6 +87,41 @@ namespace SideHustle.Mods
             return plan;
         }
 
+        /// <summary>
+        /// The mod FILES a joining client must have to play this gamemode: the gamemode's own DLL, everything its
+        /// policy declares as required, and anything those depend on. Side Hustle and S1API are left out - a client
+        /// that can browse this lobby already runs them. This is what the host publishes on the lobby, so a player
+        /// WITHOUT the gamemode can fetch exactly the right files instead of guessing "latest from Thunderstore".
+        /// </summary>
+        internal static HashSet<string> RequiredFilesForJoin(GamemodeDescriptor desc)
+        {
+            var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (desc == null) return files;
+            var loaded = ModInventory.Loaded();
+
+            string own = OwnFile(desc, loaded);
+            if (own != null) files.Add(own);
+
+            if (desc.Policy?.RequiredMods != null)
+            {
+                var available = ModInventory.AvailableFiles();
+                var nameMap = ModInventory.LoadNameMap();
+                foreach (var tok in desc.Policy.RequiredMods)
+                {
+                    string f = ModInventory.Resolve(tok, loaded, available, nameMap);
+                    if (f != null) files.Add(f);
+                }
+            }
+
+            ExpandDependencies(files, loaded);
+            files.RemoveWhere(f => Profiles.Essentials.IsEssentialFile(f));
+            return files;
+        }
+
+        /// <summary>The DLL file a gamemode itself lives in, or null when it cannot be pinned down.</summary>
+        internal static string OwnFileOf(GamemodeDescriptor desc) =>
+            desc == null ? null : OwnFile(desc, ModInventory.Loaded());
+
         private static string OwnFile(GamemodeDescriptor desc, List<LoadedMod> loaded)
         {
             if (desc.OwnerAssembly == null) return null;

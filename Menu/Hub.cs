@@ -176,12 +176,27 @@ namespace SideHustle.Menu
         private static int _advGen;               // bumped per menu visit so a stale Steam callback is dropped
         private static bool _gamemodeListShowing;  // the gamemode list is the currently rendered view
 
-        /// <summary>Kick off the advertised-lobby query once per menu visit so the cache is warm before the player
-        /// opens Side Hustle. Safe to call every Menu-scene load; it only fires the Steam query the first time.</summary>
-        internal static void PrewarmAdvertised()
+        private static float _advertisedAt = -999f;   // when the last query was STARTED (unscaled seconds)
+        private const float AdvertisedAgeOnOpen = 8f;    // re-query when the player opens the list and the set is older
+        private const float AdvertisedAgeWhileOpen = 15f; // ...and keep it live while the list stays open
+
+        /// <summary>Kick off the advertised-lobby query so the cache is warm before the player opens Side Hustle.
+        /// Safe to call every Menu-scene load.</summary>
+        internal static void PrewarmAdvertised() => RefreshAdvertised(AdvertisedAgeOnOpen);
+
+        /// <summary>
+        /// Re-query the advertised lobbies when the cached set is older than <paramref name="maxAgeSeconds"/>.
+        /// Somebody can start hosting while the player sits in this menu, so a once-per-visit scan would hide that
+        /// lobby until a full restart. The list still renders from the cache instantly and is only re-rendered when
+        /// the discovered set actually CHANGED - so it never jumps just because a refresh ran.
+        /// </summary>
+        private static void RefreshAdvertised(float maxAgeSeconds)
         {
-            if (_advertisedQueried || !Preferences.ShowUninstalledGamemodes) return;
+            if (!Preferences.ShowUninstalledGamemodes) return;
+            float now = UnityEngine.Time.unscaledTime;
+            if (_advertisedQueried && now - _advertisedAt < maxAgeSeconds) return;
             _advertisedQueried = true;
+            _advertisedAt = now;
             int gen = ++_advGen;
             try
             {
@@ -193,15 +208,33 @@ namespace SideHustle.Menu
 #if DEBUG
                         results = DebugSeedAdvertised(results);
 #endif
+                        bool changed = GhostSignature(results) != GhostSignature(_advertisedCache);
                         _advertisedCache = results;
-                        // If the player opened Side Hustle before this landed, re-render the list ONCE so the
-                        // discovered rows appear - at most one refresh per menu visit, never the per-open jump.
-                        if (_gamemodeListShowing && _cloneScreen != null && _cloneScreen.IsOpen) ShowGamemodeList();
+                        if (changed && _gamemodeListShowing && _cloneScreen != null && _cloneScreen.IsOpen)
+                            ShowGamemodeList();
                     }
-                    catch (Exception e) { Core.Log?.Warning("[hub] advertised prewarm failed: " + e.Message); }
+                    catch (Exception e) { Core.Log?.Warning("[hub] advertised refresh failed: " + e.Message); }
                 });
             }
-            catch (Exception e) { Core.Log?.Warning("[hub] advertised prewarm start failed: " + e.Message); }
+            catch (Exception e) { Core.Log?.Warning("[hub] advertised query start failed: " + e.Message); }
+        }
+
+        // What the ghost rows would show, as one string - used to re-render only on a real change.
+        private static string GhostSignature(List<LobbyRow> lobbies)
+        {
+            if (lobbies == null || lobbies.Count == 0) return "";
+            return string.Join("|", lobbies
+                .Where(l => !string.IsNullOrEmpty(l.GamemodeId))
+                .OrderBy(l => l.GamemodeId, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(l => l.LobbyId)
+                .Select(l => l.GamemodeId + ":" + l.LobbyId + ":" + l.Members));
+        }
+
+        /// <summary>Pumped while the gamemode list is on screen: keeps discovered lobbies current without a reopen.</summary>
+        internal static void TickAdvertised()
+        {
+            if (_gamemodeListShowing && _cloneScreen != null && _cloneScreen.IsOpen)
+                RefreshAdvertised(AdvertisedAgeWhileOpen);
         }
 
         /// <summary>Drop the advertised cache when the menu unloads so a stale set never shows on the next visit; the
@@ -212,6 +245,10 @@ namespace SideHustle.Menu
         {
             _back = null;
             _mpDesc = null;
+
+            // Somebody may have started hosting since the last scan - refresh in the background (renders from the
+            // cache now, and only re-renders if the discovered set really changed).
+            RefreshAdvertised(AdvertisedAgeOnOpen);
 
             // One render: installed rows plus any ghost rows for not-installed gamemodes with live public lobbies,
             // taken from the cache the menu warmed on entry. No async second render, so the list never jumps.
@@ -266,18 +303,23 @@ namespace SideHustle.Menu
                 if (string.IsNullOrEmpty(l.GamemodeId) || installed.Contains(l.GamemodeId)) continue;
                 if (!byId.TryGetValue(l.GamemodeId, out var g))
                 {
-                    g = new Ghost { Name = string.IsNullOrEmpty(l.GamemodeName) ? l.GamemodeId : l.GamemodeName, Url = l.DownloadUrl };
+                    g = new Ghost
+                    {
+                        Name = string.IsNullOrEmpty(l.GamemodeName) ? l.GamemodeId : l.GamemodeName,
+                        Url = l.DownloadUrl,
+                        GamemodeId = l.GamemodeId,
+                    };
                     byId[l.GamemodeId] = g;
                 }
-                g.Lobbies++;
                 g.Players += Mathf.Max(1, l.Members);
                 if (string.IsNullOrEmpty(g.Url) && !string.IsNullOrEmpty(l.DownloadUrl)) g.Url = l.DownloadUrl;
+                g.Rows.Add(l);
             }
 
             foreach (var kv in byId)
             {
                 Ghost ghost = kv.Value;
-                string live = $"Not installed - {ghost.Lobbies} public {(ghost.Lobbies == 1 ? "lobby" : "lobbies")} live now"
+                string live = $"Not installed - {ghost.Rows.Count} public {(ghost.Rows.Count == 1 ? "lobby" : "lobbies")} live now"
                             + (ghost.Players > 0 ? $" ({ghost.Players} player{(ghost.Players == 1 ? "" : "s")})" : "");
                 rows.Add(new Row
                 {
@@ -294,8 +336,12 @@ namespace SideHustle.Menu
         {
             public string Name;
             public string Url;
-            public int Lobbies;
             public int Players;
+            /// <summary>The gamemode id and the lobby the "join and install" flow targets - the fullest lobby of this
+            /// gamemode, so a player who joins blind lands where the others are.</summary>
+            public string GamemodeId;
+            /// <summary>This gamemode's live public lobbies - the same cards an installed player would browse.</summary>
+            public List<LobbyRow> Rows = new List<LobbyRow>();
         }
 
 #if DEBUG
@@ -323,16 +369,37 @@ namespace SideHustle.Menu
             _mpDesc = null;
             _back = ShowGamemodeList;
             bool canDownload = DownloadLink.IsAllowed(g.Url);
+            // No trusted link from the host is not a dead end: look the gamemode's name up on Nexus (its own page when
+            // the name identifies exactly one mod, a search otherwise). The lookup runs in the background - a first
+            // click may still land on the search, a later one on the exact page.
+            bool canLookUp = !canDownload && Sync.NexusLookup.CanLookUp(g.Name);
+            if (canLookUp) Sync.NexusLookup.Prefetch(new[] { g.Name });
+            // Joining without the mod: the host advertises the exact files this gamemode needs, so Side Hustle can
+            // install them (Thunderstore automatically, anything else via the checklist) and drop the player into the
+            // lobby after the restart. Same two steps an installed player takes - pick a lobby, then join - only the
+            // install runs in between. Hosting still needs the mod up front.
+            bool canJoinAndInstall = g.Rows.Count > 0;
             var rows = new List<Row>
             {
                 new Row { Name = "Host", Subtitle = "Install the mod to host a session.", Disabled = true },
-                new Row { Name = "Join", Subtitle = "Install the mod to join a session.", Disabled = true },
                 new Row
                 {
-                    Name = "Download Mod",
-                    Subtitle = canDownload ? g.Url : "No trusted download link provided.",
-                    OnClick = canDownload ? (Action)(() => DownloadLink.Open(g.Url)) : null,
-                    Disabled = !canDownload
+                    Name = canJoinAndInstall ? "Join (installs the mods)" : "Join",
+                    Subtitle = canJoinAndInstall
+                        ? $"Pick a session - Side Hustle installs {g.Name} and joins it."
+                        : "Install the mod to join a session.",
+                    OnClick = canJoinAndInstall ? (Action)(() => ShowGhostBrowser(g)) : null,
+                    Disabled = !canJoinAndInstall
+                },
+                new Row
+                {
+                    Name = canDownload ? "Download Mod" : "Find it on Nexus",
+                    Subtitle = canDownload ? g.Url
+                        : canLookUp ? "No download link from the host - look the mod up on Nexus."
+                        : "No trusted download link provided.",
+                    OnClick = canDownload ? (Action)(() => DownloadLink.Open(g.Url))
+                        : canLookUp ? (Action)(() => DownloadLink.Open(DownloadLink.NexusUrl(g.Name))) : null,
+                    Disabled = !canDownload && !canLookUp,
                 },
                 new Row { Name = "Back", Subtitle = "Back to the gamemode list.", OnClick = ShowGamemodeList }
             };
@@ -777,12 +844,17 @@ namespace SideHustle.Menu
 
         // Encode/decode the host's chosen lobby options so they survive a mod-policy relaunch (the relaunch is local,
         // so the raw password is fine here). Nesting is safe: ConfigCodec escapes the already-encoded ConfigBlob.
+        // Everything the host chose on the form has to survive the "Required mods only" restart - the lobby is only
+        // created afterwards. A dropped field is not cosmetic: without the name the lobby falls back to the host's
+        // persona name everywhere (browser card, website listing), and without the label the chosen preset is lost.
         private static string EncodeHostIntent(HostOptions o) => ConfigCodec.Encode(new[]
         {
             new KeyValuePair<string, string>("max", o.MaxPlayers.ToString()),
             new KeyValuePair<string, string>("vis", o.Visibility == LobbyVisibility.Private ? "1" : "0"),
             new KeyValuePair<string, string>("pw", o.Password ?? ""),
-            new KeyValuePair<string, string>("cfg", o.ConfigBlob ?? "")
+            new KeyValuePair<string, string>("cfg", o.ConfigBlob ?? ""),
+            new KeyValuePair<string, string>("name", o.LobbyName ?? ""),
+            new KeyValuePair<string, string>("mode", o.ModeLabel ?? "")
         });
 
         private static HostOptions DecodeHostIntent(string s)
@@ -794,7 +866,9 @@ namespace SideHustle.Menu
                 MaxPlayers = Math.Max(2, max),
                 Visibility = (m.TryGetValue("vis", out var v) && v == "1") ? LobbyVisibility.Private : LobbyVisibility.Public,
                 Password = m.TryGetValue("pw", out var pw) && pw.Length > 0 ? pw : null,
-                ConfigBlob = m.TryGetValue("cfg", out var c) && c.Length > 0 ? c : null
+                ConfigBlob = m.TryGetValue("cfg", out var c) && c.Length > 0 ? c : null,
+                LobbyName = m.TryGetValue("name", out var n) && n.Length > 0 ? n : null,
+                ModeLabel = m.TryGetValue("mode", out var md) && md.Length > 0 ? md : null
             };
         }
 

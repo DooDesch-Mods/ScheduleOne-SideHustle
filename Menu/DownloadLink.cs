@@ -54,13 +54,19 @@ namespace SideHustle.Menu
         /// <summary>A Nexus search URL for a mod NAME - the fallback for a manual/nx: mod whose exact download page we
         /// do not have. Lands on nexusmods.com (already a trusted host), so it opens through the normal path.</summary>
         internal static string SearchUrl(string modName) =>
-            "https://www.nexusmods.com/games/schedule1/search?keyword=" + Uri.EscapeDataString(SearchTerm(modName));
+            "https://www.nexusmods.com/games/" + Sync.NexusLookup.GameDomain + "/search?keyword="
+            + Uri.EscapeDataString(SearchTerm(modName));
 
-        /// <summary>A clean Nexus search keyword: letters/digits/spaces only. Special characters (e.g. the "&" in
-        /// "Mod Manager & Phone App") make the site's search miss the mod, so collapse every run of other characters
-        /// to a single space.</summary>
-        internal static string SearchTerm(string name) =>
-            string.IsNullOrEmpty(name) ? "" : System.Text.RegularExpressions.Regex.Replace(name, @"[^\p{L}\p{N}]+", " ").Trim();
+        /// <summary>A clean Nexus search keyword (shared with the API lookup, which needs the same cleanup).</summary>
+        internal static string SearchTerm(string name) => Sync.NexusLookup.SearchTerm(name);
+
+        /// <summary>Where to send a player for a mod we only know by NAME: its own Nexus page when the API lookup
+        /// identified the mod unambiguously, else the search. Never null, so a button using it is never dead.</summary>
+        internal static string NexusUrl(string modName) => Sync.NexusLookup.CachedPageUrlOrNull(modName) ?? SearchUrl(modName);
+
+        /// <summary>True when <see cref="NexusUrl"/> points at the mod's own page instead of a search result list -
+        /// the button label says so.</summary>
+        internal static bool HasNexusPage(string modName) => Sync.NexusLookup.CachedPageUrlOrNull(modName) != null;
 
         /// <summary>Open a Nexus search for a mod name (Steam overlay first, external browser fallback).</summary>
         internal static void OpenSearch(string modName) => Open(SearchUrl(modName));

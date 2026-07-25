@@ -77,21 +77,34 @@ namespace SideHustle.Mods
         /// </summary>
         internal static void RelaunchIntoSyncProfile(string profileKey,
             System.Collections.Generic.IReadOnlyList<Shared.BuildInput> inputs,
-            System.Collections.Generic.Dictionary<string, string> tokens, Func<string, string> prefsOverlay, string logLabel)
+            System.Collections.Generic.Dictionary<string, string> tokens, Func<string, string> prefsOverlay, string logLabel,
+            System.Collections.Generic.IReadOnlyList<Shared.BuildInput> pluginInputs = null,
+            System.Collections.Generic.IReadOnlyList<Shared.BuildInput> userLibInputs = null)
         {
             if (_inFlight) { Core.Log?.Msg("[modpolicy] a relaunch is already in progress; ignoring."); return; }
             _inFlight = true;
             try
             {
                 string altPath = AltBase.ComputeAltPath(profileKey);
-                if (altPath == null || !AltBase.BuildSkeleton(altPath))
+                if (altPath == null)
                 {
                     _inFlight = false;
                     Core.Log?.Error("[modpolicy] could not build the sync profile; aborting (your mods are untouched).");
                     return;
                 }
-                if (!Shared.ProfileBuilder.BuildModsDir(Path.Combine(altPath, "Mods"), inputs,
-                        s => Core.Log?.Warning("[modpolicy] " + s)))
+
+                // A synced mod may need a shared library its package ships (or declares as a dependency), e.g.
+                // SteamNetworkLib for PropHunt. Those live in Plugins/UserLibs, which the plain sync base merely
+                // junctions to the client's global folders - so the session gets its OWN seeded folders instead
+                // whenever libraries came along. Without libraries nothing changes (junctions, as before).
+                bool withLibs = (pluginInputs != null && pluginInputs.Count > 0)
+                                || (userLibInputs != null && userLibInputs.Count > 0);
+                bool built = withLibs
+                    ? AltBase.BuildIsolatedBase(altPath, inputs, pluginInputs, userLibInputs)
+                    : AltBase.BuildSkeleton(altPath)
+                      && Shared.ProfileBuilder.BuildModsDir(Path.Combine(altPath, "Mods"), inputs,
+                          s => Core.Log?.Warning("[modpolicy] " + s));
+                if (!built)
                 {
                     _inFlight = false;
                     AltBase.Teardown(altPath);

@@ -38,6 +38,9 @@ namespace SideHustle.Sync
     {
         public List<DiffEntry> Entries = new List<DiffEntry>();
         public List<string> LocalOnly = new List<string>();   // loaded mods NOT in the manifest (unavailable in-session)
+        /// <summary>Package-cache directories of DEPENDENCY packages fetched only for their Plugins/UserLibs payload
+        /// (e.g. SteamNetworkLib for PropHunt) - shared libraries a synced mod cannot load without.</summary>
+        public List<string> LibPackageDirs = new List<string>();
         public int Count(DiffStatus s) => Entries.Count(e => e.Status == s);
 
         /// <summary>A synced profile is only needed when something must be ASSEMBLED that the currently loaded
@@ -187,7 +190,146 @@ namespace SideHustle.Sync
                     allOk = false;
                 }
             }
+
+            // The shared libraries the synced mods need, for EVERY Thunderstore entry - not only the ones this run
+            // downloaded. A rejoin (or a second sync against the same host) resolves the mods straight from the
+            // package cache, and the libraries must still be there.
+            var tsEntries = diff.Entries
+                .Where(x => x.Mod?.Source != null && x.Mod.Source.StartsWith("ts:", StringComparison.Ordinal)
+                            && x.Status != DiffStatus.Manual && x.Status != DiffStatus.Dropped)
+                .ToList();
+            if (tsEntries.Count > 0)
+            {
+                try
+                {
+                    index ??= await ThunderstoreClient.GetIndexAsync(ProfileEngine.GameRoot, false, ct).ConfigureAwait(false);
+                    foreach (var e in tsEntries)
+                        if (TsIndex.SplitDependency(e.Mod.Source.Substring(3), out var fn, out var ver))
+                            await EnsureLibDependenciesAsync(diff, index, fn, ver, progress, ct).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception e) { Core.Log?.Warning("[sync] library dependencies could not be resolved: " + e.Message); }
+            }
             return allOk;
+        }
+
+        /// <summary>How deep the dependency walk goes, and how many library packages it may fetch - a runaway
+        /// closure must never turn one join into dozens of downloads.</summary>
+        private const int MaxLibDepth = 2;
+        private const int MaxLibPackages = 8;
+
+        /// <summary>
+        /// Fetch the SHARED LIBRARIES a synced Thunderstore mod declares as dependencies (its Plugins/UserLibs
+        /// payload, e.g. ifBars-SteamNetworkLib_Il2Cpp for PropHunt). The manifest only carries mod DLLs, so without
+        /// this a joiner installs the mod and it then throws "Could not load file or assembly" every frame.
+        ///
+        /// Only the library payload is taken: a dependency's own MOD dlls are deliberately ignored - the host's
+        /// manifest is the authority on which mods run, and anything the host really loads is already an entry.
+        /// Essentials and the MelonLoader pseudo-package are skipped; a failure is never fatal (the mod may still
+        /// work, and the session runs either way).
+        /// </summary>
+        private static async System.Threading.Tasks.Task EnsureLibDependenciesAsync(SyncDiff diff, TsIndex index,
+            string fullName, string version, IProgress<(string Label, long Done, long Total)> progress,
+            System.Threading.CancellationToken ct, int depth = 0)
+        {
+            if (index == null || depth >= MaxLibDepth || diff.LibPackageDirs.Count >= MaxLibPackages) return;
+            var deps = index.Find(fullName)?.Get(version)?.Dependencies;
+            if (deps == null) return;
+
+            foreach (var dep in deps)
+            {
+                if (diff.LibPackageDirs.Count >= MaxLibPackages) return;
+                if (!TsIndex.SplitDependency(dep, out var depName, out var depVersion)) continue;
+                if (Essentials.IsEssentialPackageName(depName)) continue;
+                if (depName.IndexOf("melonloader", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+
+                string dir = PackageCache.PathFor(PackageCache.RootFor(ProfileEngine.GameRoot), depName, depVersion);
+                if (diff.LibPackageDirs.Contains(dir, StringComparer.OrdinalIgnoreCase)) continue;
+
+                try
+                {
+                    dir = await ThunderstoreClient.EnsurePackageAsync(ProfileEngine.GameRoot, index, depName, depVersion, progress, ct)
+                        .ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception e) { Core.Log?.Warning($"[sync] dependency '{dep}' could not be fetched: {e.Message}"); continue; }
+                if (dir == null) continue;
+
+                var mf = PackageCache.ReadManifest(dir);
+                bool hasLibs = mf != null && ((mf.Plugins?.Count ?? 0) > 0 || (mf.UserLibs?.Count ?? 0) > 0);
+                if (hasLibs)
+                {
+                    diff.LibPackageDirs.Add(dir);
+                    Core.Log?.Msg($"[sync] library dependency '{dep}' fetched for the session profile.");
+                }
+                await EnsureLibDependenciesAsync(diff, index, depName, depVersion, progress, ct, depth + 1).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// The Plugins and UserLibs the session profile needs on top of its mods: everything the synced Thunderstore
+        /// packages and their library dependencies ship. These are hardlinked into the profile's OWN Plugins/UserLibs
+        /// (seeded from the client's global folders), so the client's real install is never written to. Wrong-runtime
+        /// flavors (a Mono dll in an Il2Cpp game) are skipped.
+        /// </summary>
+        internal static void ResolveExtras(SyncDiff diff, out List<BuildInput> plugins, out List<BuildInput> userLibs)
+        {
+            plugins = new List<BuildInput>();
+            userLibs = new List<BuildInput>();
+            if (diff == null) return;
+
+            // Derived from the SOURCE, not from what this run happened to download: on a rejoin (or a second sync
+            // against the same host) every package is already cached, nothing downloads, and the libraries would
+            // otherwise silently go missing. Only directories that really sit in the cache are used.
+            string cacheRoot = PackageCache.RootFor(ProfileEngine.GameRoot);
+            var index = ThunderstoreClient.GetCachedIndexOrNull(ProfileEngine.GameRoot);
+            var dirs = new List<string>();
+            void AddDir(string d)
+            {
+                if (!string.IsNullOrEmpty(d) && Directory.Exists(d) && !dirs.Contains(d, StringComparer.OrdinalIgnoreCase))
+                    dirs.Add(d);
+            }
+            void AddPackage(string fullName, string version, int depth)
+            {
+                if (fullName == null || version == null) return;
+                AddDir(PackageCache.PathFor(cacheRoot, fullName, version));
+                if (depth >= MaxLibDepth) return;
+                var deps = index?.Find(fullName)?.Get(version)?.Dependencies;
+                foreach (var dep in deps ?? new List<string>())
+                    if (TsIndex.SplitDependency(dep, out var dn, out var dv)
+                        && !Essentials.IsEssentialPackageName(dn)
+                        && dn.IndexOf("melonloader", StringComparison.OrdinalIgnoreCase) < 0)
+                        AddPackage(dn, dv, depth + 1);
+            }
+            foreach (var e in diff.Entries)
+                if (e.Mod?.Source != null && e.Mod.Source.StartsWith("ts:", StringComparison.Ordinal)
+                    && TsIndex.SplitDependency(e.Mod.Source.Substring(3), out var fn, out var ver))
+                    AddPackage(fn, ver, 0);
+            foreach (var d in diff.LibPackageDirs) AddDir(d);
+
+            var seenP = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var seenU = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var dir in dirs)
+            {
+                var mf = PackageCache.ReadManifest(dir);
+                if (mf == null) continue;
+                Collect(dir, mf.Plugins, seenP, plugins);
+                Collect(dir, mf.UserLibs, seenU, userLibs);
+            }
+
+            void Collect(string dir, List<string> files, HashSet<string> seen, List<BuildInput> into)
+            {
+                foreach (var f in files ?? new List<string>())
+                {
+                    if (string.IsNullOrEmpty(f) || seen.Contains(f)) continue;
+                    var candidates = PackageCache.FindExtractedFileAll(dir, f);
+                    string src = candidates.FirstOrDefault(c =>
+                        !Shared.RuntimeClassifier.IsWrongForThisGame(Shared.RuntimeClassifier.ClassifyFile(c)));
+                    if (src == null) continue;
+                    seen.Add(f);
+                    into.Add(new BuildInput { FileName = f, SourcePath = src });
+                }
+            }
         }
 
         /// <summary>The sync profile's exact inputs: every resolved manifest file + the client-side essentials

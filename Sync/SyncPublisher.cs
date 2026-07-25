@@ -27,7 +27,9 @@ namespace SideHustle.Sync
     /// </summary>
     internal static class SyncPublisher
     {
-        internal static PublishPlan BuildPlan(TsIndex index, ISet<string> excludeFiles = null)
+        /// <param name="includeFiles">When set, ONLY these mod files are published - used by a gamemode lobby, which
+        /// advertises just what a joiner needs for that gamemode instead of the host's whole mod set.</param>
+        internal static PublishPlan BuildPlan(TsIndex index, ISet<string> excludeFiles = null, ISet<string> includeFiles = null)
         {
             var plan = new PublishPlan { Manifest = NewManifestHeader() };
             string modsPath = ModInventory.ModsPath();
@@ -37,6 +39,7 @@ namespace SideHustle.Sync
                 if (m.File == null) continue;
                 if (IsInfraFile(m.File)) continue;
                 if (excludeFiles != null && excludeFiles.Contains(m.File)) continue;
+                if (includeFiles != null && !includeFiles.Contains(m.File)) continue;
 
                 string sha = modsPath != null ? ModInventory.Sha256OfFile(Path.Combine(modsPath, m.File)) : null;
                 string source = ResolveSource(m, index);

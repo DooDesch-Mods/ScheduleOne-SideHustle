@@ -3,6 +3,35 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Join a gamemode you don't have installed.** A public gamemode lobby now advertises the exact mod files a joiner
+  needs (the gamemode's own mod, whatever its policy requires, with version and hash). In the Side Hustle menu such a
+  lobby is no longer a dead "not installed" entry: pick "Join (installs the mods)", confirm, and Side Hustle fetches
+  them from Thunderstore - anything it can't fetch gets the same checklist with a direct Nexus link - installs them
+  into a session profile, restarts and drops you into that lobby. Your own mods stay exactly where they are.
+
+### Fixed
+- **Gamemode sessions show up on the public lobby list.** A hosted gamemode lobby now also lists itself on the Side
+  Hustle website (public lobbies only - a friends-only session stays off it), with its gamemode, player count and
+  what mods a joiner would need. Only vanilla co-op lobbies did that before.
+- **Your lobby name survives the "Required mods only" restart.** Hosting a gamemode that curates its mod set restarts
+  the game first, and the name (and the chosen preset label) you typed on the host form was dropped in the process -
+  the lobby then showed up as just your player name, in the browser and on the website.
+- **Synced mods no longer arrive without their shared libraries.** A mod whose Thunderstore package ships (or depends
+  on) a shared library - PropHunt needs SteamNetworkLib, for example - was installed as a lone DLL, so the joiner
+  ended up with a mod that could not load and an error every frame. The sync now fetches those library packages too
+  and puts them into the session profile's own `Plugins`/`UserLibs`, seeded from your global ones, so your real
+  install is still never written to.
+
+### Changed
+- **Manual downloads land on the mod's own Nexus page.** For a mod the host could not give a download link for,
+  Side Hustle now looks the name up on Nexus: when it identifies exactly one published Schedule I mod, the
+  checklist button opens that mod's page directly ("Open Nexus") instead of a search results list. Ambiguous
+  names ("Mod Manager") and mods that aren't on Nexus still open the search, exactly as before. The same lookup
+  gives a gamemode you don't have installed a working "Find it on Nexus" button when its host advertised no link.
+
 ## [2.0.0] - 2026-07-10
 
 Play modded multiplayer with anyone - mods sync themselves, and you can chat in-game.

@@ -145,6 +145,53 @@ namespace SideHustle.Multiplayer
             Core.Log?.Msg($"[mp] advertised lobbies: {rows.Count} found.");
             try { _advOnResults?.Invoke(rows); }
             catch (Exception e) { Core.Log?.Warning("[mp] advertised-lobby callback threw: " + e.Message); }
+            if (rows.Count == 0) ProbeUnfiltered();
+        }
+
+        // Nothing matched the advertise filter: ONCE per game session, ask again without any filter and log what
+        // this client can see at all. That separates the two very different failures - "we discover no lobbies"
+        // (Steam/network) from "we discover lobbies but none is flagged for discovery" (the host did not advertise) -
+        // which otherwise look identical in the log. Once per session: an empty list is the normal case when nobody
+        // is hosting, and that must not cost a second query every time the menu opens.
+        private static bool _probing, _probed;
+        private static void ProbeUnfiltered()
+        {
+            if (_probing || _probed) return;
+            _probing = true;
+            _probed = true;
+            try
+            {
+                if (_probeCallResult == null)
+                    _probeCallResult = CallResult<LobbyMatchList_t>.Create(
+                        (CallResult<LobbyMatchList_t>.APIDispatchDelegate)OnProbeLobbyList);
+                SteamMatchmaking.AddRequestLobbyListDistanceFilter(ELobbyDistanceFilter.k_ELobbyDistanceFilterWorldwide);
+                SteamAPICall_t call = SteamMatchmaking.RequestLobbyList();
+                _probeCallResult.Set(call, (CallResult<LobbyMatchList_t>.APIDispatchDelegate)OnProbeLobbyList);
+            }
+            catch (Exception e) { _probing = false; Core.Log?.Warning("[mp] lobby probe failed: " + e.Message); }
+        }
+
+        private static CallResult<LobbyMatchList_t> _probeCallResult;
+
+        private static void OnProbeLobbyList(LobbyMatchList_t result, bool ioFailure)
+        {
+            _probing = false;
+            try
+            {
+                int n = 0;
+                for (int i = 0; i < 50; i++)
+                {
+                    CSteamID id = SteamMatchmaking.GetLobbyByIndex(i);
+                    if (id.m_SteamID == 0UL) break;
+                    n++;
+                    Core.Log?.Msg($"[mp] probe: lobby {id.m_SteamID} adv='{SteamMatchmaking.GetLobbyData(id, LobbyCoordinator.KeyAdvertise)}' " +
+                                  $"gm='{SteamMatchmaking.GetLobbyData(id, LobbyCoordinator.KeyGamemode)}' " +
+                                  $"vanilla='{SteamMatchmaking.GetLobbyData(id, Sync.VanillaLobby.KeyVanilla)}' " +
+                                  $"members={SteamMatchmaking.GetNumLobbyMembers(id)}");
+                }
+                Core.Log?.Msg($"[mp] probe: {n} lobby(ies) visible without any filter.");
+            }
+            catch (Exception e) { Core.Log?.Warning("[mp] lobby probe read failed: " + e.Message); }
         }
 
         // Read the lobby list Steam just returned into rows. Shared by both queries; each callback reads the list of

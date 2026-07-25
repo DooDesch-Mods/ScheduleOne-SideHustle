@@ -27,6 +27,7 @@ namespace SideHustle
         private string _continueId;     // a gamemode to continue into after a mod-policy restart
         private string _continueHost;   // encoded host options to host directly after a Host-triggered policy restart
         private string _vanillaJoinPayload;   // encoded lobby+mhash to auto-rejoin after a mod-sync restart
+        private string _gamemodeJoinPayload;  // encoded lobby+gamemode+mhash to join after installing that gamemode
 
         public override void OnInitializeMelon()
         {
@@ -43,6 +44,7 @@ namespace SideHustle
             // Keep the boot-time profile picker (a MelonPlugin, shipped embedded) installed and current.
             Profiles.BootInstaller.EnsureInstalled();
             Profiles.ThunderstoreClient.Log = s => Log?.Warning("[profiles] " + s);
+            Sync.NexusLookup.Log = s => Log?.Msg("[nexus] " + s);
 
             // The live-publish button (pause-menu lobby panel) patch - inert until a co-op host is eligible.
             Sync.LivePublish.Install();
@@ -151,6 +153,14 @@ namespace SideHustle
                     _vanillaJoinPayload = vanillaJoin;
                     _reopenHubFrames = 90;
                 }
+                // After installing a gamemode we did not have, join the lobby that install was for.
+                string gmJoin = policySession ? Preferences.PendingGamemodeJoin : "";
+                if (!string.IsNullOrEmpty(gmJoin))
+                {
+                    Preferences.PendingGamemodeJoin = "";
+                    _gamemodeJoinPayload = gmJoin;
+                    _reopenHubFrames = 90;
+                }
                 // After relaunching into a gamemode profile, continue straight into the gamemode (mods are curated).
                 string cont = policySession ? Preferences.PendingContinue : "";
                 if (!string.IsNullOrEmpty(cont))
@@ -227,10 +237,12 @@ namespace SideHustle
                 DooDesch.UI.SmoothScroll.Tick();   // smooth wheel glide for menu lists (host-config form, etc.)
                 DooDesch.UI.Toast.Tick();          // profile-manager toasts (removals, install results)
                 Hub.TickInput();   // right-click steps one view back (mod-check, host/join choice, browser, ...)
+                Hub.TickAdvertised();   // keep discovered "not installed" lobbies current while the list is open
                 Menu.SyncManualInstallView.Tick();   // poll the staging folder while the manual checklist is open
                 if (_reopenHubFrames > 0 && --_reopenHubFrames == 0)
                 {
                     if (!string.IsNullOrEmpty(_vanillaJoinPayload)) { var p = _vanillaJoinPayload; _vanillaJoinPayload = null; Sync.SyncCoordinator.ContinueJoin(p); }
+                    else if (!string.IsNullOrEmpty(_gamemodeJoinPayload)) { var p = _gamemodeJoinPayload; _gamemodeJoinPayload = null; Hub.ContinueGamemodeJoin(p); }
                     else if (!string.IsNullOrEmpty(_continueId)) { var id = _continueId; var host = _continueHost; _continueId = null; _continueHost = null; Hub.ContinueGamemode(id, host); }
                     else Hub.OpenScreen();
                 }

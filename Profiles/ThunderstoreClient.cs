@@ -50,10 +50,11 @@ namespace SideHustle.Profiles
 
         private static volatile int _preferredClient;   // the config that connected last - tried first next time
 
-        /// <summary>Send a GET through the TLS-config ladder (starting at the last config that worked): each
+        /// <summary>Send a request through the TLS-config ladder (starting at the last config that worked): each
         /// client gets <paramref name="attemptsEach"/> tries before the next config; only transport failures
-        /// advance the ladder.</summary>
-        private static async Task<HttpResponseMessage> GetWithLadderAsync(Func<HttpRequestMessage> makeRequest,
+        /// advance the ladder. <paramref name="makeRequest"/> is called once per attempt - a retried request needs
+        /// its own message (and its own content).</summary>
+        private static async Task<HttpResponseMessage> SendWithLadderAsync(Func<HttpRequestMessage> makeRequest,
             HttpCompletionOption completion, int attemptsEach, CancellationToken ct)
         {
             Exception last = null;
@@ -83,13 +84,38 @@ namespace SideHustle.Profiles
             if (string.IsNullOrEmpty(url)) return null;
             try
             {
-                using var resp = await GetWithLadderAsync(
+                using var resp = await SendWithLadderAsync(
                     () => new HttpRequestMessage(HttpMethod.Get, url), HttpCompletionOption.ResponseContentRead, 1, ct)
                     .ConfigureAwait(false);
                 if (!resp.IsSuccessStatusCode) return null;
                 return await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
             }
             catch { return null; }
+        }
+
+        /// <summary>POST a JSON body and return the response text, or null on any failure (transport, timeout, or a
+        /// non-success status). Same TLS ladder as every other request here - this type is the mod's shared HTTP
+        /// transport, not only the Thunderstore one (GhReleases and NexusLookup ride it too). Worker-thread only.</summary>
+        internal static async Task<string> PostJsonAsync(string url, string json, CancellationToken ct)
+        {
+            if (string.IsNullOrEmpty(url) || json == null) return null;
+            try
+            {
+                using var resp = await SendWithLadderAsync(
+                    () => new HttpRequestMessage(HttpMethod.Post, url)
+                    {
+                        // Fresh content per attempt: a consumed HttpContent cannot be re-sent up the ladder.
+                        Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json"),
+                    },
+                    HttpCompletionOption.ResponseContentRead, 1, ct).ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode)
+                {
+                    Log?.Invoke($"POST {url} failed: HTTP {(int)resp.StatusCode}");
+                    return null;
+                }
+                return await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            }
+            catch (Exception e) { Log?.Invoke($"POST {url} failed: {e.GetType().Name}: {e.Message}"); return null; }
         }
 
         internal static string IndexCachePath(string gameRoot) =>
@@ -126,7 +152,7 @@ namespace SideHustle.Profiles
                         return req;
                     }
 
-                    using var resp = await GetWithLadderAsync(MakeRequest, HttpCompletionOption.ResponseHeadersRead, 1, ct).ConfigureAwait(false);
+                    using var resp = await SendWithLadderAsync(MakeRequest, HttpCompletionOption.ResponseHeadersRead, 1, ct).ConfigureAwait(false);
                     if (resp.StatusCode != System.Net.HttpStatusCode.NotModified && resp.IsSuccessStatusCode)
                     {
                         string json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
@@ -198,7 +224,7 @@ namespace SideHustle.Profiles
             try
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(tmp));
-                using (var resp = await GetWithLadderAsync(
+                using (var resp = await SendWithLadderAsync(
                     () => new HttpRequestMessage(HttpMethod.Get, ver.DownloadUrl),
                     HttpCompletionOption.ResponseHeadersRead, 2, ct).ConfigureAwait(false))
                 {

@@ -104,13 +104,11 @@ namespace SideHustle.Sync
                 // rescues a too-large-for-Steam manifest). Off-main-thread, best-effort - Steam is the source of truth.
                 try
                 {
-                    if (string.IsNullOrEmpty(_dirSecret)) _dirSecret = Guid.NewGuid().ToString("N");
-                    _dirLobbyId = sid.m_SteamID;
-                    var pub = new DirPublish
+                    PublishDirectory(sid.m_SteamID, secret => new DirPublish
                     {
                         LobbyId = sid.m_SteamID.ToString(),
                         OwnerSteamId = SteamUser.GetSteamID().m_SteamID.ToString(),
-                        Secret = _dirSecret,
+                        Secret = secret,
                         HostName = LobbyCoordinator.LocalPersonaName(),
                         LobbyName = string.IsNullOrEmpty(opts.LobbyName) ? LobbyCoordinator.LocalPersonaName() : opts.LobbyName,
                         Kind = "vanilla",
@@ -126,8 +124,7 @@ namespace SideHustle.Sync
                         Mhash = SyncCodec.Hash(manifestText, prefsText),
                         Manifest = manifestText,
                         Prefs = prefsText ?? "",
-                    };
-                    Task.Run(() => LobbyDirectory.PublishAsync(pub));
+                    });
                 }
                 catch (Exception e) { Core.Log?.Warning("[dir] publish build failed: " + e.Message); }
                 return true;
@@ -139,16 +136,56 @@ namespace SideHustle.Sync
             }
         }
 
+        /// <summary>
+        /// Publish a mod set onto ANY lobby we own (used by gamemode lobbies, which advertise just the files a joiner
+        /// needs for that gamemode). Writes the same chunked keys the vanilla path uses, so a client reads it back
+        /// with <see cref="TryReadPayloads"/> unchanged. Prefs are empty here - a gamemode carries its settings in its
+        /// own config blob. Returns the manifest hash, or "" when nothing was published.
+        /// </summary>
+        internal static string PublishJoinManifest(CSteamID sid, string manifestText)
+        {
+            if (string.IsNullOrEmpty(manifestText)) return "";
+            try
+            {
+                string mhash = SyncCodec.Hash(manifestText, "");
+                var mChunks = SyncCodec.Pack(manifestText);
+                var pChunks = SyncCodec.Pack("");
+                SteamMatchmaking.SetLobbyData(sid, KeyMHash, mhash);
+                WriteChunks(sid, ManifestChunkPrefix, KeyManifestChunks, mChunks);
+                WriteChunks(sid, PrefsChunkPrefix, KeyPrefsChunks, pChunks);
+                return mhash;
+            }
+            catch (Exception e) { Core.Log?.Warning("[sync] publishing the gamemode mod set failed: " + e.Message); return ""; }
+        }
+
+        /// <summary>
+        /// Publish ANY lobby we own to the backend directory (what the website's lobby browser lists) and take over
+        /// the heartbeat for it. Shared by the vanilla co-op host and the gamemode host - the directory has always
+        /// modelled both kinds, only nothing published the gamemode ones.
+        /// </summary>
+        internal static void PublishDirectory(ulong lobbyId, Func<string, DirPublish> build)
+        {
+            if (build == null) return;
+            if (string.IsNullOrEmpty(_dirSecret)) _dirSecret = Guid.NewGuid().ToString("N");
+            _dirLobbyId = lobbyId;
+            var pub = build(_dirSecret);
+            Task.Run(() => LobbyDirectory.PublishAsync(pub));
+        }
+
+        /// <summary>Drop this host's directory entry (session over). Safe to call when nothing was published.</summary>
+        internal static void UnpublishDirectory()
+        {
+            if (_dirLobbyId == 0) return;
+            string id = _dirLobbyId.ToString(); string sec = _dirSecret;
+            Task.Run(() => LobbyDirectory.RemoveAsync(id, sec));
+            _dirLobbyId = 0; _dirSecret = null;
+        }
+
         /// <summary>Stop advertising (host went back to the menu). The lobby itself dies with the session.</summary>
         internal static void Untag()
         {
             // Drop the backend directory entry first, independent of whether the Steam lobby is still around.
-            if (_dirLobbyId != 0)
-            {
-                string id = _dirLobbyId.ToString(); string sec = _dirSecret;
-                Task.Run(() => LobbyDirectory.RemoveAsync(id, sec));
-                _dirLobbyId = 0; _dirSecret = null;
-            }
+            UnpublishDirectory();
             var l = LobbyOrNull();
             if (l == null || !l.IsInLobby) return;
             try

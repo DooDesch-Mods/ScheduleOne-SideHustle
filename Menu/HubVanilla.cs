@@ -93,6 +93,10 @@ namespace SideHustle.Menu
                 sha: "13d4dbd989bf57ab12d072d5a0918cd37cfa8508680a0a13ba53a2dce3c4082f");
             Add("HomeBrew.dll", "Home-brewed Mod", "0.0.1", DiffStatus.Dropped, "",
                 sha: "bf89a3abb406ca4ab7bf38a76d7a150a70235092a28781d2cfbf515f737dde9d");
+            // A source-less mod whose NAME does identify one published Nexus mod, so the checklist row resolves to
+            // that exact page ("Open on Nexus") while "Home-brewed Mod" above stays on the search ("Find online").
+            Add("TightBeam.dll", "TightBeam", "1.0.0", DiffStatus.Dropped, "",
+                sha: "d7eb160108bf6d0895c6eec243b901aeb0729c3a401eeff605f400bfc29c5f3f");
             diff.LocalOnly.Add("Your Private HUD");
             diff.LocalOnly.Add("Cheat Menu");
             var row = new VanillaLobbyRow
@@ -675,6 +679,10 @@ namespace SideHustle.Menu
                 catch (Exception e) { Core.Log?.Warning("[sync] downloads failed: " + e.Message); }
 
                 var inputs = SyncResolver.ToInputs(diff);
+                // Shared libraries the synced packages bring along (their own Plugins/UserLibs + the ones they declare
+                // as dependencies) - the manifest only carries mod DLLs, so this is what keeps e.g. PropHunt's
+                // SteamNetworkLib from being missing in the session profile.
+                SyncResolver.ResolveExtras(diff, out var pluginInputs, out var userLibInputs);
                 MainThread.Post(() =>
                 {
                     if (!downloadsOk)
@@ -705,8 +713,11 @@ namespace SideHustle.Menu
                     Func<string, string> overlay = string.IsNullOrEmpty(hostPrefs)
                         ? null
                         : cfg => PrefsSync.ApplyOverlay(cfg, hostPrefs);
+                    string libNote = userLibInputs.Count + pluginInputs.Count > 0
+                        ? $" + {userLibInputs.Count + pluginInputs.Count} library file(s)" : "";
                     Mods.ModSwitcher.RelaunchIntoSyncProfile("sync-" + row.OwnerSteamId, inputs, tokens,
-                        overlay, $"syncing {inputs.Count} mod(s) for '{row.LobbyName}'");
+                        overlay, $"syncing {inputs.Count} mod(s){libNote} for '{row.LobbyName}'",
+                        pluginInputs, userLibInputs);
                 });
             });
         }

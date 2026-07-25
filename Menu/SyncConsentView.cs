@@ -15,10 +15,17 @@ namespace SideHustle.Menu
     /// </summary>
     internal static class SyncConsentView
     {
+        /// <param name="enforcedNote">What the "no joining as you are" line says. The vanilla default is about the
+        /// host's sync gate; the gamemode-install flow overrides it, where the reason is simply that the player does
+        /// not have the gamemode yet.</param>
         internal static void Build(Transform formHost, SyncManifest manifest, SyncDiff diff, bool enforced, bool hasPrefs,
-            Action onSyncJoin, Action onPlainJoin, Action onBack)
+            Action onSyncJoin, Action onPlainJoin, Action onBack, string enforcedNote = null)
         {
             const float Pad = 30f;
+
+            // Warm the name -> Nexus page lookups now: the manual checklist is one click away and its links should
+            // already point at the exact mod page when it opens.
+            SyncManualInstallView.PrefetchLinks(diff);
 
             var footer = UIFactory.Panel("footer", formHost, Theme.Clear);
             var frt = footer.GetComponent<RectTransform>();
@@ -39,7 +46,7 @@ namespace SideHustle.Menu
                 && !string.Equals(manifest.GameVersion, localGame, StringComparison.OrdinalIgnoreCase))
                 Note(content, $"! Game version differs: host {manifest.GameVersion}, you {localGame}.", warn: true);
             if (enforced)
-                Note(content, "This host only keeps synced clients - joining without syncing will bounce you.", warn: true);
+                Note(content, enforcedNote ?? "This host only keeps synced clients - joining without syncing will bounce you.", warn: true);
 
             int download = diff.Count(DiffStatus.Download) + diff.Count(DiffStatus.Cached);
             int present = diff.Count(DiffStatus.Present);
@@ -76,10 +83,10 @@ namespace SideHustle.Menu
 
             if (dropped > 0)
             {
-                Components.SectionHeader(content, "Only on Nexus (search link on the next step)");
+                Components.SectionHeader(content, "Only on Nexus (link on the next step)");
                 foreach (var e in diff.Entries.Where(x => x.Status == DiffStatus.Dropped))
                     Note(content, $"~  {Label(e)}", Theme.WarningText);
-                Note(content, "Not on Thunderstore - the next step gives you a Nexus search for each (downloads are picked up automatically). If you can't find one, the session just runs without it.", Theme.TextMuted);
+                Note(content, "Not on Thunderstore - the next step opens each one on Nexus: its own page when the name identifies it, a search otherwise (downloads are picked up automatically). If you can't find one, the session just runs without it.", Theme.TextMuted);
             }
 
             if (diff.LocalOnly.Count > 0)

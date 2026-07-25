@@ -24,15 +24,27 @@ namespace SideHustle.Menu
         private static Action _refresh;
         private static bool _active;
         private static int _notesSeen;
+        private static int _lookupsSeen;
 
         internal static bool IsActive => _active;
+
+        /// <summary>Start resolving the exact Nexus page for every mod this diff can only offer by name, so the
+        /// checklist's links point at the mod itself instead of a search. Called from the consent screen too - the
+        /// answers are usually in by the time the checklist opens, and a repeat call is free.</summary>
+        internal static void PrefetchLinks(SyncDiff diff)
+        {
+            if (diff?.Entries == null) return;
+            NexusLookup.Prefetch(diff.Entries.Where(NeedsLookup).Select(ManualQuery));
+        }
 
         internal static void Tick()
         {
             if (!_active) return;
             var resolved = ManualInstall.Poll(_pending);
-            bool notesChanged = _notesSeen != ManualInstall.NotesVersion;
+            // A new watcher hint or a landed Nexus lookup both change what a row shows, so either repaints.
+            bool rowsChanged = _notesSeen != ManualInstall.NotesVersion || _lookupsSeen != NexusLookup.ResultsVersion;
             _notesSeen = ManualInstall.NotesVersion;
+            _lookupsSeen = NexusLookup.ResultsVersion;
             if (resolved.Count > 0)
             {
                 if (resolved.Count <= 3)
@@ -41,7 +53,7 @@ namespace SideHustle.Menu
                     ShowToast($"{resolved.Count} mods found and verified.", Severity.Success);
                 if (!_pending.Any(Pending)) ShowToast("All mods are in - you're ready to continue.", Severity.Success);
             }
-            if (resolved.Count > 0 || notesChanged) _refresh?.Invoke();
+            if (resolved.Count > 0 || rowsChanged) _refresh?.Invoke();
         }
 
         internal static void Build(Transform formHost, SyncDiff diff, Action onContinue, Action onBack)
@@ -51,6 +63,8 @@ namespace SideHustle.Menu
             _pending.AddRange(diff.Entries.Where(Pending));
             ManualInstall.BeginSession();
             _notesSeen = ManualInstall.NotesVersion;
+            _lookupsSeen = NexusLookup.ResultsVersion;
+            PrefetchLinks(diff);
             _active = true;
 
             var footer = UIFactory.Panel("footer", formHost, Theme.Clear);
@@ -74,7 +88,8 @@ namespace SideHustle.Menu
                 int total = _pending.Count;
                 int done = _pending.Count(e => !Pending(e));
                 Components.SectionHeader(content, total > 0 ? $"Install these manually - {done} of {total} ready" : "Install these manually");
-                Note(content, "These aren't on Thunderstore, so grab them in your browser: open each link (or \"Find online\" to search Nexus by name) and start the download - that's it. SideHustle watches " + ManualInstall.WatchedFoldersLabel() + " and installs a matching file automatically. Or skip and continue without them.");
+                Note(content, "Open a link and download it - SideHustle finds the file in " + ManualInstall.WatchedFoldersLabel()
+                              + " and installs it. Or skip these.");
 
                 if (_pending.Any(Pending))
                 {
@@ -102,19 +117,20 @@ namespace SideHustle.Menu
                     rle.minHeight = 54f; rle.preferredHeight = 54f; rle.flexibleWidth = 1;
 
                     var title = UIFactory.Text("name", (done2 ? "✓ " : "") + Label(entry), row.transform, 16, TextAnchor.UpperLeft, FontStyle.Bold);
-                    Place(title, new Vector2(12, -6), new Vector2(0.6f, 1f));
-                    string statusText = done2 ? "ready"
-                        : entry.ManualNote ?? "waiting - download it and it installs automatically...";
+                    Place(title, new Vector2(12, -RowPad), new Vector2(0.6f, 1f));
+                    string statusText = done2 ? "ready" : entry.ManualNote ?? "waiting for the download...";
                     var status = UIFactory.Text("status", statusText, row.transform, 13, TextAnchor.LowerLeft);
                     status.color = done2 ? Theme.Success : entry.ManualNote != null ? Theme.WarningText : Theme.TextMuted;
-                    Place(status, new Vector2(12, 4), new Vector2(0.6f, 0.55f));
+                    Place(status, new Vector2(12, 4), new Vector2(0.6f, 0.55f), bottom: RowPad);
 
                     if (!done2)
                     {
-                        string nxUrl = entry.Mod.Source.StartsWith("nx:", StringComparison.Ordinal) ? entry.Mod.Source.Substring(3) : null;
-                        bool hasDirect = DownloadLink.IsAllowed(nxUrl);
-                        // Never a dead button: use the host's exact link when it is a trusted URL, else search Nexus by name.
-                        var (linkGO, linkBtn, _) = UIFactory.ButtonWithLabel("link", hasDirect ? "Open link" : "Find online", row.transform, Theme.Button, 110f, 34f);
+                        // Never a dead button: the host's exact link when it is a trusted URL, else the mod's own Nexus
+                        // page once the name lookup has identified it, else a Nexus search for the name.
+                        bool hasDirect = DownloadLink.IsAllowed(LinkUrl(entry));
+                        string label = hasDirect ? "Open link"
+                            : DownloadLink.HasNexusPage(ManualQuery(entry)) ? "Open Nexus" : "Find online";
+                        var (linkGO, linkBtn, _) = UIFactory.ButtonWithLabel("link", label, row.transform, Theme.Button, 110f, 34f);
                         var lrt2 = linkGO.GetComponent<RectTransform>();
                         lrt2.anchorMin = new Vector2(1, 0.5f); lrt2.anchorMax = new Vector2(1, 0.5f); lrt2.pivot = new Vector2(1, 0.5f);
                         lrt2.anchoredPosition = new Vector2(-134f, 0f);
@@ -162,9 +178,16 @@ namespace SideHustle.Menu
         // can't do), so every link here opens externally.
         private static void OpenFor(DiffEntry e)
         {
-            string u = e.Mod.Source.StartsWith("nx:", StringComparison.Ordinal) ? e.Mod.Source.Substring(3) : null;
-            DownloadLink.OpenExternal(DownloadLink.IsAllowed(u) ? u : DownloadLink.SearchUrl(ManualQuery(e)));
+            string u = LinkUrl(e);
+            DownloadLink.OpenExternal(DownloadLink.IsAllowed(u) ? u : DownloadLink.NexusUrl(ManualQuery(e)));
         }
+
+        // The URL the host published for this mod ("nx:<url>"), or null when the mod came without a source.
+        private static string LinkUrl(DiffEntry e) =>
+            e.Mod.Source != null && e.Mod.Source.StartsWith("nx:", StringComparison.Ordinal) ? e.Mod.Source.Substring(3) : null;
+
+        // A row that has no usable link of its own, so it needs the name -> Nexus page lookup.
+        private static bool NeedsLookup(DiffEntry e) => Pending(e) && !DownloadLink.IsAllowed(LinkUrl(e));
 
         // The guided flow: one click opens the first still-pending mod's page; once its file lands, the next
         // click opens the next one.
@@ -212,11 +235,15 @@ namespace SideHustle.Menu
             rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one; rt.offsetMin = new Vector2(12, 0); rt.offsetMax = new Vector2(-12, 0);
         }
 
-        private static void Place(Text t, Vector2 offset, Vector2 anchorMax)
+        // Both texts in a row are anchored to a row EDGE (title top-left, status bottom-left), so each needs its own
+        // inset from that edge - without them the title sticks to the row's top border and the status to its bottom.
+        private const float RowPad = 8f;
+
+        private static void Place(Text t, Vector2 offset, Vector2 anchorMax, float bottom = 0f)
         {
             var rt = t.GetComponent<RectTransform>();
             rt.anchorMin = new Vector2(0, 0); rt.anchorMax = anchorMax; rt.pivot = new Vector2(0, 1);
-            rt.offsetMin = new Vector2(offset.x, 0); rt.offsetMax = new Vector2(0, offset.y);
+            rt.offsetMin = new Vector2(offset.x, bottom); rt.offsetMax = new Vector2(0, offset.y);
         }
 
         private static void Place2(GameObject go, bool left)
