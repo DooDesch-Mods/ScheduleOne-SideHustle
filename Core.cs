@@ -4,7 +4,7 @@ using MelonLoader;
 using SideHustle.Config;
 using SideHustle.Menu;
 
-[assembly: MelonInfo(typeof(SideHustle.Core), "Side Hustle", "2.0.0", "DooDesch", "https://github.com/DooDesch-Mods/ScheduleOne-SideHustle")]
+[assembly: MelonInfo(typeof(SideHustle.Core), "Side Hustle", "2.0.1", "DooDesch", "https://github.com/DooDesch-Mods/ScheduleOne-SideHustle")]
 [assembly: MelonGame("TVGS", "Schedule I")]
 
 namespace SideHustle
@@ -59,7 +59,11 @@ namespace SideHustle
             Dev.StubGamemode.Register();
 #endif
 
-            Log.Msg($"Side Hustle 2.0.0 ready - {API.Registered.Count} gamemode(s) registered so far.");
+            // Version read from the assembly, never typed twice: a hardcoded string here silently lies about which
+            // build a player is running the moment a release forgets to update it.
+            string version = "";
+            try { version = typeof(Core).Assembly.GetName().Version?.ToString(3) ?? ""; } catch { /* ignore */ }
+            Log.Msg($"Side Hustle {version} ready - {API.Registered.Count} gamemode(s) registered so far.");
         }
 
         public override void OnSceneWasInitialized(int buildIndex, string sceneName)

@@ -40,6 +40,7 @@ namespace SideHustle.Sync
         {
             _scanned.Clear();
             _watchStartUtc = DateTime.UtcNow;
+            _lastPollUtc = DateTime.MinValue;   // the first poll of a session scans right away
         }
 
         /// <summary>Vortex's download folder for this game, when Vortex is around - anything the user already
@@ -83,15 +84,24 @@ namespace SideHustle.Sync
 
         /// <summary>Scan the watched folders and try to satisfy any still-pending manual entry. Returns the
         /// entries that flipped to resolved this call (so the UI can refresh and toast).</summary>
+        // The UI ticks this every frame. A download takes seconds, not milliseconds, so scanning a few times per
+        // second is plenty - and it keeps the folder walk (now one level deep) off the frame budget.
+        private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(400);
+        private static DateTime _lastPollUtc = DateTime.MinValue;
+
         internal static List<DiffEntry> Poll(IEnumerable<DiffEntry> manualEntries)
         {
             var resolved = new List<DiffEntry>();
             var pending = manualEntries.Where(e => IsAwaiting(e) && !string.IsNullOrEmpty(e.Mod.Sha256)).ToList();
             if (pending.Count == 0) return resolved;
 
+            var now = DateTime.UtcNow;
+            if (now - _lastPollUtc < PollInterval) return resolved;
+            _lastPollUtc = now;
+
             foreach (var (dir, kind) in Roots())
             {
-                foreach (var path in SafeFiles(dir))
+                foreach (var path in SafeFiles(dir, kind))
                 {
                     string key = null;
                     try
@@ -201,9 +211,29 @@ namespace SideHustle.Sync
             catch (Exception e) { Core.Log?.Warning("[sync] manual promote failed: " + e.Message); return null; }
         }
 
-        private static IEnumerable<string> SafeFiles(string dir)
+        // The files of one watched root: everything at the top level, plus the contents of its immediate
+        // subfolders - a download often lands in its own folder ("Downloads\SomeMod\SomeMod.dll"), and the player
+        // should not have to know that. Only folders that were touched since the watch started are opened (see
+        // ManualScan.IsCandidateDir), and at most MaxSubfolders of them, so a crowded Downloads folder costs one
+        // directory listing plus a handful of cheap timestamp reads.
+        private static IEnumerable<string> SafeFiles(string dir, ManualScan.RootKind kind)
         {
-            try { return Directory.GetFiles(dir); } catch { return Array.Empty<string>(); }
+            var files = new List<string>();
+            try { files.AddRange(Directory.GetFiles(dir)); } catch { /* unreadable root */ }
+
+            string[] subs;
+            try { subs = Directory.GetDirectories(dir); } catch { return files; }
+            int opened = 0;
+            foreach (var sub in subs)
+            {
+                if (opened >= ManualScan.MaxSubfolders) break;
+                DateTime mtime;
+                try { mtime = Directory.GetLastWriteTimeUtc(sub); } catch { continue; }
+                if (!ManualScan.IsCandidateDir(kind, mtime, _watchStartUtc)) continue;
+                opened++;
+                try { files.AddRange(Directory.GetFiles(sub)); } catch { /* unreadable subfolder */ }
+            }
+            return files;
         }
 
         private static string Sha256(byte[] bytes)

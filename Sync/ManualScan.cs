@@ -22,6 +22,20 @@ namespace SideHustle.Sync
         /// <summary>Files downloaded shortly BEFORE the checklist opened still count as fresh.</summary>
         internal static readonly TimeSpan DownloadsGrace = TimeSpan.FromMinutes(10);
 
+        /// <summary>How many immediate subfolders of one watched root are looked into per scan. Browsers and mod
+        /// managers often drop a download into its own folder ("Downloads\SomeMod\SomeMod.dll"), so one level down
+        /// is worth reading - but a Downloads folder with hundreds of folders must not turn the poll into a crawl.</summary>
+        internal const int MaxSubfolders = 24;
+
+        /// <summary>
+        /// Whether an immediate subfolder can hold a download we care about. Windows stamps a directory's write
+        /// time when a file appears inside it, so in the Downloads folder a subfolder untouched since the watch
+        /// started (minus the grace) cannot contain the file we are waiting for - and is skipped without a single
+        /// file enumeration. The staging and Vortex folders keep their history, same as for files.
+        /// </summary>
+        internal static bool IsCandidateDir(RootKind kind, DateTime dirMtimeUtc, DateTime watchStartUtc) =>
+            kind != RootKind.Downloads || dirMtimeUtc >= watchStartUtc - DownloadsGrace;
+
         /// <summary>Whether a file in a watched folder is worth examining at all (extension, size, freshness).
         /// The Downloads folder only counts files newer than the watch start minus a grace window - it is full
         /// of old, unrelated files; staging and the Vortex folder keep their history.</summary>

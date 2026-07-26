@@ -209,8 +209,10 @@ namespace SideHustle.Profiles
         /// package directory, or null when the package is unknown, the download fails, or the zip is rejected
         /// (traversal guard). <paramref name="progress"/> reports (label, bytesDone, bytesTotal).
         /// </summary>
+        /// <param name="attempt">Internal retry counter - a 5xx from the CDN gets exactly one second chance.</param>
         internal static async Task<string> EnsurePackageAsync(string gameRoot, TsIndex index, string fullName,
-            string version, IProgress<(string Label, long Done, long Total)> progress, CancellationToken ct)
+            string version, IProgress<(string Label, long Done, long Total)> progress, CancellationToken ct,
+            int attempt = 0)
         {
             string cacheRoot = PackageCache.RootFor(gameRoot);
             string dir = PackageCache.PathFor(cacheRoot, fullName, version);
@@ -230,7 +232,18 @@ namespace SideHustle.Profiles
                 {
                     if (!resp.IsSuccessStatusCode)
                     {
-                        Log?.Invoke($"download of {fullName} {version} failed: HTTP {(int)resp.StatusCode}");
+                        // A 5xx is the CDN having a moment, not a missing package - one short retry turns a failed
+                        // join-sync ("install it by hand") back into the automatic install it was supposed to be.
+                        // A 4xx is an answer (gone, renamed), so that one is final.
+                        int code = (int)resp.StatusCode;
+                        if (code >= 500 && attempt == 0)
+                        {
+                            Log?.Invoke($"download of {fullName} {version} got HTTP {code}; retrying once.");
+                            await Task.Delay(1500, ct).ConfigureAwait(false);
+                            return await EnsurePackageAsync(gameRoot, index, fullName, version, progress, ct, attempt + 1)
+                                .ConfigureAwait(false);
+                        }
+                        Log?.Invoke($"download of {fullName} {version} failed: HTTP {code}");
                         return null;
                     }
                     long total = resp.Content.Headers.ContentLength ?? ver.FileSize;

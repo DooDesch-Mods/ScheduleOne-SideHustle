@@ -175,12 +175,13 @@ namespace SideHustle.Sync
                 // would silently vanish from the profile inputs while the checklist (which lists manual/dropped rows)
                 // never shows it. Demote it to what it actually is - a mod the player has to fetch by hand.
                 if (!TsIndex.SplitDependency(e.Mod.Source.Substring(3), out var fullName, out var version))
-                { Downgrade(e); allOk = false; continue; }
+                { Downgrade(e, "the host's download reference is unreadable"); allOk = false; continue; }
                 string dir = await ThunderstoreClient.EnsurePackageAsync(ProfileEngine.GameRoot, index, fullName, version, progress, ct).ConfigureAwait(false);
                 if (dir == null)
                 {
                     Core.Log?.Warning($"[sync] '{e.Mod.File}': {fullName} {version} could not be downloaded; falling back to the manual link.");
-                    Downgrade(e); allOk = false; continue;
+                    Downgrade(e, "Thunderstore didn't hand it over - grab it here instead");
+                    allOk = false; continue;
                 }
                 string src = PackageCache.FindExtractedFile(dir, e.Mod.File);
                 string sha = src != null ? ProfileBuilder.Sha256OfFile(src) : null;
@@ -192,9 +193,11 @@ namespace SideHustle.Sync
                 else
                 {
                     // The store version does not carry the host's exact bytes (or the file is missing): treat as
-                    // manual/dropped rather than shipping a mismatched DLL into the session.
+                    // manual/dropped rather than shipping a mismatched DLL into the session. This is the common
+                    // "host runs their own build with a released version number" case, so SAY that - otherwise the
+                    // player is told "Thunderstore" on the consent screen and then handed a manual checklist.
                     Core.Log?.Warning($"[sync] '{e.Mod.File}': downloaded {fullName} {version} does not match the host's hash; skipping.");
-                    e.Status = string.IsNullOrEmpty(e.Mod.Source) ? DiffStatus.Dropped : DiffStatus.Manual;
+                    Downgrade(e, $"the host runs a different build than Thunderstore's {version} - ask them for their file");
                     allOk = false;
                 }
             }
@@ -222,9 +225,14 @@ namespace SideHustle.Sync
         }
 
         /// <summary>An entry that could not be auto-fetched becomes a hand-install (or a drop when nothing points at
-        /// it), so every "not in the session" mod is visible in exactly one place: the manual checklist.</summary>
-        private static void Downgrade(DiffEntry e) =>
+        /// it), so every "not in the session" mod is visible in exactly one place: the manual checklist. The reason
+        /// rides along as the row's note - a checklist row that appears out of nowhere after the consent screen
+        /// promised an automatic download needs to explain itself.</summary>
+        private static void Downgrade(DiffEntry e, string why = null)
+        {
             e.Status = string.IsNullOrEmpty(e.Mod.Source) ? DiffStatus.Dropped : DiffStatus.Manual;
+            if (!string.IsNullOrEmpty(why)) e.ManualNote = why;
+        }
 
         /// <summary>How deep the dependency walk goes, and how many library packages it may fetch - a runaway
         /// closure must never turn one join into dozens of downloads.</summary>

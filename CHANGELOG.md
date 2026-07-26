@@ -3,6 +3,17 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [2.0.1] - 2026-07-26
+
+### Fixed
+- Downloads that land in their own folder are picked up now. If your browser saves a mod to
+  `Downloads\SomeMod\SomeMod.dll`, the checklist finds it there too, not just directly in Downloads.
+- A mod that could not be downloaded now says why. A checklist row that appears after the consent screen
+  promised an automatic install tells you what happened: Thunderstore refused the file, or the host runs a
+  different build than the one on Thunderstore (same version number, different file - ask them for theirs).
+- A hiccup on Thunderstore's side no longer sends a mod to the checklist. A 5xx answer is retried once before
+  giving up, which is what a "502" during a join used to cost you.
+
 ## [2.0.0] - 2026-07-26
 
 Play modded multiplayer with anyone - mods sync themselves, join a gamemode you don't even have installed, and chat in-game.
