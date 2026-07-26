@@ -7,6 +7,10 @@
 > shared entry point that gamemode mods (like an in-game tattoo editor) plug into. Built on
 > [S1API](https://github.com/ifBars/S1API).
 
+> 🌐 **Is anyone playing right now?** Every public lobby is listed live at
+> **[SideHustle.doodesch.de](https://sidehustle.doodesch.de)** - who is hosting, which gamemode, how full it is,
+> and the exact mods that session runs. Check before you launch; you still join from inside the game.
+
 ![Version](https://img.shields.io/badge/version-2.0.0-blue)
 ![Game](https://img.shields.io/badge/game-Schedule%20I-purple)
 ![MelonLoader](https://img.shields.io/badge/MelonLoader-0.7.3+-green)
@@ -75,6 +79,7 @@ mod registers itself and shows up under the Side Hustle entry.
   open the link, download the file, and Side Hustle picks it up from your Downloads folder (or Vortex's), verifies
   it and installs it on its own. Optionally require synced clients. Downloads only ever come from Thunderstore's
   CDN or GitHub releases, every file is hash-verified, and mods are never sent between players directly.
+- **Lobby browser on the web** - see every open public lobby at [SideHustle.doodesch.de](https://sidehustle.doodesch.de) without starting the game.
 - **Sync mod settings (optional).** A host can apply chosen mods' settings to everyone in the session only, never
   touching their real settings; anything that looks like a secret is off by default.
 - **Side Hustle Messenger.** A phone app to chat with the other players in your lobby - shared lobby chat and

@@ -6,6 +6,10 @@
 > lists every installed gamemode mod and launches it straight from the menu - no savegame required.
 > It is the shared hub that gamemode mods plug into.
 
+> 🌐 **Is anyone playing right now?** Every public lobby is listed live at
+> **[SideHustle.doodesch.de](https://sidehustle.doodesch.de)** - who is hosting, which gamemode, how full it is,
+> and the exact mods that session runs. Check before you launch; you still join from inside the game.
+
 ![Version](https://img.shields.io/badge/version-2.0.0-blue)
 ![Game](https://img.shields.io/badge/game-Schedule%20I-purple)
 ![MelonLoader](https://img.shields.io/badge/MelonLoader-0.7.3+-green)
@@ -30,6 +34,7 @@ itself and shows up under the Side Hustle entry.
   checklist with a direct link. Every file is hash-verified; mods are never sent between players.
 - **Join a gamemode you don't have installed** - a public gamemode lobby lists what it needs. Pick "Join (installs
   the mods)", choose a session, and Side Hustle installs it, restarts and joins that lobby.
+- **Lobby browser on the web** - see every open public lobby at [SideHustle.doodesch.de](https://sidehustle.doodesch.de) without starting the game.
 - **Messenger** - a phone app for lobby chat and one-to-one messages, with unread badges and notifications.
 
 ## Features
