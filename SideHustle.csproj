@@ -47,9 +47,9 @@
     <RootNamespace>SideHustle</RootNamespace>
     <AssemblyName>SideHustle</AssemblyName>
     <NeutralLanguage>en-US</NeutralLanguage>
-    <Version>2.0.1</Version>
-    <AssemblyVersion>2.0.1.0</AssemblyVersion>
-    <FileVersion>2.0.1.0</FileVersion>
+    <Version>2.1.0</Version>
+    <AssemblyVersion>2.1.0.0</AssemblyVersion>
+    <FileVersion>2.1.0.0</FileVersion>
     <!-- Suppress MSB3277/MSB3245 noise from il2cpp interop transitive refs -->
     <NoWarn>$(NoWarn);MSB3277;MSB3245</NoWarn>
 
@@ -168,11 +168,6 @@
       <EmbeddedResource Include="Boot/bin/$(Configuration)/net6.0/SideHustle.Boot.dll" LogicalName="SideHustle.Boot.dll" />
     </ItemGroup>
   </Target>
-
-  <!-- The WhatsDab app icon (home-screen icon + notification toasts). -->
-  <ItemGroup Condition="Exists('Assets/messenger_icon.png')">
-    <EmbeddedResource Include="Assets/messenger_icon.png" LogicalName="SideHustle.Assets.messenger_icon.png" />
-  </ItemGroup>
 
   <Target Name="PostBuild" AfterTargets="Build" Condition="'$(OS)' == 'Windows_NT'">
     <Exec Condition="Exists('$(ModsDirectory)')"

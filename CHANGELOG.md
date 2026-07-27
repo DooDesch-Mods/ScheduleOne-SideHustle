@@ -3,6 +3,22 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [2.1.0] - 2026-07-27
+
+### Changed
+
+- The messenger left home. Side Hustle carried its own phone app for lobby chat; that app is now
+  [WhatsDab](https://github.com/DooDesch-Mods/ScheduleOne-WhatsDab) - a mod of its own, and a requirement of this
+  one, so a mod manager installs it for you and nothing about the feature disappears. It got better on the way
+  out: both phone orientations, a typing indicator, right-click to step back the way the vanilla apps do, and an
+  interface written as three web files instead of 780 lines of panel code. Side Hustle is a gamemode hub again,
+  and the chat is maintained where it belongs.
+
+### Removed
+
+- 1270 lines of chat code (transport, store, contacts, two screens and a notifier) and the embedded app icon.
+  Nothing else in Side Hustle used them.
+
 ## [2.0.1] - 2026-07-26
 
 ### Fixed

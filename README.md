@@ -63,7 +63,7 @@ mod registers itself and shows up under the Side Hustle entry.
   Side Hustle.
 - **Stays out of the way.** A single toggle hides the entry without uninstalling.
 
-## New in 2.0: Profiles, Sync and Messenger
+## New in 2.0: Profiles and Sync
 
 - **Join a gamemode you don't have installed.** A public gamemode lobby lists the mod files a joiner needs. Pick
   "Join (installs the mods)", choose a session, and Side Hustle installs the gamemode (Thunderstore automatically,
@@ -82,8 +82,10 @@ mod registers itself and shows up under the Side Hustle entry.
 - **Lobby browser on the web** - see every open public lobby at [SideHustle.doodesch.de](https://sidehustle.doodesch.de) without starting the game.
 - **Sync mod settings (optional).** A host can apply chosen mods' settings to everyone in the session only, never
   touching their real settings; anything that looks like a secret is off by default.
-- **Side Hustle Messenger.** A phone app to chat with the other players in your lobby - shared lobby chat and
-  private one-to-one threads, unread badges and native notifications.
+- **Lobby chat on the phone.** Side Hustle carried its own messenger until 2.1; that app is now
+  [WhatsDab](https://github.com/DooDesch-Mods/ScheduleOne-WhatsDab), a mod of its own and a requirement of this
+  one. Same idea, more of it: group and one-to-one threads, unread badges, notifications, and both orientations.
+  Nothing to set up - install and it is on the phone.
 
 ## Requirements
 
@@ -92,6 +94,7 @@ mod registers itself and shows up under the Side Hustle entry.
 | Schedule I | IL2CPP (current Steam public build) |
 | MelonLoader | `0.7.3+` |
 | S1API | [ifBars/S1API_Forked](https://thunderstore.io/c/schedule-i/p/ifBars/S1API_Forked/) |
+| [WhatsDab](https://github.com/DooDesch-Mods/ScheduleOne-WhatsDab) | `1.0.1+` - the lobby chat app, pulled in as a dependency |
 
 ## Installation
 

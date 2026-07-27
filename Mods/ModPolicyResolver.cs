@@ -26,7 +26,9 @@ namespace SideHustle.Mods
     /// </summary>
     internal static class ModPolicyResolver
     {
-        private static readonly string[] Essentials = { "S1API", "SideHustle", "MelonLoader" };
+        // WhatsDab and the framework under it are Side Hustle's own requirement, so a gamemode policy must not
+        // disable them: the player would enter the gamemode and find the lobby chat this mod promises gone.
+        private static readonly string[] Essentials = { "S1API", "SideHustle", "MelonLoader", "WhatsDab", "Sideload" };
         private static readonly string[] MpEssentials = { "BiggerLobbies", "SteamNetworkLib" };
 
         internal static ModPlan Resolve(GamemodeDescriptor desc)

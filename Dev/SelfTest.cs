@@ -28,29 +28,6 @@ namespace SideHustle.Dev
             RunPolicy(policySession);
         }
 
-        // Pumped from Core.OnUpdate (in-world too): drive the Messenger backend without the phone UI. Once in a
-        // lobby it sends a group message every few seconds and logs the stored group thread + contacts, proving
-        // ChatService + ChatStore + Contacts + transport integrate. Enabled via SIDEHUSTLE_SELFTEST_CHATSVC=1.
-        private static bool _chatInit;
-        private static bool _chatOn;
-        private static float _chatNext;
-        private static int _chatSeq;
-        internal static void TickChatService()
-        {
-            if (!_chatInit) { _chatInit = true; _chatOn = Environment.GetEnvironmentVariable("SIDEHUSTLE_SELFTEST_CHATSVC") == "1"; }
-            if (!_chatOn || !Messenger.ChatService.InLobby) return;
-            if (UnityEngine.Time.unscaledTime < _chatNext) return;
-            _chatNext = UnityEngine.Time.unscaledTime + 5f;
-
-            Messenger.ChatService.Send(0UL, "hi #" + _chatSeq++ + " from " + Messenger.ChatTransport.SelfId());
-            var thread = Messenger.ChatStore.Thread(0UL);
-            int mine = 0, theirs = 0;
-            foreach (var m in thread) { if (m.Mine) mine++; else theirs++; }
-            string contacts = "";
-            foreach (var c in Messenger.Contacts.All) contacts += c.Name + "(" + c.SteamId + ") ";
-            Core.Log?.Msg($"[selftest] chatsvc: group thread mine={mine} theirs={theirs} contacts=[{contacts.Trim()}]");
-        }
-
         private static void RunPolicy(bool policySession)
         {
             if (_ran) return;
@@ -120,38 +97,6 @@ namespace SideHustle.Dev
             Core.Log?.Msg("[selftest] tour: DONE");
         }
 
-        // Boot a throwaway world so the phone (and the Messenger app) exists, seed sample chat data, then open
-        // the app on the contact list or a thread for a screenshot.
-        private static System.Collections.IEnumerator MessengerScreenshot(bool thread)
-        {
-            Core.Log?.Msg("[selftest] messenger: booting a scratch world for the phone...");
-            if (!Multiplayer.WorldBoot.BootHostWorld("Messenger Demo")) { Core.Log?.Error("[selftest] messenger: world boot failed."); yield break; }
-            float waited = 0f;
-            while (!Multiplayer.WorldBoot.IsWorldReady() && waited < 120f) { yield return new UnityEngine.WaitForSeconds(2f); waited += 2f; }
-            if (!Multiplayer.WorldBoot.IsWorldReady()) { Core.Log?.Error("[selftest] messenger: world not ready."); yield break; }
-
-            yield return new UnityEngine.WaitForSeconds(3f);
-            const ulong peer = 76561199485712034UL;
-            Messenger.Contacts.SeedForTest((peer, "Sam"), (76561190000000001UL, "Riley"));
-            Messenger.ChatStore.SeedForTest(peer);
-
-            var app = Messenger.MessengerApp.Instance;
-            if (app == null) { Core.Log?.Error("[selftest] messenger: app instance not found (phone not up?)."); yield break; }
-
-            string signal = null;
-            try { signal = System.IO.Path.Combine(MelonLoader.Utils.MelonEnvironment.UserDataDirectory, "SideHustle", "sh_tour_next"); } catch { }
-            try { if (signal != null && System.IO.File.Exists(signal)) System.IO.File.Delete(signal); } catch { }
-
-            app.OpenListForTest();
-            Core.Log?.Msg("[selftest] messenger: SHOWING 'messenger-list' (touch sh_tour_next to advance)");
-            yield return WaitForSignal(signal);
-
-            app.OpenThreadForTest(0UL);
-            Core.Log?.Msg("[selftest] messenger: SHOWING 'messenger-thread' (touch sh_tour_next to advance)");
-            yield return WaitForSignal(signal);
-            Core.Log?.Msg("[selftest] messenger: DONE");
-        }
-
         private static System.Collections.IEnumerator WaitForSignal(string signal)
         {
             float waited = 0f;
@@ -204,7 +149,6 @@ namespace SideHustle.Dev
             else if (mode == "manual") Menu.Hub.OpenManualForTest();
             else if (mode == "ghdl") GhDownloadCheck();
             else if (mode == "interstitial") Menu.ContinueInterstitial.ShowForTest();
-            else if (mode == "messenger" || mode == "messengerthread") MelonLoader.MelonCoroutines.Start(MessengerScreenshot(mode == "messengerthread"));
             else if (mode == "switchbuild")
             {
                 // Build the FIRST profile's isolated base dir via the real switch path but stop before the relaunch,

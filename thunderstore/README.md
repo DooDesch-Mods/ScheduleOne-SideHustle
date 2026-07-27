@@ -35,7 +35,7 @@ itself and shows up under the Side Hustle entry.
 - **Join a gamemode you don't have installed** - a public gamemode lobby lists what it needs. Pick "Join (installs
   the mods)", choose a session, and Side Hustle installs it, restarts and joins that lobby.
 - **Lobby browser on the web** - see every open public lobby at [SideHustle.doodesch.de](https://sidehustle.doodesch.de) without starting the game.
-- **Messenger** - a phone app for lobby chat and one-to-one messages, with unread badges and notifications.
+- **Lobby chat on the phone** - through [WhatsDab](https://thunderstore.io/c/schedule-i/p/DooDesch/WhatsDab/), which comes with this mod: group and one-to-one threads, unread badges, notifications.
 
 ## Features
 
@@ -68,6 +68,7 @@ itself and shows up under the Side Hustle entry.
 
 - **Schedule I** (IL2CPP) with **MelonLoader 0.7.3+**.
 - **S1API** (pulled in as a dependency).
+- **[WhatsDab](https://thunderstore.io/c/schedule-i/p/DooDesch/WhatsDab/)** (pulled in as a dependency) - the lobby chat app that used to live in here.
 - One or more **gamemode mods** that use Side Hustle.
 
 ## Settings

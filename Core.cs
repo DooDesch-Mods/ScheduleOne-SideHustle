@@ -4,7 +4,7 @@ using MelonLoader;
 using SideHustle.Config;
 using SideHustle.Menu;
 
-[assembly: MelonInfo(typeof(SideHustle.Core), "Side Hustle", "2.0.1", "DooDesch", "https://github.com/DooDesch-Mods/ScheduleOne-SideHustle")]
+[assembly: MelonInfo(typeof(SideHustle.Core), "Side Hustle", "2.1.0", "DooDesch", "https://github.com/DooDesch-Mods/ScheduleOne-SideHustle")]
 [assembly: MelonGame("TVGS", "Schedule I")]
 
 namespace SideHustle
@@ -227,18 +227,6 @@ namespace SideHustle
             Sync.SyncCoordinator.TickGate();   // an enforcing host kicks unsynced members
             Sync.VanillaLobby.HeartbeatTick(UnityEngine.Time.unscaledDeltaTime);   // keep a published lobby on the web directory
             Multiplayer.ClientExitGuard.TickWatchdog();   // recover a kicked/dropped client stranded on a loading screen
-
-            // The Messenger backend runs whenever we're in a lobby; its phone app refreshes only while open.
-            Messenger.ChatService.Tick();
-            Messenger.MessengerApp.Instance?.Tick();
-
-#if DEBUG
-            Dev.SelfTest.TickChatService();
-#endif
-
-#if DEBUG
-            Dev.ChatSmoke.Tick();
-#endif
 
             if (_inMenu)
             {
