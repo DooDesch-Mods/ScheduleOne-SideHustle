@@ -30,8 +30,10 @@ itself and shows up under the Side Hustle entry.
   one you pick. Build one from your installed mods or install from Thunderstore, dependencies included. Your real
   Mods folder is never managed, so r2modman and friends keep working.
 - **Vanilla co-op with mod sync** - host your normal savegame as a public lobby. A joiner's mods are compared to
-  yours and set up automatically: Thunderstore and GitHub downloads run on their own, everything else lands on a
-  checklist with a direct link. Every file is hash-verified; mods are never sent between players.
+  yours and set up automatically: Thunderstore downloads run on their own, everything else lands on a checklist
+  with a direct link - you download it, Side Hustle picks it up from your Downloads folder. Every file is
+  hash-verified; mods are never sent between players. This build fetches executable code from nowhere but
+  Thunderstore, which is why mods hosted on GitHub take the checklist route here.
 - **Join a gamemode you don't have installed** - a public gamemode lobby lists what it needs. Pick "Join (installs
   the mods)", choose a session, and Side Hustle installs it, restarts and joins that lobby.
 - **Lobby browser on the web** - see every open public lobby at [SideHustle.doodesch.de](https://sidehustle.doodesch.de) without starting the game.

@@ -3,6 +3,18 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [2.1.1] - 2026-07-27
+
+### Changed
+
+- The Thunderstore build no longer downloads mods from GitHub releases. Thunderstore does not allow a package
+  to fetch executable code from outside Thunderstore, which is a fair rule and one this mod's sync was
+  breaking, so the build published there is compiled without that fetch: no endpoint, no release reader, no
+  archive scanner in the DLL at all. Mods hosted on GitHub take the same route Nexus mods already take - a
+  checklist with a direct link, you download it, Side Hustle picks it up from your Downloads folder and
+  verifies the hash. Thunderstore's own packages still download automatically.
+- Nothing changes for the builds on GitHub and Nexus; those keep the automatic GitHub download.
+
 ## [2.1.0] - 2026-07-27
 
 ### Changed

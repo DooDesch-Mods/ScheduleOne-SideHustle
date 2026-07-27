@@ -47,9 +47,9 @@
     <RootNamespace>SideHustle</RootNamespace>
     <AssemblyName>SideHustle</AssemblyName>
     <NeutralLanguage>en-US</NeutralLanguage>
-    <Version>2.1.0</Version>
-    <AssemblyVersion>2.1.0.0</AssemblyVersion>
-    <FileVersion>2.1.0.0</FileVersion>
+    <Version>2.1.1</Version>
+    <AssemblyVersion>2.1.1.0</AssemblyVersion>
+    <FileVersion>2.1.1.0</FileVersion>
     <!-- Suppress MSB3277/MSB3245 noise from il2cpp interop transitive refs -->
     <NoWarn>$(NoWarn);MSB3277;MSB3245</NoWarn>
 
@@ -63,6 +63,17 @@
     <Backend>il2cpp</Backend>
     <DefineConstants>$(DefineConstants);IL2CPP</DefineConstants>
   </PropertyGroup>
+  <!--
+    Thunderstore's package rules forbid a package that downloads executable code from outside Thunderstore.
+    Side Hustle's mod sync does exactly that for mods hosted on GitHub releases, so the build published there
+    is compiled with StoreBuild=thunderstore, which turns the GitHub fetch off. Those mods then take the
+    manual route the sync already uses for anything it cannot fetch: a checklist with a direct link.
+    Thunderstore's own packages keep downloading, because those are the store's own moderated content.
+  -->
+  <PropertyGroup Condition="'$(StoreBuild)' == 'thunderstore'">
+    <DefineConstants>$(DefineConstants);NO_EXTERNAL_FETCH</DefineConstants>
+  </PropertyGroup>
+
   <PropertyGroup>
     <GameManagedPath>$(WorkspaceLibPath)/$(Backend)/game</GameManagedPath>
     <MelonLoaderPath>$(WorkspaceLibPath)/$(Backend)/melonloader</MelonLoaderPath>

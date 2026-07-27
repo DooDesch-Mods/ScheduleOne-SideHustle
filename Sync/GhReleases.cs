@@ -29,6 +29,19 @@ namespace SideHustle.Sync
             source != null && source.StartsWith("nx:", StringComparison.Ordinal)
             && TryParseRepo(source.Substring(3), out _, out _);
 
+        /// <summary>
+        /// Whether this source may be downloaded automatically. Same as <see cref="IsGitHubSource"/> everywhere
+        /// except the Thunderstore build, which fetches no executable code from outside Thunderstore - there a
+        /// GitHub mod is planned, counted and shown as a manual download from the start, so the consent screen
+        /// never promises a download that the resolver will then decline to make.
+        /// </summary>
+        internal static bool CanAutoFetch(string source) =>
+#if NO_EXTERNAL_FETCH
+            false;
+#else
+            IsGitHubSource(source);
+#endif
+
         /// <summary>Extract owner/repo from a GitHub URL (repo page or any subpath like /releases). Only the
         /// canonical hosts count - gists/raw/pages are not release sources.</summary>
         internal static bool TryParseRepo(string url, out string owner, out string repo)
@@ -73,6 +86,25 @@ namespace SideHustle.Sync
             return result.Count > 0 ? result : null;
         }
 
+#if NO_EXTERNAL_FETCH
+        /// <summary>
+        /// The Thunderstore build fetches no executable code from outside Thunderstore, so this always declines.
+        /// Not a failure path: it is the same answer the real implementation gives when no release asset matches
+        /// the host's hash, and the caller already routes such a mod to the manual checklist with a direct link.
+        /// In practice it is never even called, because <see cref="CanAutoFetch"/> is false in this build.
+        /// </summary>
+        internal static Task<byte[]> TryFetchAsync(string url, string version, string sha256, CancellationToken ct)
+        {
+            Core.Log?.Msg($"[sync] '{url}': this build does not download from GitHub - using the manual link.");
+            return Task.FromResult<byte[]>(null);
+        }
+#endif
+
+#if !NO_EXTERNAL_FETCH
+        // Everything from here to the end of the file exists to fetch a release asset. The Thunderstore build
+        // compiles none of it, so that DLL carries no GitHub endpoint, no release-JSON reader and no archive
+        // scanner - not merely a disabled path. The headless test project defines no such constant and keeps
+        // exercising all of it.
         internal sealed class GhAsset { public string Name; public string Url; public long Size; }
         internal sealed class GhRelease { public string Tag; public bool Prerelease; public List<GhAsset> Assets = new List<GhAsset>(); }
 
@@ -172,5 +204,6 @@ namespace SideHustle.Sync
             using var sha = System.Security.Cryptography.SHA256.Create();
             return Convert.ToHexString(sha.ComputeHash(bytes)).ToLowerInvariant();
         }
+#endif
     }
 }

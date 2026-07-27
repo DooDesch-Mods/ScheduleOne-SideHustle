@@ -44,7 +44,7 @@ namespace SideHustle.Sync
                 string sha = modsPath != null ? ModInventory.Sha256OfFile(Path.Combine(modsPath, m.File)) : null;
                 string source = ResolveSource(m, index);
                 if (source.StartsWith("ts:", StringComparison.Ordinal)) plan.AutoCount++;
-                else if (GhReleases.IsGitHubSource(source)) plan.GhCount++;
+                else if (GhReleases.CanAutoFetch(source)) plan.GhCount++;
                 else if (source.StartsWith("nx:", StringComparison.Ordinal)) plan.LinkCount++;
                 else plan.DroppedCount++;
 

@@ -118,7 +118,7 @@ namespace SideHustle.Sync
                 else if (m.Source.StartsWith("ts:", StringComparison.Ordinal)) e.Status = DiffStatus.Download;
                 // A GitHub-hosted link mod downloads like ts: - releases are an open CDN and the hash check gates
                 // the result, so the session aligns to the host's exact bytes instead of reusing a local variant.
-                else if (GhReleases.IsGitHubSource(m.Source)) e.Status = DiffStatus.Download;
+                else if (GhReleases.CanAutoFetch(m.Source)) e.Status = DiffStatus.Download;
                 // nx: / unsourced: before forcing a hand-download or dropping it, reuse the client's OWN installed
                 // copy of the same mod (its exact bytes aren't fetchable anyway) so they don't re-download what they have.
                 else if (m.Source.StartsWith("nx:", StringComparison.Ordinal)) { if (!TryReuseOwnCopy(m, e, localByFile, loadedList)) e.Status = DiffStatus.Manual; }
@@ -147,7 +147,7 @@ namespace SideHustle.Sync
             bool allOk = true;
             foreach (var e in diff.Entries.Where(x => x.Status == DiffStatus.Download))
             {
-                if (GhReleases.IsGitHubSource(e.Mod.Source))
+                if (GhReleases.CanAutoFetch(e.Mod.Source))
                 {
                     progress?.Report((e.Mod.File, 0, 0));
                     byte[] bytes = null;

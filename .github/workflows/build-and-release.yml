@@ -129,7 +129,7 @@ jobs:
             cp thunderstore/README.md release/README.md
           fi
 
-      - name: Create release ZIP (Thunderstore + GitHub; flat layout with manifest/icon at root)
+      - name: Create release ZIP (GitHub; flat layout with manifest/icon at root)
         run: zip -j "SideHustle_${{ steps.version-check.outputs.version }}.zip" release/*
 
       - name: Upload Release ZIP
@@ -137,6 +137,37 @@ jobs:
         with:
           name: SideHustle
           path: "SideHustle_${{ steps.version-check.outputs.version }}.zip"
+
+      # Thunderstore forbids a package that downloads executable code from outside Thunderstore, so the build
+      # published THERE is compiled with StoreBuild=thunderstore: no GitHub release fetch, and the mods that
+      # would have used it take the manual checklist the sync already has. Thunderstore's own packages keep
+      # downloading. GitHub and Nexus ship the full build above; only this artifact differs.
+      - name: Build again for Thunderstore (no fetching of executables from outside Thunderstore)
+        run: |
+          dotnet build SideHustle.csproj --configuration Release             /p:WorkspaceLibPath="${{ github.workspace }}/Workspace/lib" /p:StoreBuild=thunderstore
+          # Prove it, and fail the release rather than ship a package that would be rejected again.
+          # .NET stores string literals as UTF-16, so this reads the DLL the way a scanner would.
+          python3 - <<'CHECK'
+          import sys
+          data = open("bin/Release/net6.0/SideHustle.dll", "rb").read()
+          for needle in ("api.github.com", "browser_download_url"):
+              if needle.encode("utf-16-le") in data:
+                  sys.exit(f"Thunderstore build still carries '{needle}' - StoreBuild did not apply.")
+          print("Thunderstore build carries no GitHub endpoint and no release-JSON reader.")
+          CHECK
+
+      # Its own directory: the Nexus archive below is built from release/ and must keep the FULL DLL.
+      - name: Create Thunderstore ZIP
+        run: |
+          cp -r release ts-release
+          cp bin/Release/net6.0/SideHustle.dll ts-release/
+          zip -j "SideHustle_${{ steps.version-check.outputs.version }}_thunderstore.zip" ts-release/*
+
+      - name: Upload Thunderstore ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: SideHustle-thunderstore
+          path: "SideHustle_${{ steps.version-check.outputs.version }}_thunderstore.zip"
 
       # Nexus is installed through Vortex, whose Schedule 1 extension deploys relative to the game root and
       # maps loose non-.md files at the archive root (manifest.json, icon.png) to a bare "mods" path - which
@@ -189,15 +220,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Download built ZIP
+      # The gated build, not the full one - see the build job for why.
+      - name: Download the Thunderstore ZIP
         uses: actions/download-artifact@v4
         with:
-          name: SideHustle
+          name: SideHustle-thunderstore
 
       - name: Extract ZIP for Thunderstore
         run: |
           mkdir -p thunderstore-package
-          unzip -q "SideHustle_${{ needs.build.outputs.version }}.zip" -d thunderstore-package/
+          unzip -q "SideHustle_${{ needs.build.outputs.version }}_thunderstore.zip" -d thunderstore-package/
 
       - name: Upload to Thunderstore
         uses: GreenTF/upload-thunderstore-package@v4.3
