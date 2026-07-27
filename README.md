@@ -92,7 +92,6 @@ mod registers itself and shows up under the Side Hustle entry.
 | Schedule I | IL2CPP (current Steam public build) |
 | MelonLoader | `0.7.3+` |
 | S1API | [ifBars/S1API_Forked](https://thunderstore.io/c/schedule-i/p/ifBars/S1API_Forked/) |
-| Mod Manager & Phone App | [Prowiler, Nexus mods/397](https://www.nexusmods.com/schedule1/mods/397) - optional, for the in-game settings UI |
 
 ## Installation
 
@@ -110,7 +109,7 @@ Install with a mod manager (r2modman / Gale) from the Schedule I community; the 
 
 ## Configuration
 
-Settings live in the **Mod Manager & Phone App** UI in-game, or in `UserData/MelonPreferences.cfg`
+Settings live in `UserData/MelonPreferences.cfg`
 under `SideHustle_01_Main`.
 
 | Setting | Default | What it does |
@@ -162,7 +161,6 @@ both singleplayer and multiplayer gamemodes launch straight from the menu. See t
 
 - **DooDesch** - mod author.
 - **[ifBars/S1API](https://github.com/ifBars/S1API)** - the modding API this is built on.
-- **Prowiler** - Mod Manager & Phone App (in-game settings UI).
 
 ## License
 

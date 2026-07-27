@@ -68,7 +68,6 @@ itself and shows up under the Side Hustle entry.
 
 - **Schedule I** (IL2CPP) with **MelonLoader 0.7.3+**.
 - **S1API** (pulled in as a dependency).
-- Optional: **Mod Manager & Phone App** for the in-game settings UI.
 - One or more **gamemode mods** that use Side Hustle.
 
 ## Settings
