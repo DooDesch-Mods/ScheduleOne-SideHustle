@@ -26,7 +26,7 @@ namespace SideHustle.Mods
     /// </summary>
     internal static class ModPolicyResolver
     {
-        private static readonly string[] Essentials = { "S1API", "SideHustle", "ModManagerPhoneApp", "MelonLoader" };
+        private static readonly string[] Essentials = { "S1API", "SideHustle", "MelonLoader" };
         private static readonly string[] MpEssentials = { "BiggerLobbies", "SteamNetworkLib" };
 
         internal static ModPlan Resolve(GamemodeDescriptor desc)

@@ -72,8 +72,7 @@ itself and shows up under the Side Hustle entry.
 
 ## Settings
 
-`Enabled` (default `true`) - show the Side Hustle menu entry. Editable in the Mod Manager & Phone
-App UI or `UserData/MelonPreferences.cfg` under `SideHustle_01_Main`.
+`Enabled` (default `true`) - show the Side Hustle menu entry. Editable in `UserData/MelonPreferences.cfg` under `SideHustle_01_Main`.
 
 ## License
 
