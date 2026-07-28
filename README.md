@@ -79,9 +79,10 @@ mod registers itself and shows up under the Side Hustle entry.
   open the link, download the file, and Side Hustle picks it up from your Downloads folder (or Vortex's), verifies
   it and installs it on its own. Optionally require synced clients. Downloads only ever come from Thunderstore's
   CDN or GitHub releases, every file is hash-verified, and mods are never sent between players directly.
-  **The build published on Thunderstore is compiled without the GitHub fetch** (`-p:StoreBuild=thunderstore`),
-  because Thunderstore does not allow a package to download executable code from outside Thunderstore. There,
-  a GitHub-hosted mod takes the same checklist route a Nexus one does. The GitHub and Nexus builds are unchanged.
+  **The build published on Thunderstore downloads nothing** (`-p:StoreBuild=thunderstore`), because Thunderstore
+  does not allow a package to fetch executable code - not from GitHub and not from Thunderstore either. There,
+  every mod takes the checklist route, and "Add from Thunderstore" is absent from Mod Profiles; the package
+  index and mod icons are still fetched, being JSON and PNGs. The GitHub and Nexus builds are unchanged.
 - **Lobby browser on the web** - see every open public lobby at [SideHustle.doodesch.de](https://sidehustle.doodesch.de) without starting the game.
 - **Sync mod settings (optional).** A host can apply chosen mods' settings to everyone in the session only, never
   touching their real settings; anything that looks like a secret is off by default.

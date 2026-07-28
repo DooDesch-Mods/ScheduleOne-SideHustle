@@ -80,8 +80,15 @@ namespace SideHustle.Menu
             if (writable)
             {
                 Components.SectionHeader(content, "Add mods to this profile");
+#if NO_EXTERNAL_FETCH
+                // No downloads in this build, so there is no install to offer. Saying why beats a Browse button
+                // that lists the whole community index and then fails on the one thing it exists for.
+                Note(content, "Installing from Thunderstore is not part of this build - add mods with your mod "
+                            + "manager, then pick them below.");
+#else
                 Row(content, "Thunderstore", "Browse the community index and install (dependencies included).",
                     "Browse", Theme.Button, onAddThunderstore);
+#endif
                 Row(content, "Pick from installed mods", "Choose a mod you already have in your Mods folder to add here.",
                     "Pick", Theme.Button, onAddInstalled);
             }

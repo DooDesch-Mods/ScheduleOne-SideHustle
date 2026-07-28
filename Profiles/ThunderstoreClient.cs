@@ -218,6 +218,14 @@ namespace SideHustle.Profiles
             string dir = PackageCache.PathFor(cacheRoot, fullName, version);
             if (PackageCache.IsCached(cacheRoot, fullName, version)) return dir;
 
+#if NO_EXTERNAL_FETCH
+            // This build downloads no mod packages at all - a package is a zip of executable code, and the store
+            // it ships on does not allow a package to fetch that. Anything already in the cache is still used
+            // (it is on disk, nothing is fetched); anything else takes the manual route the callers already have.
+            Log?.Invoke($"this build does not download packages - '{fullName} {version}' has to be installed by hand.");
+            return null;
+#else
+
             var pkg = index?.Find(fullName);
             var ver = pkg?.Get(version);
             if (ver == null || string.IsNullOrEmpty(ver.DownloadUrl)) return null;
@@ -273,6 +281,7 @@ namespace SideHustle.Profiles
             {
                 try { if (File.Exists(tmp)) File.Delete(tmp); } catch { /* ignore */ }
             }
+#endif
         }
     }
 }

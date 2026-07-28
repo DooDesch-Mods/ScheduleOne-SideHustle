@@ -3,6 +3,19 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [2.1.2] - 2026-07-28
+
+### Changed
+
+- The Thunderstore build now downloads nothing at all. 2.1.1 stopped it fetching from GitHub and was rejected
+  again, so this build also stops it downloading packages from Thunderstore itself. What that costs on
+  Thunderstore, and only there: mod sync never installs anything on its own, every mod lands on the checklist
+  with a direct link, and the "Add from Thunderstore" browser is gone from Mod Profiles - a browser that lists
+  the whole community index and then cannot install is worse than no button, so the profile screen says to use
+  a mod manager instead. Profiles built from mods you already have work unchanged.
+- The package index and mod icons are still fetched. They are a JSON catalogue and PNGs, not executable code.
+- The builds on GitHub and Nexus are unaffected and keep every download.
+
 ## [2.1.1] - 2026-07-27
 
 ### Changed

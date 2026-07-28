@@ -27,13 +27,14 @@ itself and shows up under the Side Hustle entry.
 ## New in 2.0
 
 - **Mod Profiles** - an in-game mod manager. Separate sets of mods you switch between; the game restarts into the
-  one you pick. Build one from your installed mods or install from Thunderstore, dependencies included. Your real
-  Mods folder is never managed, so r2modman and friends keep working.
+  one you pick. Build one from the mods you already have installed. Your real Mods folder is never managed, so
+  r2modman and friends keep working - and in this build they are also how mods get installed in the first place.
 - **Vanilla co-op with mod sync** - host your normal savegame as a public lobby. A joiner's mods are compared to
-  yours and set up automatically: Thunderstore downloads run on their own, everything else lands on a checklist
-  with a direct link - you download it, Side Hustle picks it up from your Downloads folder. Every file is
-  hash-verified; mods are never sent between players. This build fetches executable code from nowhere but
-  Thunderstore, which is why mods hosted on GitHub take the checklist route here.
+  yours and turned into a checklist with a direct link for each one. You download them, Side Hustle picks each
+  file up from your Downloads folder, verifies its hash and installs it into the profile. Mods are never sent
+  between players. **This build downloads nothing itself** - Thunderstore does not allow a package to fetch
+  executable code, so installing is your mod manager's job here and Side Hustle does the matching and the
+  profile work around it.
 - **Join a gamemode you don't have installed** - a public gamemode lobby lists what it needs. Pick "Join (installs
   the mods)", choose a session, and Side Hustle installs it, restarts and joins that lobby.
 - **Lobby browser on the web** - see every open public lobby at [SideHustle.doodesch.de](https://sidehustle.doodesch.de) without starting the game.

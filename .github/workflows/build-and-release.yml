@@ -150,7 +150,7 @@ jobs:
           python3 - <<'CHECK'
           import sys
           data = open("bin/Release/net6.0/SideHustle.dll", "rb").read()
-          for needle in ("api.github.com", "browser_download_url"):
+          for needle in ("api.github.com", "browser_download_url", "download_url"):
               if needle.encode("utf-16-le") in data:
                   sys.exit(f"Thunderstore build still carries '{needle}' - StoreBuild did not apply.")
           print("Thunderstore build carries no GitHub endpoint and no release-JSON reader.")
