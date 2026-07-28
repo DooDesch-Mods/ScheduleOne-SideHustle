@@ -3,6 +3,20 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [2.1.3] - 2026-07-28
+
+### Fixed
+
+- Joining a lobby whose mod list was too big for Steam said "Sync unavailable" and could never do anything
+  else. A host in that position clears the chunk count so joiners fall back to the backend copy - but it also
+  cleared the hash, and the hash is the only thing a joiner can verify that copy against, so the copy was
+  refused. The fallback was dead in exactly the case it exists for. The hash is sixteen characters and fits
+  when the manifest does not, so it is published either way now. Hosts need this version; joiners see the
+  difference as soon as the host has it.
+- Mod names written in CamelCase are split before searching Nexus. "BigPimpin" found nothing there while
+  "Big Pimpin" finds the mod, and a spaced query already matches a run-together title, so this only ever
+  helps. Acronyms stay whole: "SIAKImperium" becomes "SIAK Imperium". The website's lobby pages do the same.
+
 ## [2.1.2] - 2026-07-28
 
 ### Changed

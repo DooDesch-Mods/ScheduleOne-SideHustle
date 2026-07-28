@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using SideHustle.Profiles;
@@ -60,6 +61,12 @@ namespace SideHustle.Sync
         /// unchanged.</summary>
         internal static string PageUrl(int modId) => $"https://www.nexusmods.com/{GameDomain}/mods/{modId}";
 
+        // Compiled once: SearchTerm runs for every row of a mod list, on every repaint.
+        private static readonly Regex NotWordChars = new Regex(@"[^\p{L}\p{N}]+", RegexOptions.Compiled);
+        private static readonly Regex BeforeCapital = new Regex(@"(?<=\p{Ll}|\p{N})(?=\p{Lu})", RegexOptions.Compiled);
+        private static readonly Regex EndOfAcronym = new Regex(@"(?<=\p{Lu})(?=\p{Lu}\p{Ll})", RegexOptions.Compiled);
+        private static readonly Regex Runs = new Regex(@"\s+", RegexOptions.Compiled);
+
         /// <summary>
         /// A clean search term for a mod name: letters/digits/spaces only, with run-together words split apart.
         ///
@@ -75,10 +82,10 @@ namespace SideHustle.Sync
         internal static string SearchTerm(string name)
         {
             if (string.IsNullOrEmpty(name)) return "";
-            string cleaned = System.Text.RegularExpressions.Regex.Replace(name, @"[^\p{L}\p{N}]+", " ");
-            string split = System.Text.RegularExpressions.Regex.Replace(cleaned, @"(?<=\p{Ll}|\p{N})(?=\p{Lu})", " ");
-            split = System.Text.RegularExpressions.Regex.Replace(split, @"(?<=\p{Lu})(?=\p{Lu}\p{Ll})", " ");
-            return System.Text.RegularExpressions.Regex.Replace(split, @"\s+", " ").Trim();
+            string term = NotWordChars.Replace(name, " ");
+            term = BeforeCapital.Replace(term, " ");
+            term = EndOfAcronym.Replace(term, " ");
+            return Runs.Replace(term, " ").Trim();
         }
 
         /// <summary>The cache/compare form of a name: <see cref="SearchTerm"/> lowercased.</summary>

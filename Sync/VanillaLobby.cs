@@ -95,12 +95,10 @@ namespace SideHustle.Sync
                 // Chunks first, then the chunk count is cleared if any of them was refused: a manifest that is
                 // advertised as readable but only half-written makes a joiner retry a payload that cannot exist.
                 //
-                // The HASH is published either way, and that is the whole point. It is sixteen characters, so it
-                // fits when a multi-kilobyte manifest does not, and it is what a joiner checks the backend copy
-                // against. Clearing it here - as this did until 2.1.3 - killed the very fallback the comment
-                // promised: the host said "use the backend copy", and the joiner rejected that copy for having
-                // nothing to verify it against. A lobby whose manifest is too big for Steam is exactly the case
-                // the backend exists for, and it was the case that could never work.
+                // The HASH is published either way, and it has to be. It is sixteen characters, so it fits when a
+                // multi-kilobyte manifest does not, and it is the only thing a joiner can check the backend copy
+                // against - clear it and the backend fallback is dead, because an unverifiable copy is refused.
+                // A manifest too big for Steam is precisely the case the backend exists for.
                 bool payloadOk = WriteChunks(sid, ManifestChunkPrefix, KeyManifestChunks, mChunks)
                                  & WriteChunks(sid, PrefsChunkPrefix, KeyPrefsChunks, pChunks);
                 bool hashOk = SteamMatchmaking.SetLobbyData(sid, KeyMHash, SyncCodec.Hash(manifestText, prefsText));
