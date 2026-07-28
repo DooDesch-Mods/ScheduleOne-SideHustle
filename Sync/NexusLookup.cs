@@ -60,11 +60,26 @@ namespace SideHustle.Sync
         /// unchanged.</summary>
         internal static string PageUrl(int modId) => $"https://www.nexusmods.com/{GameDomain}/mods/{modId}";
 
-        /// <summary>A clean search term for a mod name: letters/digits/spaces only. Special characters (e.g. the "&amp;"
-        /// in "Mod Manager &amp; Phone App") make both the site search and the API miss the mod, so every run of other
-        /// characters collapses to a single space.</summary>
-        internal static string SearchTerm(string name) =>
-            string.IsNullOrEmpty(name) ? "" : System.Text.RegularExpressions.Regex.Replace(name, @"[^\p{L}\p{N}]+", " ").Trim();
+        /// <summary>
+        /// A clean search term for a mod name: letters/digits/spaces only, with run-together words split apart.
+        ///
+        /// Two things make Nexus miss a mod. Special characters (the "&amp;" in "Mod Manager &amp; Phone App") throw off
+        /// both the site search and the API, so every run of them collapses to a single space. And a mod whose file
+        /// is named in CamelCase is usually LISTED with the spaces in: searching "BigPimpin" finds nothing while
+        /// "Big Pimpin" finds it. Splitting at the humps is the direction that works, because Nexus matches a
+        /// spaced query against a run-together title ("Net Eye" finds "NetEye") but not the other way round.
+        ///
+        /// An acronym stays whole: the second pattern only splits before a capital that starts a word, so
+        /// "SIAKImperium" becomes "SIAK Imperium" rather than five single letters.
+        /// </summary>
+        internal static string SearchTerm(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return "";
+            string cleaned = System.Text.RegularExpressions.Regex.Replace(name, @"[^\p{L}\p{N}]+", " ");
+            string split = System.Text.RegularExpressions.Regex.Replace(cleaned, @"(?<=\p{Ll}|\p{N})(?=\p{Lu})", " ");
+            split = System.Text.RegularExpressions.Regex.Replace(split, @"(?<=\p{Lu})(?=\p{Lu}\p{Ll})", " ");
+            return System.Text.RegularExpressions.Regex.Replace(split, @"\s+", " ").Trim();
+        }
 
         /// <summary>The cache/compare form of a name: <see cref="SearchTerm"/> lowercased.</summary>
         internal static string Normalize(string name) => SearchTerm(name).ToLowerInvariant();

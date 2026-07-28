@@ -92,18 +92,29 @@ namespace SideHustle.Sync
                 SteamMatchmaking.SetLobbyData(sid, KeyModSummary, modSummary ?? "");
                 var mChunks = SyncCodec.Pack(manifestText);
                 var pChunks = SyncCodec.Pack(prefsText);
-                // Chunks first, hash last, and only when everything landed: a manifest that is advertised (hash set)
-                // but not fully written can never validate on a joiner - they would retry a payload that cannot exist.
-                // On a refused write the manifest keys are cleared instead, so the lobby is simply "unsynced" and the
-                // backend copy takes over, rather than looking published and being unreadable.
+                // Chunks first, then the chunk count is cleared if any of them was refused: a manifest that is
+                // advertised as readable but only half-written makes a joiner retry a payload that cannot exist.
+                //
+                // The HASH is published either way, and that is the whole point. It is sixteen characters, so it
+                // fits when a multi-kilobyte manifest does not, and it is what a joiner checks the backend copy
+                // against. Clearing it here - as this did until 2.1.3 - killed the very fallback the comment
+                // promised: the host said "use the backend copy", and the joiner rejected that copy for having
+                // nothing to verify it against. A lobby whose manifest is too big for Steam is exactly the case
+                // the backend exists for, and it was the case that could never work.
                 bool payloadOk = WriteChunks(sid, ManifestChunkPrefix, KeyManifestChunks, mChunks)
                                  & WriteChunks(sid, PrefsChunkPrefix, KeyPrefsChunks, pChunks);
-                bool hashOk = payloadOk && SteamMatchmaking.SetLobbyData(sid, KeyMHash, SyncCodec.Hash(manifestText, prefsText));
-                if (!hashOk)
+                bool hashOk = SteamMatchmaking.SetLobbyData(sid, KeyMHash, SyncCodec.Hash(manifestText, prefsText));
+                if (!payloadOk)
                 {
-                    SteamMatchmaking.SetLobbyData(sid, KeyMHash, "");
                     SteamMatchmaking.SetLobbyData(sid, KeyManifestChunks, "");
-                    Core.Log?.Warning("[sync] the lobby refused the manifest - publishing it without one (joiners use the backend copy or join unsynced).");
+                    Core.Log?.Warning(hashOk
+                        ? "[sync] the lobby refused the manifest chunks - joiners will read the backend copy and verify it against the published hash."
+                        : "[sync] the lobby refused both the manifest and its hash - joiners cannot sync with this lobby.");
+                }
+                else if (!hashOk)
+                {
+                    SteamMatchmaking.SetLobbyData(sid, KeyManifestChunks, "");
+                    Core.Log?.Warning("[sync] the lobby refused the manifest hash - not advertising a manifest a joiner could not verify.");
                 }
                 int maxChunk = 0; foreach (var c in mChunks) if (c.Length > maxChunk) maxChunk = c.Length;
                 Core.Log?.Msg($"[sync] vanilla lobby published (version={UnityEngine.Application.version}, enforce={enforce}, " +
