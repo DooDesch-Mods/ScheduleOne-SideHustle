@@ -98,7 +98,7 @@ mod registers itself and shows up under the Side Hustle entry.
 | Schedule I | IL2CPP (current Steam public build) |
 | MelonLoader | `0.7.3+` |
 | S1API | [ifBars/S1API_Forked](https://thunderstore.io/c/schedule-i/p/ifBars/S1API_Forked/) |
-| [WhatsDab](https://github.com/DooDesch-Mods/ScheduleOne-WhatsDab) | `1.0.1+` - the lobby chat app, pulled in as a dependency |
+| [WhatsDab](https://github.com/DooDesch-Mods/ScheduleOne-WhatsDab) | `1.0.2+` - the lobby chat app, pulled in as a dependency |
 
 ## Installation
 
