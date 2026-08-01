@@ -21,8 +21,8 @@ namespace SideHustle.Multiplayer
     /// does not reliably propagate through IL2CPP string marshalling; passing the alias as a plain argument to a
     /// fresh call sidesteps that entirely. The REAL Steam id is passed (read back from the already-replicated
     /// <c>PlayerCode</c>), so the host's friend-check keys off the true id and <see cref="PublicLobbyAccess"/>'s
-    /// non-friend bypass keeps working. PublicLobbyAccess patches a different method (the host-side
-    /// <c>RpcLogic___SendPlayerNameData</c>), so the two compose cleanly.
+    /// non-friend bypass keeps working. PublicLobbyAccess patches the friend check itself
+    /// (<c>PlatformFriends.IsLocalPlayerFriendsWith</c>) rather than this RPC, so the two compose cleanly.
     ///
     /// The name is never written to the save (PlayerData has no name field), so this is non-destructive and resets
     /// to the Steam name on the next spawn once <see cref="Active"/> goes false. Gated by Active, set only while a

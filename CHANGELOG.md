@@ -3,6 +3,26 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [2.2.0] - 2026-08-01
+
+### Fixed
+
+- Side Hustle works on Schedule I 0.4.6f11. That update renamed the main menu screen and replaced the game's
+  Steam lobby layer, so 2.1.3 has no menu entry there and no working multiplayer.
+- Your hosted lobby shows up in the server browser again, with the mod list joiners check theirs against. The
+  lobby's Steam id moved in 0.4.6; the old spot still exists and always answers zero, and the browser entry,
+  the website listing and the mod sync all key off that id.
+- Players who are not on your Steam friends list can join your public lobby again. Vanilla drops them with
+  "Not friends with host" a few seconds after they connect; Side Hustle switches that off while it hosts, and
+  the switch moved in 0.4.6.
+- A new lobby opens with every seat a cap mod gives it, FullHouse or BiggerLobbies, instead of the vanilla four.
+- The invite button is back for everyone in the lobby, not the host alone, and the display name you set for a
+  session reaches the other players again.
+
+### Changed
+
+- Side Hustle needs S1API 3.1.1. 3.0.5 predates the game update; a mod manager pulls the new one in for you.
+
 ## [2.1.3] - 2026-07-28
 
 ### Fixed
