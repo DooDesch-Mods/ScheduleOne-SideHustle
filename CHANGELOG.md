@@ -3,6 +3,16 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [2.2.2] - 2026-08-01
+
+### Fixed
+
+- Clicking a save in the main menu loads it again. Since Schedule I 0.4.6f11 it did nothing at all:
+  no load, no prompt, no error. The "Host this save publicly?" prompt had cancelled the load and was
+  then drawn behind the menu, so there was nothing left to click.
+- If that prompt ever fails to appear again, the save just loads. It no longer leaves you on a menu
+  that ignores you.
+
 ## [2.2.1] - 2026-08-01
 
 ### Fixed
