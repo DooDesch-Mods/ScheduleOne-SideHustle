@@ -11,16 +11,24 @@ namespace SideHustle.Multiplayer
         private const int BiggerLobbiesCap = 20;   // BiggerLobbies' fixed Constants.MAX_PLAYERS
 
         /// <summary>
-        /// The seat cap for a new lobby. Ground truth is the game's <c>Lobby.Players</c> array, which BiggerLobbies
-        /// resizes to its cap in the Menu scene; falls back to detecting the BiggerLobbies melon (fixed 20), then the
-        /// vanilla 4.
+        /// The seat cap for a new lobby. Ground truth is the seat array inside the game's SteamLobbyService, which
+        /// FullHouse (and any other cap mod) resizes to its cap; before that array exists, our own embedded FullHouse
+        /// engine already knows the effective cap. Falls back to detecting the BiggerLobbies melon (fixed 20), then
+        /// the vanilla 4.
         /// </summary>
         internal static int MaxClients()
         {
             try
             {
-                var l = PersistentSingleton<Lobby>.Instance;
-                if (l != null && l.Players != null && l.Players.Length >= 2) return l.Players.Length;
+                int seats = DooDesch.FullHouse.Lobbies.SeatCount;
+                if (seats >= 2) return seats;
+            }
+            catch { /* fall through */ }
+
+            try
+            {
+                int cap = DooDesch.FullHouse.Lobbies.EffectiveCap;
+                if (cap >= 2) return cap;
             }
             catch { /* fall through */ }
 

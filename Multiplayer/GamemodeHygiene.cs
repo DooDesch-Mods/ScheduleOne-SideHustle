@@ -119,10 +119,11 @@ namespace SideHustle.Multiplayer
         private static HarmonyMethod Hook(string name) =>
             new HarmonyMethod(typeof(GamemodeHygiene).GetMethod(name, AccessTools.all));
 
-        // Set HasCompletedIntro=true before PlayerLoaded's `if (!HasCompletedIntro ...)` gate -> intro never starts.
+        // Set the intro flag before PlayerLoaded's `if (!_hasCompletedIntro ...)` gate -> intro never starts.
+        // The flag is a private auto-property since 0.4.6f11; the interop wrapper exposes it with a setter.
         private static void PlayerLoadedPrefix(Player __instance)
         {
-            try { if (SkipIntroActive && __instance != null) __instance.HasCompletedIntro = true; } catch { }
+            try { if (SkipIntroActive && __instance != null) __instance._hasCompletedIntro = true; } catch { }
         }
 
         // Return false = skip Quest.Begin, so no vanilla quest activates while a quest-blocking session is active -

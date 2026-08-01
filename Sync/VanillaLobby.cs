@@ -66,17 +66,19 @@ namespace SideHustle.Sync
             if (l == null || !l.IsInLobby) return false;
             try
             {
-                CSteamID sid = l.LobbySteamID;
+                CSteamID sid = new CSteamID(LobbyCoordinator.CurrentLobbyId);
+                if (sid.m_SteamID == 0UL) return false;   // IsInLobby can be true a beat before the id resolves
                 bool priv = opts.Visibility == LobbyVisibility.Private;
                 SteamMatchmaking.SetLobbyType(sid, priv ? ELobbyType.k_ELobbyTypeFriendsOnly : ELobbyType.k_ELobbyTypePublic);
                 SteamMatchmaking.SetLobbyJoinable(sid, true);
                 SteamMatchmaking.SetLobbyMemberLimit(sid, Math.Max(2, opts.MaxPlayers));
 
-                // Vanilla gates lobby ENTRY on the "version" key: Lobby.OnLobbyEntered bounces any joiner whose
-                // Application.version differs from the lobby's "version" value. Vanilla only writes that key from its
-                // own global LobbyCreated_t callback, which does not reliably fire for a lobby the mod created itself
-                // (a joiner then reads an empty version and "Lobby version mismatch, cannot join"). Write it here so
-                // the lobby is always a valid, joinable vanilla lobby regardless of the callback's timing.
+                // Vanilla gates lobby ENTRY on the "version" key: SteamLobbyService.OnLobbyEntered bounces any joiner
+                // whose Application.version differs from the lobby's "version" value. Vanilla writes that key from a
+                // global LobbyCreated_t callback, so for a lobby the mod created itself the timing is not guaranteed -
+                // and when Steam was down at Lobby.Start the game runs MockLobbyService, which registers no callbacks
+                // at all and never writes it. Writing the same value here is idempotent and keeps the lobby joinable
+                // either way; without it a joiner reads an empty version and gets "Lobby version mismatch".
                 SteamMatchmaking.SetLobbyData(sid, "version", UnityEngine.Application.version);
 
                 SteamMatchmaking.SetLobbyData(sid, KeyVanilla, "1");
@@ -222,7 +224,8 @@ namespace SideHustle.Sync
             if (l == null || !l.IsInLobby) return;
             try
             {
-                CSteamID sid = l.LobbySteamID;
+                CSteamID sid = new CSteamID(LobbyCoordinator.CurrentLobbyId);
+                if (sid.m_SteamID == 0UL) return;
                 SteamMatchmaking.SetLobbyData(sid, KeyVanilla, "");
                 SteamMatchmaking.SetLobbyJoinable(sid, false);
             }

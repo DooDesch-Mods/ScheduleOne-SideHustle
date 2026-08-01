@@ -51,7 +51,8 @@ namespace SideHustle.Sync
             {
                 if (__instance == null || __instance.Lobby == null || __instance.InviteButton == null) return;
 
-                bool eligible = __instance.Canvas != null && __instance.Canvas.enabled
+                // The panel no longer owns a Canvas - LateUpdate drives Container.gameObject instead.
+                bool eligible = __instance.Container != null && __instance.Container.gameObject.activeInHierarchy
                                 && __instance.Lobby.IsInLobby && __instance.Lobby.IsHost
                                 && !SyncCoordinator.IsInSession;   // a Side Hustle-hosted session already publishes itself
 

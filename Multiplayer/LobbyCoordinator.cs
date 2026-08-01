@@ -46,10 +46,15 @@ namespace SideHustle.Multiplayer
             get { var l = LobbyOrNull(); try { return l != null && l.IsInLobby && l.IsHost; } catch { return false; } }
         }
 
+        /// <summary>The Steam id of the lobby we are in, or 0. NOT Lobby.LobbyID - that property exists but the game
+        /// never assigns it, so it always reads 0; the real id lives in SteamLobbyService, which FullHouse resolves.</summary>
         internal static ulong CurrentLobbyId
         {
-            get { var l = LobbyOrNull(); try { return l != null ? l.LobbyID : 0UL; } catch { return 0UL; } }
+            get { try { return DooDesch.FullHouse.Lobbies.CurrentLobbyId; } catch { return 0UL; } }
         }
+
+        /// <summary>The current lobby as a Steam id. <see cref="CSteamID.Nil"/> when we are not in a lobby.</summary>
+        private static CSteamID CurrentLobbySteamId => new CSteamID(CurrentLobbyId);
 
         internal static int MemberCount
         {
@@ -88,7 +93,8 @@ namespace SideHustle.Multiplayer
             if (l == null || !l.IsInLobby) return;
             try
             {
-                CSteamID sid = l.LobbySteamID;
+                CSteamID sid = CurrentLobbySteamId;
+                if (sid.m_SteamID == 0UL) { Core.Log?.Warning("[mp] lobby id not resolved yet; skipping the tag pass."); return; }
                 bool priv = opts.Visibility == LobbyVisibility.Private;
                 SteamMatchmaking.SetLobbyType(sid, priv ? ELobbyType.k_ELobbyTypeFriendsOnly : ELobbyType.k_ELobbyTypePublic);
                 SteamMatchmaking.SetLobbyJoinable(sid, true);
@@ -223,7 +229,8 @@ namespace SideHustle.Multiplayer
             if (l == null || !l.IsInLobby) return;
             try
             {
-                CSteamID sid = l.LobbySteamID;
+                CSteamID sid = CurrentLobbySteamId;
+                if (sid.m_SteamID == 0UL) return;
                 SteamMatchmaking.SetLobbyJoinable(sid, false);
                 SteamMatchmaking.SetLobbyData(sid, KeyGamemode, "");
                 SteamMatchmaking.SetLobbyData(sid, KeyAdvertise, "");

@@ -1,6 +1,6 @@
 using System;
 using HarmonyLib;
-using Il2CppScheduleOne.PlayerScripts;
+using Il2CppScheduleOne.Platform;
 
 namespace SideHustle.Multiplayer
 {
@@ -8,16 +8,19 @@ namespace SideHustle.Multiplayer
     /// Lets players who are NOT Steam friends of the host join a Side Hustle-hosted lobby.
     ///
     /// Vanilla Schedule I kicks every non-friend: when a joining client sends its name to the host, the server RPC
-    /// <c>Player.RpcLogic___SendPlayerNameData</c> checks <c>SteamFriends.GetFriendRelationship</c> and, for anyone
-    /// who is not a friend, calls <c>Owner.Kick("Not friends with host")</c> a few seconds after the connection is up.
-    /// That makes public lobbies useless for anyone outside the host's friends list (the connection establishes over
-    /// Steam relay, world data even starts streaming, then the host drops it).
+    /// <c>Player.RpcLogic___SendPlayerNameData</c> asks <c>PlatformFriends.IsLocalPlayerFriendsWith(id)</c> and, for
+    /// anyone who is not a friend, calls <c>Owner.Kick("Not friends with host")</c> a few seconds after the connection
+    /// is up. That makes public lobbies useless for anyone outside the host's friends list (the connection establishes
+    /// over Steam relay, world data even starts streaming, then the host drops it).
     ///
-    /// While a Side Hustle lobby is hosting, we replace that server RPC body with only its harmless half - the vanilla
-    /// method first calls <c>ReceivePlayerNameData</c> (which just broadcasts the joiner's name to all observers, no
-    /// gatekeeping) and then does the friend-check kick. Our prefix runs the name broadcast and returns false, so the
-    /// kick never happens. The RPC only executes on the server, so this is host-authoritative and completely inert on
-    /// clients and outside a Side Hustle session (gated by <see cref="Active"/>, which only the host sets).
+    /// We patch the friend check itself rather than the RPC. That check has exactly one caller in the whole game - the
+    /// kick - so forcing it to "yes" while a Side Hustle lobby hosts is precise and touches nothing else. It is also
+    /// the durable target: the RPC's name carries a FishNet hash that changes whenever its signature does (it already
+    /// broke once, going from <c>_586648380</c> to <c>_1988918489</c> when the id parameter turned into a string),
+    /// while <c>IsLocalPlayerFriendsWith</c> is a plain static with a stable name.
+    ///
+    /// The RPC only executes on the server, so this is host-authoritative and completely inert on clients and outside
+    /// a Side Hustle session (gated by <see cref="Active"/>, which only the host sets).
     /// </summary>
     internal static class PublicLobbyAccess
     {
@@ -44,26 +47,23 @@ namespace SideHustle.Multiplayer
             try
             {
                 _harmony = new HarmonyLib.Harmony("doodesch.sidehustle.publiclobby");
-                var target = AccessTools.Method(typeof(Player), "RpcLogic___SendPlayerNameData_586648380");
+                var target = AccessTools.Method(typeof(PlatformFriends), nameof(PlatformFriends.IsLocalPlayerFriendsWith));
                 if (target != null)
                 {
-                    _harmony.Patch(target, prefix: new HarmonyMethod(
-                        typeof(PublicLobbyAccess).GetMethod(nameof(SendPlayerNameDataPrefix), AccessTools.all)));
+                    _harmony.Patch(target, postfix: new HarmonyMethod(
+                        typeof(PublicLobbyAccess).GetMethod(nameof(FriendCheckPostfix), AccessTools.all)));
                     Core.Log?.Msg("[mp] public-lobby access installed (non-friends may join a hosted lobby).");
                 }
-                else Core.Log?.Warning("[mp] Player.RpcLogic___SendPlayerNameData not found - the host will keep kicking non-friends.");
+                else Core.Log?.Warning("[mp] PlatformFriends.IsLocalPlayerFriendsWith not found - the host will keep kicking non-friends.");
             }
             catch (Exception e) { Core.Log?.Warning("[mp] public-lobby patch install failed: " + e.Message); }
         }
 
-        // Vanilla body = ReceivePlayerNameData(name broadcast) THEN a Steam-friend check that kicks non-friends. While a
-        // Side Hustle lobby is hosting, run only the name broadcast and skip the kick, so a non-friend stays connected.
-        private static bool SendPlayerNameDataPrefix(Player __instance, string playerName, ulong id)
+        // While a Side Hustle lobby is hosting, everyone counts as a friend - so the kick branch is never taken and the
+        // joiner stays connected. Outside a host session the vanilla answer stands untouched.
+        private static void FriendCheckPostfix(ref bool __result)
         {
-            if (!Active) return true;   // outside a Side Hustle host session: the vanilla friend-check stands
-            try { __instance?.ReceivePlayerNameData(null, playerName, id.ToString()); }
-            catch (Exception e) { Core.Log?.Warning("[mp] player-name passthrough failed: " + e.Message); }
-            return false;               // skip the vanilla non-friend kick
+            if (Active) __result = true;
         }
     }
 }

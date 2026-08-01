@@ -82,10 +82,12 @@ namespace SideHustle.Multiplayer
             {
                 if (!Active || string.IsNullOrEmpty(_alias) || __instance == null || !__instance.IsOwner) return;
 
-                ulong id = 0UL;
-                try { ulong.TryParse(__instance.PlayerCode, out id); } catch { }
-                if (id == 0UL) { try { id = SteamUser.GetSteamID().m_SteamID; } catch { } }
-                if (id == 0UL) return;   // can't identify the local player yet - don't push a bogus id
+                // SendPlayerNameData takes the id as a STRING since 0.4.6f11. It must stay the numeric Steam id:
+                // the host's friend-check parses it (PlatformFriends.IsLocalPlayerFriendsWith -> ulong.Parse).
+                string id = null;
+                try { id = __instance.PlayerCode; } catch { }
+                if (string.IsNullOrEmpty(id) || id == "0") { try { id = SteamUser.GetSteamID().ToString(); } catch { } }
+                if (string.IsNullOrEmpty(id) || id == "0") return;   // can't identify the local player yet - don't push a bogus id
 
                 __instance.SendPlayerNameData(_alias, id);
             }

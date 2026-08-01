@@ -61,6 +61,9 @@ namespace SideHustle.Multiplayer
 
         // Vanilla hides the invite button for non-hosts (and past 4 seats). While a Side Hustle session is live, show
         // it to any lobby member so clients can invite Steam friends too.
+        // Low priority so this runs AFTER FullHouse's own UpdateButtons postfix (High), which re-decides the same
+        // button against the raised cap - otherwise postfix order between the two Harmony ids would be undefined.
+        [HarmonyPriority(Priority.Low)]
         private static void UpdateButtonsPostfix(LobbyInterface __instance)
         {
             try
@@ -78,7 +81,8 @@ namespace SideHustle.Multiplayer
             try
             {
                 if (!Active || __instance == null || __instance.InviteButton == null || __instance.Lobby == null) return;
-                if (__instance.Canvas != null && __instance.Canvas.enabled && __instance.Lobby.IsInLobby
+                // The panel no longer owns a Canvas - LateUpdate drives Container.gameObject instead.
+                if (__instance.Container != null && __instance.Container.gameObject.activeInHierarchy && __instance.Lobby.IsInLobby
                     && !__instance.InviteButton.gameObject.activeSelf)
                     __instance.InviteButton.gameObject.SetActive(true);
             }
