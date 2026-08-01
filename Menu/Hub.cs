@@ -16,7 +16,7 @@ namespace SideHustle.Menu
 {
     /// <summary>
     /// The gamemode menu. It is a clone of the vanilla "New Game" (Select Save Slot) screen, driven as a real
-    /// <see cref="MainMenuScreen"/>, so it looks 1:1 like the game's own menu and gets ESC back for free. Every view
+    /// <see cref="MenuScreen"/>, so it looks 1:1 like the game's own menu and gets ESC back for free. Every view
     /// - the gamemode list, the Singleplayer / Host / Join choice, the host size picker, and the server browser -
     /// renders as native save-slot rows in this one screen, swapping the rows in place. A "Back" row steps one level
     /// up; right-click does the same; ESC closes the whole menu (its PreviousScreen is the home screen).
@@ -24,12 +24,12 @@ namespace SideHustle.Menu
     internal static partial class Hub
     {
         private static bool _initialized;
-        private static MainMenuScreen _home;
+        private static MenuScreen _home;
         private static LaunchContext _activeCtx;
 
         // The clone of the vanilla New Game screen + its screen component.
         private static GameObject _clone;
-        private static MainMenuScreen _cloneScreen;
+        private static MenuScreen _cloneScreen;
         private static GameObject _formHost;   // the Host-config form overlay (shown instead of the native row list)
         private static GameObject _aliasHeader;   // the "Your name" strip inserted as the first native Container child on a choice screen
         private static bool _fontWarmed;   // the Arial dynamic-font atlas is built once per session; prewarm it so the first text field doesn't hitch
@@ -68,7 +68,7 @@ namespace SideHustle.Menu
             HubBridge.ReturnHandler = OnReturn;
         }
 
-        internal static void RememberHome(MainMenuScreen home) => _home = home;
+        internal static void RememberHome(MenuScreen home) => _home = home;
 
         internal static void Teardown()
         {
@@ -95,7 +95,7 @@ namespace SideHustle.Menu
                 if (CloseTopDialogIfAny()) return;   // a modal dialog closes on right-click instead of the screen
                 if (InstallActive) return;           // no backing out mid-install; the screen's Cancel is the only exit
                 if (_back != null) _back();
-                else _cloneScreen.Close(openPrevious: true);
+                else _cloneScreen.Close();
             }
         }
 
@@ -108,7 +108,7 @@ namespace SideHustle.Menu
             EnsureClone();
             if (_cloneScreen == null) { Core.Log?.Warning("[hub] gamemode screen unavailable."); return; }
             ShowGamemodeList();
-            _cloneScreen.Open(closePrevious: true);
+            _cloneScreen.Open();
         }
 
         /// <summary>Open the gamemode menu and jump straight to one gamemode's selection - identical to opening
@@ -120,7 +120,7 @@ namespace SideHustle.Menu
             EnsureInit();
             EnsureClone();
             if (_cloneScreen == null) { Core.Log?.Warning("[hub] gamemode screen unavailable."); return; }
-            if (!_cloneScreen.IsOpen) { ShowGamemodeList(); _cloneScreen.Open(closePrevious: true); }
+            if (!_cloneScreen.IsOpen) { ShowGamemodeList(); _cloneScreen.Open(); }
             OnSelectGamemode(desc);
         }
 
@@ -135,7 +135,7 @@ namespace SideHustle.Menu
 
                 _clone = UnityEngine.Object.Instantiate(ng.gameObject, ng.transform.parent, false).Cast<GameObject>();
                 _clone.name = "SideHustle_GamemodeScreen";
-                _cloneScreen = _clone.GetComponent<MainMenuScreen>();
+                _cloneScreen = _clone.GetComponent<MenuScreen>();
                 if (_cloneScreen != null && _home != null) _cloneScreen.PreviousScreen = _home;
 
                 // Remove SaveDisplay before Awake so our labels are not overwritten / slots not re-bound to save files.
@@ -713,7 +713,7 @@ namespace SideHustle.Menu
             EnsureInit();
             EnsureClone();
             if (_cloneScreen == null) return;
-            if (!_cloneScreen.IsOpen) { ShowGamemodeList(); _cloneScreen.Open(closePrevious: true); }
+            if (!_cloneScreen.IsOpen) { ShowGamemodeList(); _cloneScreen.Open(); }
             var desc = API.Registered.FirstOrDefault(d => d.Id == id);
             if (desc == null)
             {
@@ -907,7 +907,7 @@ namespace SideHustle.Menu
         /// <summary>Close the gamemode screen without reopening the home menu (used when a session is launching).</summary>
         internal static void CloseHubScreen()
         {
-            if (_cloneScreen != null) _cloneScreen.Close(openPrevious: false);
+            if (_cloneScreen != null) _cloneScreen.Close();
         }
 
         /// <summary>Reopen the gamemode list after a session that did NOT reload the scene (MenuSpace multiplayer).</summary>
@@ -917,7 +917,7 @@ namespace SideHustle.Menu
             {
                 EnsureClone();
                 ShowGamemodeList();
-                if (_cloneScreen != null) _cloneScreen.Open(closePrevious: true);
+                if (_cloneScreen != null) _cloneScreen.Open();
             }
             catch (Exception e) { Core.Log?.Warning("[hub] reopen failed: " + e.Message); }
         }
@@ -930,7 +930,7 @@ namespace SideHustle.Menu
                 return;
             }
             _activeCtx = new LaunchContext { Descriptor = desc, IsHost = null, LobbyId = 0 };
-            if (_cloneScreen != null) _cloneScreen.Close(openPrevious: false);
+            if (_cloneScreen != null) _cloneScreen.Close();
             Core.Log?.Msg($"Launching gamemode '{desc.DisplayName}' (singleplayer).");
             try { desc.OnLaunchSingleplayer(_activeCtx); }
             catch (Exception e)
@@ -947,7 +947,7 @@ namespace SideHustle.Menu
 
             EnsureClone();
             ShowGamemodeList();
-            if (_cloneScreen != null) _cloneScreen.Open(closePrevious: true);
+            if (_cloneScreen != null) _cloneScreen.Open();
             _activeCtx = null;
         }
 

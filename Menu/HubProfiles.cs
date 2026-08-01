@@ -24,7 +24,7 @@ namespace SideHustle.Menu
             EnsureClone();
             if (_cloneScreen == null) { Core.Log?.Warning("[hub] profiles screen unavailable."); return; }
             ShowProfilesList();
-            if (!_cloneScreen.IsOpen) _cloneScreen.Open(closePrevious: true);
+            if (!_cloneScreen.IsOpen) _cloneScreen.Open();
         }
 
 #if DEBUG
@@ -188,7 +188,7 @@ namespace SideHustle.Menu
                 onOpen: ShowProfileDetail,
                 onSwitchFullSet: () => ConfirmSwitch("", "your full mod set"),
                 onNew: PromptNewProfile,
-                onBack: () => _cloneScreen?.Close(openPrevious: true),
+                onBack: () => _cloneScreen?.Close(),
                 lastSync: recent != null ? (string.IsNullOrWhiteSpace(recent.Host) ? "a lobby" : recent.Host, recent.ModCount) : ((string, int)?)null,
                 onCreateFromLastSync: CreateFromLastSync);
         }

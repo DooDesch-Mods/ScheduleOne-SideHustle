@@ -319,7 +319,7 @@ namespace SideHustle.Menu
             if (desc == null)
             {
                 Core.Log?.Warning($"[mp] '{gmId}' is still not registered after the install; staying in the menu.");
-                if (_cloneScreen != null && !_cloneScreen.IsOpen) { ShowGamemodeList(); _cloneScreen.Open(closePrevious: true); }
+                if (_cloneScreen != null && !_cloneScreen.IsOpen) { ShowGamemodeList(); _cloneScreen.Open(); }
                 return;
             }
 
@@ -401,7 +401,7 @@ namespace SideHustle.Menu
             {
                 EnsureClone();
                 if (_cloneScreen == null) return;
-                if (!_cloneScreen.IsOpen) { ShowGamemodeList(); _cloneScreen.Open(closePrevious: true); }
+                if (!_cloneScreen.IsOpen) { ShowGamemodeList(); _cloneScreen.Open(); }
                 OpenGamemode(desc);
                 ShowToastSafe(message ?? $"{desc.DisplayName} is installed - that session has closed, pick another one.");
             }

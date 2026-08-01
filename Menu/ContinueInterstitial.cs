@@ -70,7 +70,7 @@ namespace SideHustle.Menu
         {
             // Hide the vanilla save picker so it can't bleed through the dialog scrim (openPrevious:false keeps the
             // home screen from popping up); the reference is kept so Just-play still loads and dismiss can reopen it.
-            try { screen.Close(openPrevious: false); } catch { }
+            try { screen.Close(); } catch { }
 
             GameObject scrim = DooDesch.UI.Components.CountdownDialog(root,
                 "Host this save publicly?",
@@ -91,7 +91,7 @@ namespace SideHustle.Menu
                 onDismiss: () =>
                 {
                     DestroyScrim();
-                    try { screen.Open(closePrevious: false); } catch { }   // back to the save picker; nothing hosted or loaded
+                    try { screen.Open(); } catch { }   // back to the save picker; nothing hosted or loaded
                 });
 
             _scrim = scrim;

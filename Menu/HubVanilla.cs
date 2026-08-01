@@ -59,7 +59,7 @@ namespace SideHustle.Menu
             EnsureInit();
             EnsureClone();
             if (_cloneScreen == null) return;
-            if (!_cloneScreen.IsOpen) { ShowVanillaChoice(); _cloneScreen.Open(closePrevious: true); }
+            if (!_cloneScreen.IsOpen) { ShowVanillaChoice(); _cloneScreen.Open(); }
             Il2CppScheduleOne.Persistence.SaveInfo save = null;
             try
             {
@@ -113,7 +113,7 @@ namespace SideHustle.Menu
             EnsureInit();
             EnsureClone();
             if (_cloneScreen == null) return;
-            if (!_cloneScreen.IsOpen) { ShowVanillaChoice(); _cloneScreen.Open(closePrevious: true); }
+            if (!_cloneScreen.IsOpen) { ShowVanillaChoice(); _cloneScreen.Open(); }
             var s = SyntheticSync();
             ShowVanillaConsent(s.Row, s.Manifest, s.Diff, s.MHash, s.Prefs);
         }
@@ -124,7 +124,7 @@ namespace SideHustle.Menu
             EnsureInit();
             EnsureClone();
             if (_clone == null) return;
-            if (!_cloneScreen.IsOpen) { ShowVanillaChoice(); _cloneScreen.Open(closePrevious: true); }
+            if (!_cloneScreen.IsOpen) { ShowVanillaChoice(); _cloneScreen.Open(); }
             var s = SyntheticSync();
             ClearFormHost();
             SetTmp(_clone.transform, "Title", "Manual installs");
@@ -138,7 +138,7 @@ namespace SideHustle.Menu
             EnsureInit();
             EnsureClone();
             if (_cloneScreen == null) return;
-            if (!_cloneScreen.IsOpen) { ShowGamemodeList(); _cloneScreen.Open(closePrevious: true); }
+            if (!_cloneScreen.IsOpen) { ShowGamemodeList(); _cloneScreen.Open(); }
             ShowVanillaChoice();
         }
 
@@ -208,7 +208,7 @@ namespace SideHustle.Menu
             EnsureInit();
             EnsureClone();
             if (_cloneScreen == null) { Core.Log?.Warning("[sync] host screen unavailable."); return; }
-            if (!_cloneScreen.IsOpen) { ShowVanillaChoice(); _cloneScreen.Open(closePrevious: true); }
+            if (!_cloneScreen.IsOpen) { ShowVanillaChoice(); _cloneScreen.Open(); }
             ShowVanillaHostForm(save);
         }
 

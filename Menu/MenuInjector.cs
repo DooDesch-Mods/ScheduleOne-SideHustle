@@ -10,9 +10,9 @@ using UnityEngine.UI;
 namespace SideHustle.Menu
 {
     /// <summary>
-    /// Injects the "Side Hustle" entry into the main-menu home screen. We do not Harmony-patch MainMenuScreen.Awake
+    /// Injects the "Side Hustle" entry into the main-menu home screen. We do not Harmony-patch MenuScreen.Awake
     /// (it is the base of many screens); instead we run from the MelonMod scene lifecycle once the "Menu" scene is up,
-    /// find the home screen (the MainMenuScreen with OpenOnStart), clone one of its nav buttons for styling and rewire
+    /// find the home screen (the MenuScreen with OpenOnStart), clone one of its nav buttons for styling and rewire
     /// its click to open the hub panel. The first frame after a scene load may not have the UI laid out yet, so Core
     /// retries us for a short window. The injector is also self-diagnosing: it logs the home screens and candidate
     /// buttons it sees, so the exact menu structure is visible in the MelonLoader log.
@@ -69,7 +69,7 @@ namespace SideHustle.Menu
                 if (_injectedThisScene) return;
                 if (!Preferences.Enabled) { _injectedThisScene = true; return; }
 
-                MainMenuScreen home = FindHomeScreen();
+                MenuScreen home = FindHomeScreen();
                 if (home == null) return;
 
                 Il2CppInterop.Runtime.InteropTypes.Arrays.Il2CppArrayBase<Button> buttons =
@@ -131,21 +131,21 @@ namespace SideHustle.Menu
             }
         }
 
-        private static MainMenuScreen FindHomeScreen()
+        private static MenuScreen FindHomeScreen()
         {
-            Il2CppInterop.Runtime.InteropTypes.Arrays.Il2CppArrayBase<MainMenuScreen> screens =
-                UnityEngine.Object.FindObjectsOfType<MainMenuScreen>(true);
+            Il2CppInterop.Runtime.InteropTypes.Arrays.Il2CppArrayBase<MenuScreen> screens =
+                UnityEngine.Object.FindObjectsOfType<MenuScreen>(true);
             if (screens == null || screens.Length == 0) return null;
 
-            MainMenuScreen openOnStart = null;
+            MenuScreen openOnStart = null;
             for (int i = 0; i < screens.Length; i++)
             {
-                MainMenuScreen s = screens[i];
+                MenuScreen s = screens[i];
                 if (s == null) continue;
                 if (s.OpenOnStart) { openOnStart = s; break; }
             }
             if (openOnStart == null)
-                Core.Log?.Warning($"[menu] no MainMenuScreen with OpenOnStart among {screens.Length}; falling back to first.");
+                Core.Log?.Warning($"[menu] no MenuScreen with OpenOnStart among {screens.Length}; falling back to first.");
             return openOnStart ?? screens[0];
         }
 
@@ -169,7 +169,7 @@ namespace SideHustle.Menu
             return buttons.Length > 0 ? buttons[0] : null;
         }
 
-        private static bool BuildEntry(MainMenuScreen home, Button template)
+        private static bool BuildEntry(MenuScreen home, Button template)
         {
             // Place the Side Hustle entry just above the template button in the nav column, and the separate
             // "Mod Profiles" entry directly below it.
@@ -215,7 +215,7 @@ namespace SideHustle.Menu
         // installed mod set without digging into the Side Hustle gamemode panel.
         private const string RestoreButtonName = "SideHustle_RestoreButton";
 
-        private static void ApplyProfileMenu(MainMenuScreen home)
+        private static void ApplyProfileMenu(MenuScreen home)
         {
             try
             {
