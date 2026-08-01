@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Il2CppSteamworks;   // SteamMatchmaking, CallResult, LobbyMatchList_t, CSteamID, enums
+using Il2Cpp;             // SteamManager (global-namespace Steamworks.NET helper)
 
 namespace SideHustle.Multiplayer
 {
@@ -29,10 +30,32 @@ namespace SideHustle.Multiplayer
 
         internal static bool IsQuerying => _querying;
 
+        private static bool _warnedNoSteam;
+
+        /// <summary>False when Steam is not up, in which case no lobby query can be made.
+        ///
+        /// Since 0.4.6f11 the game runs happily without Steam - it falls back to a mock lobby service - so this is a
+        /// normal state rather than a broken install, and the browser polls every 15 seconds. Without this guard every
+        /// poll threw "Steamworks is not initialized" and buried the log in identical stack traces. Warn once, then
+        /// stay quiet.</summary>
+        private static bool SteamReady()
+        {
+            bool up;
+            try { up = SteamManager.Initialized; } catch { up = false; }
+            if (up) { _warnedNoSteam = false; return true; }
+            if (!_warnedNoSteam)
+            {
+                _warnedNoSteam = true;
+                Core.Log?.Msg("[mp] Steam is not up - the lobby browser stays empty until it is.");
+            }
+            return false;
+        }
+
         /// <summary>Issue a lobby-list request filtered to one gamemode id. <paramref name="onResults"/> fires once on the main thread.</summary>
         internal static void BeginQuery(string gamemodeId, Action<List<LobbyRow>> onResults)
         {
             _onResults = onResults;
+            if (!SteamReady()) { onResults?.Invoke(new List<LobbyRow>()); return; }
             try
             {
                 if (_callResult == null)
@@ -62,6 +85,7 @@ namespace SideHustle.Multiplayer
         internal static void BeginQueryAdvertised(Action<List<LobbyRow>> onResults)
         {
             _advOnResults = onResults;
+            if (!SteamReady()) { onResults?.Invoke(new List<LobbyRow>()); return; }
             try
             {
                 if (_advCallResult == null)
@@ -88,6 +112,7 @@ namespace SideHustle.Multiplayer
         internal static void BeginQueryVanilla(Action<List<Sync.VanillaLobbyRow>> onResults)
         {
             _vanillaOnResults = onResults;
+            if (!SteamReady()) { onResults?.Invoke(new List<Sync.VanillaLobbyRow>()); return; }
             try
             {
                 if (_vanillaCallResult == null)

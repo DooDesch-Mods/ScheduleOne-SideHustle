@@ -3,6 +3,14 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [2.2.1] - 2026-08-01
+
+### Fixed
+
+- The log no longer fills with "Steamworks is not initialized" while you sit in the menu without Steam. The
+  browser checks first and says once that it stays empty until Steam is up. 0.4.6f11 made playing without
+  Steam a normal state, and the browser was still asking it for lobbies every 15 seconds.
+
 ## [2.2.0] - 2026-08-01
 
 ### Fixed
