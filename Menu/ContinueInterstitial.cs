@@ -44,6 +44,12 @@ namespace SideHustle.Menu
         {
             try
             {
+                // One line per click, naming every reason this can bow out. Without it a click that
+                // loads nothing is indistinguishable from a click that never reached this method,
+                // and those two have completely different causes.
+                Core.Log?.Msg($"[sync] LoadGame({index}) prefix: bypass={_bypass} ask={Preferences.AskHostOnContinue} " +
+                              $"alt={Mods.AltBase.IsAltSession()} lobby={Multiplayer.LobbyCoordinator.IsInLobby}");
+
                 if (_bypass) return true;                                   // our own resumed "Just play"
                 if (!Preferences.AskHostOnContinue) return true;           // player opted out
                 if (Mods.AltBase.IsAltSession()) return true;              // inside a curated profile (named Continue is rewired in MenuInjector)
@@ -52,11 +58,10 @@ namespace SideHustle.Menu
                 var save = Il2CppScheduleOne.Persistence.LoadManager.SaveGames[index];
                 if (save == null) return true;
 
-                var root = Hub.DialogRootStatic();
-                if (root == null) return true;   // no canvas to host the dialog: load normally
-
-                ShowDialog(root, __instance, index, save);
-                return false;   // swallow this load; the dialog decides what happens next
+                // Swallow the load ONLY once the dialog is provably on screen. Returning false with
+                // no visible dialog strands the player on a menu where clicking a save does nothing
+                // at all - no error, no load - which is exactly what 0.4.6f11 produced.
+                return !TryShowDialog(__instance, index, save);
             }
             catch (Exception e)
             {
@@ -65,12 +70,29 @@ namespace SideHustle.Menu
             }
         }
 
-        private static void ShowDialog(Transform root, ContinueScreen screen, int index,
+        /// <summary>
+        /// Builds and shows the dialog. Returns false when it could not be put on screen, in which
+        /// case the caller must let the vanilla load run - swallowing a load without showing
+        /// anything leaves the player clicking a save slot that does nothing at all.
+        ///
+        /// The canvas comes from Hub.DialogRootStatic(), which owns an overlay canvas of its own.
+        /// It used to borrow the game canvas with the highest sortingOrder, and under 0.4.6f11 that
+        /// picked DisclaimerCanvas (50) over MainMenu (0) - the dialog was built, was active, and
+        /// was never visible.
+        /// </summary>
+        private static bool TryShowDialog(ContinueScreen screen, int index,
             Il2CppScheduleOne.Persistence.SaveInfo save)
         {
-            // Hide the vanilla save picker so it can't bleed through the dialog scrim (openPrevious:false keeps the
-            // home screen from popping up); the reference is kept so Just-play still loads and dismiss can reopen it.
+            // Hide the vanilla save picker so it cannot bleed through the dialog scrim. The
+            // reference is kept so Just-play still loads and dismiss can reopen it.
             try { screen.Close(); } catch { }
+
+            var root = Hub.DialogRootStatic();
+            if (root == null)
+            {
+                Core.Log?.Warning("[sync] no canvas for the host prompt - loading normally.");
+                return false;
+            }
 
             GameObject scrim = DooDesch.UI.Components.CountdownDialog(root,
                 "Host this save publicly?",
@@ -94,8 +116,19 @@ namespace SideHustle.Menu
                     try { screen.Open(); } catch { }   // back to the save picker; nothing hosted or loaded
                 });
 
+            // A dialog that was built but is not actually in a live, active hierarchy is worse than
+            // no dialog: the player sees the menu do nothing. Throw it away and load normally.
+            if (scrim == null || !scrim.activeInHierarchy)
+            {
+                Core.Log?.Warning("[sync] host prompt did not reach the screen - loading normally.");
+                if (scrim != null) UnityEngine.Object.Destroy(scrim);
+                _scrim = null;
+                return false;
+            }
+
             _scrim = scrim;
             if (countdown != null) countdown.text = "";   // no timer: a deliberate choice, not a countdown
+            return true;
         }
 
 #if DEBUG

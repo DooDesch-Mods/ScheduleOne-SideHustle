@@ -182,23 +182,53 @@ namespace SideHustle.Menu
         }
 #endif
 
-        /// <summary>Canvas root for a modal dialog, usable even when the hub screen is not the active view (the
-        /// continue interstitial fires from the vanilla Continue screen). Falls back to any menu canvas.</summary>
+        /// <summary>The overlay canvas this class owns; created lazily, kept across scene loads.</summary>
+        private static UnityEngine.GameObject _overlayCanvas;
+
+        /// <summary>
+        /// Canvas root for a modal dialog, usable even when the hub screen is not the active view
+        /// (the continue interstitial fires from the vanilla Continue screen).
+        ///
+        /// This used to borrow whichever game canvas had the highest sortingOrder. That was already
+        /// a guess, and game 0.4.6f11 turned it into a wrong one: the winner is DisclaimerCanvas
+        /// (order 50) rather than MainMenu (order 0), so dialogs were parented into the start-up
+        /// disclaimer overlay and never became visible. Borrowing is also fragile in general now,
+        /// because menu screens are detached and re-attached instead of toggled, so whoever attaches
+        /// last ends up in front.
+        ///
+        /// A modal owns its canvas instead. Nothing the game reparents, hides or re-sorts can put it
+        /// behind, and there is no heuristic left to be wrong.
+        /// </summary>
         internal static UnityEngine.Transform DialogRootStatic()
         {
-            var r = DialogRoot();
-            if (r != null) return r;
             try
             {
-                var canvases = UnityEngine.Object.FindObjectsOfType<UnityEngine.Canvas>(false);
-                UnityEngine.Canvas top = null;
-                if (canvases != null)
-                    for (int i = 0; i < canvases.Length; i++)
-                        if (canvases[i] != null && canvases[i].isActiveAndEnabled &&
-                            (top == null || canvases[i].sortingOrder >= top.sortingOrder)) top = canvases[i];
-                return top != null ? top.transform : null;
+                if (_overlayCanvas != null) return _overlayCanvas.transform;
+
+                _overlayCanvas = new UnityEngine.GameObject("SideHustle_DialogOverlay");
+                UnityEngine.Object.DontDestroyOnLoad(_overlayCanvas);
+
+                var canvas = _overlayCanvas.AddComponent<UnityEngine.Canvas>();
+                canvas.renderMode = UnityEngine.RenderMode.ScreenSpaceOverlay;
+                canvas.sortingOrder = 30000;   // above every game canvas seen so far (highest: 50)
+
+                // Match the game's reference resolution so the dialog scales like native UI.
+                var scaler = _overlayCanvas.AddComponent<UnityEngine.UI.CanvasScaler>();
+                scaler.uiScaleMode = UnityEngine.UI.CanvasScaler.ScaleMode.ScaleWithScreenSize;
+                scaler.referenceResolution = new UnityEngine.Vector2(1920f, 1080f);
+                scaler.matchWidthOrHeight = 0.5f;
+
+                // Without its own raycaster the dialog would draw but take no clicks.
+                _overlayCanvas.AddComponent<UnityEngine.UI.GraphicRaycaster>();
+
+                Core.Log?.Msg("[ui] dialog overlay canvas created (order 30000).");
+                return _overlayCanvas.transform;
             }
-            catch { return null; }
+            catch (System.Exception e)
+            {
+                Core.Log?.Warning("[ui] dialog overlay canvas failed: " + e.Message);
+                return DialogRoot();
+            }
         }
 
         /// <summary>Host an arbitrary save publicly (used by the Continue interstitial): open the host form for it,
