@@ -10,7 +10,7 @@
 > **[SideHustle.doodesch.de](https://sidehustle.doodesch.de)** - who is hosting, which gamemode, how full it is,
 > and the exact mods that session runs. Check before you launch; you still join from inside the game.
 
-![Version](https://img.shields.io/badge/version-2.0.1-blue)
+![Version](https://img.shields.io/badge/version-2.2.3-blue)
 ![Game](https://img.shields.io/badge/game-Schedule%20I-purple)
 ![MelonLoader](https://img.shields.io/badge/MelonLoader-0.7.3+-green)
 ![S1API](https://img.shields.io/badge/S1API-required-orange)
