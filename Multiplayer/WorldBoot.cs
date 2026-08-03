@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using Il2CppFishNet;                         // InstanceFinder (dropping a dangling client connection)
 using Il2CppScheduleOne.DevUtilities;        // Singleton<>, GameSettings
 using Il2CppScheduleOne.Persistence;         // LoadManager, SaveManager, SaveInfo
 using Il2CppScheduleOne.Persistence.Datas;   // GameData, MetaData, DateTimeData
@@ -56,6 +57,34 @@ namespace SideHustle.Multiplayer
             get { var lm = LoadOrNull(); try { return lm != null ? lm.LoadStatus.ToString() : "?"; } catch { return "?"; } }
         }
 
+        /// <summary>True while the game is inside Unity's LoadSceneAsync. This phase is opaque - it publishes no
+        /// progress at all until the scene is swapped in - so a watchdog has to treat it differently from the
+        /// phases that do report movement.</summary>
+        internal static bool IsLoadingScene
+        {
+            get
+            {
+                var lm = LoadOrNull();
+                try { return lm != null && lm.LoadStatus == LoadManager.ELoadStatus.LoadingScene; }
+                catch { return false; }
+            }
+        }
+
+        /// <summary>A cheap fingerprint of "where the load currently is". Any change means the load is alive.
+        /// The status TEXT is part of it on purpose: during syncing it names the task being replicated, so a slow
+        /// but healthy sync keeps changing this string instead of looking frozen.</summary>
+        internal static string ProgressSignature()
+        {
+            var lm = LoadOrNull();
+            try
+            {
+                string scene = SceneManager.GetActiveScene().name;
+                if (lm == null) return scene + "|?";
+                return scene + "|" + lm.LoadStatus + "|" + lm.GetLoadStatusText();
+            }
+            catch { return "?"; }
+        }
+
         /// <summary>Build a fresh scratch save and start it. For a host, the lobby must already exist + be owned by
         /// us BEFORE this call (StartGame binds the joinable FishySteamworks transport only then).</summary>
         internal static bool BootHostWorld(string orgName)
@@ -105,6 +134,85 @@ namespace SideHustle.Multiplayer
                 if (lm != null && lm.IsGameLoaded) lm.ExitToMenu();
             }
             catch (Exception e) { Core.Log?.Warning("[mp] ExitToMenu failed: " + e.Message); }
+        }
+
+        /// <summary>
+        /// Recover from a load that never finished (a join or world boot we gave up on).
+        /// <para>
+        /// The vanilla <c>ExitToMenu</c> refuses to do anything while <c>IsGameLoaded</c> is false
+        /// ("Game not loaded, cannot exit to menu") - and that is exactly the state a stalled join leaves
+        /// behind: the scene is still Menu, but <c>IsLoading</c> is true and the LoadingScreen is open on
+        /// top of it. Without this the player is stuck staring at "Loading world..." forever and has to
+        /// kill the process, which is what made a failed join look like a hard freeze.
+        /// </para>
+        /// So tear the half-started load down by hand: stop the load coroutine that is still sitting in
+        /// <c>while (!asyncLoad.isDone)</c>, clear the manager's flags, and close the loading screen. The
+        /// menu scene underneath is untouched and interactive, so the player lands back in the hub.
+        /// </summary>
+        /// <returns>true when a stalled load was actually torn down.</returns>
+        internal static bool AbortLoadToMenu()
+        {
+            var lm = LoadOrNull();
+            if (lm == null) return false;
+            try
+            {
+                // The world did come up after all - the normal path handles it (and leaves the lobby).
+                if (lm.IsGameLoaded) { lm.ExitToMenu(); return true; }
+                if (!lm.IsLoading && lm.LoadStatus == LoadManager.ELoadStatus.None) return false;   // nothing to undo
+
+                // The load coroutine is parked on an await that may never complete; leaving it running
+                // would drop us into the world minutes later, on top of the menu.
+                try { lm.StopAllCoroutines(); }
+                catch (Exception e) { Core.Log?.Warning("[mp] could not stop the load coroutine: " + e.Message); }
+
+                // Drop the half-built FishNet connection. LoadAsClient calls ClientManager.StartConnection
+                // and then waits for the host to hand over the scene; when that never happens the connection
+                // is left dangling, and this client can NEVER join again - not even a session with free
+                // seats. Measured: after one failed join a client stays broken for every further attempt,
+                // while a freshly started client joins the same session fine. Without this, the abort only
+                // fixes the visible symptom and leaves the player permanently unable to get back in.
+                try { InstanceFinder.ClientManager?.StopConnection(); }
+                catch (Exception e) { Core.Log?.Warning("[mp] could not stop the client connection: " + e.Message); }
+
+                lm.IsLoading = false;
+                lm.LoadStatus = LoadManager.ELoadStatus.None;
+
+                CloseLoadingScreenHard();
+
+                Core.Log?.Msg("[mp] stalled load torn down; back at the menu.");
+                return true;
+            }
+            catch (Exception e) { Core.Log?.Warning("[mp] AbortLoadToMenu failed: " + e.Message); return false; }
+        }
+
+        /// <summary>
+        /// Take the loading screen down for good, without relying on its own Close().
+        /// <para>
+        /// Close() does three things before it hides anything: it clears IsOpen, stops the loading music, and
+        /// calls <c>SceneState.Current.Remove(State)</c> - and only THEN starts the fade that actually disables
+        /// the canvas. That Remove undoes a Push that happens in the scene-change callback, so after a load that
+        /// never changed scene there is nothing to remove and the call throws. The fade never starts, and the
+        /// canvas stays on screen over the menu with a frozen "Loading world..." on it - visible to the player
+        /// even though every internal flag already says the load is over.
+        /// </para>
+        /// So: let Close() run for its side effects (music, IsOpen) but treat it as best-effort, then switch the
+        /// canvas off directly. Canvas and Group are public fields on the component.
+        /// </summary>
+        private static void CloseLoadingScreenHard()
+        {
+            Il2CppScheduleOne.UI.LoadingScreen ls = null;
+            try { ls = Singleton<Il2CppScheduleOne.UI.LoadingScreen>.Instance; } catch { /* not spawned yet */ }
+            if (ls == null) return;
+
+            try { ls.Close(); }
+            catch (Exception e) { Core.Log?.Warning("[mp] LoadingScreen.Close threw (expected after a scene-less load): " + e.Message); }
+
+            try
+            {
+                if (ls.Group != null) ls.Group.alpha = 0f;
+                if (ls.Canvas != null) ls.Canvas.enabled = false;
+            }
+            catch (Exception e) { Core.Log?.Warning("[mp] could not force the loading screen off: " + e.Message); }
         }
 
         internal static void CleanupScratch()

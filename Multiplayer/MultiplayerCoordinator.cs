@@ -25,6 +25,61 @@ namespace SideHustle.Multiplayer
         private static ulong _joinLobbyId;
         private static float _timer;
 
+        // --- world-load watchdog -------------------------------------------------------------------
+        // A world load must not be policed by a single flat deadline. The load reports its progress only
+        // as coarse phase changes, and one phase - LoadingScene, which wraps Unity's LoadSceneAsync -
+        // reports nothing at all until it is done. A flat timeout therefore does not measure "stuck", it
+        // measures "slower than my machine": weak PCs and slow connections got aborted mid-load, and
+        // because the abort left the loading screen open that looked like an infinite loading screen.
+        // So: give the blind scene-loading phase a generous budget of its own, and police every other
+        // phase by how long it has sat WITHOUT changing. A genuinely dead load still ends, just not a
+        // merely slow one.
+        private const float StallTimeout = 90f;    // no phase change at all -> really stuck
+        private const float SceneTimeout = 420f;   // LoadingScene is opaque; only a hard ceiling fits
+        private const float HardCeiling = 900f;    // last resort, whatever the phase claims
+
+        private static float _stallTimer;
+        private static string _lastProgress;
+
+        /// <summary>Reset the watchdog at the start of every wait (a new load is not the previous one's stall).</summary>
+        private static void ResetWatchdog()
+        {
+            _timer = 0f;
+            _stallTimer = 0f;
+            _lastProgress = null;
+        }
+
+        /// <summary>
+        /// Advance the watchdog and report whether this load should be given up on. Progress is any change to
+        /// the scene, the load phase, or the phase's own detail text - the last one matters because the
+        /// syncing phase names the task it is replicating, so a slow but healthy sync keeps resetting the stall
+        /// timer instead of tripping it.
+        /// </summary>
+        private static bool LoadHasGivenUp(out string why)
+        {
+            string progress = WorldBoot.ProgressSignature();
+            if (progress != _lastProgress) { _lastProgress = progress; _stallTimer = 0f; }
+            else _stallTimer += Time.unscaledDeltaTime;
+
+            bool blindScenePhase = WorldBoot.IsLoadingScene;
+            float limit = blindScenePhase ? SceneTimeout : StallTimeout;
+
+            if (_stallTimer > limit)
+            {
+                why = blindScenePhase
+                    ? $"scene load exceeded {SceneTimeout:F0}s (scene={WorldBoot.CurrentScene}, status={WorldBoot.LoadStatus})"
+                    : $"no progress for {StallTimeout:F0}s (scene={WorldBoot.CurrentScene}, status={WorldBoot.LoadStatus})";
+                return true;
+            }
+            if (_timer > HardCeiling)
+            {
+                why = $"load exceeded {HardCeiling:F0}s (scene={WorldBoot.CurrentScene}, status={WorldBoot.LoadStatus})";
+                return true;
+            }
+            why = null;
+            return false;
+        }
+
         /// <summary>Set when a session ended via a full scene reload; Core reopens the hub on the next Menu init.</summary>
         internal static bool PendingHubReopen;
 
@@ -43,7 +98,7 @@ namespace SideHustle.Multiplayer
             _desc = desc;
             _hostOpts = opts ?? new HostOptions();
             _ctx = null;
-            _timer = 0f;
+            ResetWatchdog();
             GamemodeHygiene.Apply(desc);   // skip-intro / block-quests must be active before the world loads
             NetworkTuning.EnsureIceEnabled();   // allow all P2P ICE candidate types so non-friend clients can reach this host
             PublicLobbyAccess.Enable();   // stop the vanilla host from kicking non-friends, so public lobbies actually work
@@ -66,7 +121,7 @@ namespace SideHustle.Multiplayer
             _desc = desc;
             _joinLobbyId = row.LobbyId;
             _ctx = null;
-            _timer = 0f;
+            ResetWatchdog();
             GamemodeHygiene.Apply(desc);   // active before the host's world streams in (the client also runs PlayerLoaded)
             NetworkTuning.EnsureIceEnabled();   // allow all P2P ICE candidate types so this join can hold to a non-friend host
             LobbyInviteAccess.Enable();   // let this client invite Steam friends from the pause-menu lobby panel
@@ -88,7 +143,7 @@ namespace SideHustle.Multiplayer
             }
             _desc = desc;
             _ctx = null;
-            _timer = 0f;
+            ResetWatchdog();
             GamemodeHygiene.Apply(desc);
             Core.Log?.Msg($"[mp] booting singleplayer world for '{desc.DisplayName}'...");
             if (!WorldBoot.BootHostWorld(SessionOrgName())) { AbortToHub("world boot failed"); return; }
@@ -111,7 +166,7 @@ namespace SideHustle.Multiplayer
                         if (_desc.Surface == GamemodeSurface.World)
                         {
                             if (!WorldBoot.BootHostWorld(SessionOrgName())) { AbortToHub("world boot failed"); break; }
-                            _timer = 0f;
+                            ResetWatchdog();
                             _state = State.HostBootingWorld;
                         }
                         else
@@ -124,17 +179,17 @@ namespace SideHustle.Multiplayer
 
                 case State.HostBootingWorld:
                     if (WorldBoot.IsWorldReady()) FireHost();
-                    else if (_timer > 95f) AbortToHub($"world not ready (scene={WorldBoot.CurrentScene}, status={WorldBoot.LoadStatus})");
+                    else if (LoadHasGivenUp(out string hostWhy)) AbortToHub("world not ready - " + hostWhy);
                     break;
 
                 case State.Joining:
                     if (WorldBoot.IsWorldReady()) FireJoin();
-                    else if (_timer > 95f) AbortToHub($"join did not complete (scene={WorldBoot.CurrentScene}, status={WorldBoot.LoadStatus})");
+                    else if (LoadHasGivenUp(out string joinWhy)) AbortToHub("join did not complete - " + joinWhy);
                     break;
 
                 case State.SpBootingWorld:
                     if (WorldBoot.IsWorldReady()) FireSpWorld();
-                    else if (_timer > 95f) AbortToHub($"world not ready (scene={WorldBoot.CurrentScene}, status={WorldBoot.LoadStatus})");
+                    else if (LoadHasGivenUp(out string spWhy)) AbortToHub("world not ready - " + spWhy);
                     break;
             }
         }
@@ -245,6 +300,11 @@ namespace SideHustle.Multiplayer
             LobbyCoordinator.Unlist();
             bool wasInGame = WorldBoot.IsInGame;
             if (wasInGame) { WorldBoot.ExitToMenu(); PendingHubReopen = true; }
+            // We may be aborting DURING a load that never finished (the classic stalled join: scene is still
+            // Menu, so IsInGame is false and the branch above does nothing). The game's loading screen is open
+            // on top of the menu and nothing else will ever close it - leaving the player frozen at
+            // "Loading world..." with no way back. Take it down and drop the lobby membership by hand.
+            else if (WorldBoot.AbortLoadToMenu()) LobbyCoordinator.LeaveCurrentLobby();
             GamemodeHygiene.Clear();
             PublicLobbyAccess.Disable();   // restore the vanilla non-friend kick outside a Side Hustle session
             PlayerAlias.Disable();         // stop aliasing; the next session uses the real Steam name again

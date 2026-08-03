@@ -4,7 +4,7 @@ using MelonLoader;
 using SideHustle.Config;
 using SideHustle.Menu;
 
-[assembly: MelonInfo(typeof(SideHustle.Core), "Side Hustle", "2.2.1", "DooDesch", "https://github.com/DooDesch-Mods/ScheduleOne-SideHustle")]
+[assembly: MelonInfo(typeof(SideHustle.Core), "Side Hustle", "2.2.3", "DooDesch", "https://github.com/DooDesch-Mods/ScheduleOne-SideHustle")]
 [assembly: MelonGame("TVGS", "Schedule I")]
 
 namespace SideHustle

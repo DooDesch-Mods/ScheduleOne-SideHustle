@@ -3,6 +3,19 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [2.2.3] - 2026-08-03
+
+### Fixed
+
+- Lobbies with more than five players work. The extra seats were always there to take, but the fifth
+  client and everyone after them just never arrived, stuck on "Loading world..." with nothing happening.
+- A join that fails now drops you back at the main menu. Previously the loading screen stayed up with no
+  way out and you had to kill the game.
+- The lobby seat comes free again when a join is abandoned, instead of staying blocked by someone who
+  never got in.
+- Slower machines get the time they need. The cut-off used to be a flat 95 seconds, which killed loads
+  that were healthy and merely slow - the reason weaker PCs hit this so much more often.
+
 ## [2.2.2] - 2026-08-01
 
 ### Fixed
