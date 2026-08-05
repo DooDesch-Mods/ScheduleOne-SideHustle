@@ -36,6 +36,7 @@ namespace SideHustle.Config
         private static MelonPreferences_Entry<string> _pendingVanillaJoin;
         private static MelonPreferences_Entry<string> _pendingGamemodeJoin;
         private static MelonPreferences_Entry<string> _aliases;
+        private static MelonPreferences_Entry<string> _lastSessionError;
 
         internal static void Initialize()
         {
@@ -74,6 +75,9 @@ namespace SideHustle.Config
                 "Internal: the lobby to auto-rejoin after a mod-sync restart (only ever present in a profile's cloned config). Managed automatically.");
             _pendingGamemodeJoin = _category.CreateEntry("PendingGamemodeJoin", "", "Pending gamemode join (internal)",
                 "Internal: the gamemode lobby to join after installing that gamemode's mods (only ever present in a profile's cloned config). Managed automatically.");
+
+            _lastSessionError = _category.CreateEntry("LastSessionError", "", "Last session error (internal)",
+                "Internal: why the last session ended badly, shown once in the menu and cleared when acknowledged. Persisted because half the ways a session dies end in a restart. Managed automatically.");
 
             _aliases = _category.CreateEntry("Aliases", "", "Display names (internal)",
                 "Internal: your chosen display name for each gamemode, shown to other players instead of your Steam " +
@@ -193,6 +197,14 @@ namespace SideHustle.Config
         {
             get => _pendingGamemodeJoin?.Value ?? "";
             set { if (_pendingGamemodeJoin != null) { _pendingGamemodeJoin.Value = value ?? ""; Save(); } }
+        }
+
+        /// <summary>Why the last session ended badly ("" = nothing to report). Survives the restarts that several
+        /// abort paths trigger, so the explanation still reaches the player on the other side of one.</summary>
+        internal static string LastSessionError
+        {
+            get => _lastSessionError?.Value ?? "";
+            set { if (_lastSessionError != null) { _lastSessionError.Value = value ?? ""; Save(); } }
         }
 
         /// <summary>The ids of recently launched gamemodes, most recent first.</summary>

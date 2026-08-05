@@ -245,11 +245,16 @@ namespace SideHustle.Sync
         /// <summary>Menu scene (re)initialized: a live session ended via the vanilla save+quit flow - clean up.</summary>
         internal static void OnMenuScene()
         {
+            // FIRST, before the Idle bail-out below: a lobby published with the in-game "Publish" button is NOT a
+            // Side Hustle-hosted session, so _state is Idle and everything after that early return was skipped -
+            // the listing survived on the website for the rest of the process. Reset is a no-op when nothing was
+            // published, so it is safe to run on every menu return.
+            LivePublish.Reset();
+
             if (_state == State.Idle) return;
             if (_state == State.InSession) Core.Log?.Msg("[sync] vanilla session ended; cleaning up.");
             if (!_isClient) VanillaLobby.Untag();
             SyncGate.Disable();
-            LivePublish.Reset();
             PublicLobbyAccess.Disable();
             LobbyInviteAccess.Disable();
             PlayerAlias.Disable();
@@ -262,6 +267,7 @@ namespace SideHustle.Sync
         private static void Abort(string reason)
         {
             Core.Log?.Warning("[sync] aborting: " + reason);
+            Menu.SessionNotice.Set(reason);   // the player gets the reason on the menu, not just the log
             VanillaLobby.Untag();
             PublicLobbyAccess.Disable();
             LobbyInviteAccess.Disable();

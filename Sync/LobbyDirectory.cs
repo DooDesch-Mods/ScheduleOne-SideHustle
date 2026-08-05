@@ -61,16 +61,21 @@ namespace SideHustle.Sync
             catch (Exception e) { Log("publish failed: " + e.Message); return false; }
         }
 
-        /// <summary>Keep the directory entry alive + update the live member count. Silent best-effort.</summary>
-        internal static async Task HeartbeatAsync(string lobbyId, string secret, int members)
+        /// <summary>Keep the directory entry alive + update the live member count. Silent best-effort.
+        ///
+        /// Returns FALSE when the backend does not know this lobby (404). That happens after a backend redeploy - the
+        /// directory is held in memory, so every listing is gone while the hosts are still playing. Swallowing it left
+        /// those lobbies invisible on the website until someone re-hosted; the caller re-publishes instead.</summary>
+        internal static async Task<bool> HeartbeatAsync(string lobbyId, string secret, int members)
         {
-            if (!Enabled || string.IsNullOrEmpty(lobbyId)) return;
+            if (!Enabled || string.IsNullOrEmpty(lobbyId)) return true;
             try
             {
                 using var body = new StringContent(JsonSerializer.Serialize(new { secret, members }, Json), Encoding.UTF8, "application/json");
-                using var _ = await Http.PostAsync($"{BaseUrl}/api/lobbies/{lobbyId}/heartbeat", body).ConfigureAwait(false);
+                using var r = await Http.PostAsync($"{BaseUrl}/api/lobbies/{lobbyId}/heartbeat", body).ConfigureAwait(false);
+                return r.StatusCode != System.Net.HttpStatusCode.NotFound;
             }
-            catch { /* best-effort */ }
+            catch { return true; /* network hiccup - not proof the entry is gone */ }
         }
 
         /// <summary>Stop advertising this lobby (host left / went private). Silent best-effort.</summary>

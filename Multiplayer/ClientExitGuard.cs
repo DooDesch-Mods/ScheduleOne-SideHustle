@@ -152,6 +152,9 @@ namespace SideHustle.Multiplayer
                 {
                     _stuckTimer = 0f;
                     Core.Log?.Warning("[exitguard] client stranded disconnected on a gameplay scene (likely kicked) - forcing exit to menu.");
+                    // Without this the player is dropped at the main menu with no idea what happened - the single
+                    // most confusing way a session can end, and the reason was known the whole time.
+                    Menu.SessionNotice.Set("You were disconnected from the session.");
                     ForceClientExit();
                 }
             }

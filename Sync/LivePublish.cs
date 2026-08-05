@@ -138,10 +138,23 @@ namespace SideHustle.Sync
             catch (Exception e) { Core.Log?.Warning("[sync] publish toggle failed: " + e.Message); }
         }
 
-        /// <summary>A session end / menu return resets the button state (the lobby is gone).</summary>
+        /// <summary>A session end / menu return tears the listing down (the lobby is gone).
+        ///
+        /// This used to only clear the button state. The backend entry stayed, and the heartbeat - which runs
+        /// independently of the sync session so a live-published lobby keeps its listing - refreshed it forever, so
+        /// the website advertised a dead lobby (frozen at 1 player) until the game process ended. Untag is idempotent,
+        /// so calling this when nothing was published, or twice, costs nothing.</summary>
         internal static void Reset()
         {
+            if (!_published) return;
             _published = false;
+            try
+            {
+                VanillaLobby.Untag();
+                PublicLobbyAccess.Disable();
+                Core.Log?.Msg("[sync] live-published lobby withdrawn.");
+            }
+            catch (Exception e) { Core.Log?.Warning("[sync] live publish teardown failed: " + e.Message); }
         }
     }
 }

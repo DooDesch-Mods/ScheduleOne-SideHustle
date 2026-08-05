@@ -3,6 +3,32 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [2.2.4] - 2026-08-06
+
+### Added
+
+- Joining a session checks your mods against the host's first. If the sets differ you get the list and
+  the choice: match the host and restart, or join as you are. Before, you joined with everything you had
+  loaded, and a mod the host never allowed could break the round for everybody.
+
+### Fixed
+
+- A session that ends badly tells you why at the main menu instead of dropping you there in silence.
+  The message survives the restart that some of those failures need.
+- Being sent back to the menu also leaves the lobby. You could end up in the menu while Steam still had
+  you seated in a session you were no longer in.
+- The `Export` and `Import` buttons are gone from the gamemode and session lists. They belong to the
+  game's save slots, which those lists are built from.
+- Hosting a gamemode that needs a restart says so on screen while it happens, instead of the game
+  appearing to close itself.
+- The lobby browser stops showing games nobody can join. A lobby published with the in-game Publish
+  button stayed on the website for as long as the game was open, frozen at one player, because leaving
+  to the menu never withdrew it.
+- Quitting the game takes your lobby off the site right away instead of leaving it there for another
+  minute and a half.
+- A lobby that vanished from the site while you were still hosting it comes back on its own. Restarting
+  the backend used to drop every listing, and only re-hosting put yours back.
+
 ## [2.2.3] - 2026-08-03
 
 ### Fixed
