@@ -4,7 +4,7 @@ using MelonLoader;
 using SideHustle.Config;
 using SideHustle.Menu;
 
-[assembly: MelonInfo(typeof(SideHustle.Core), "Side Hustle", "2.2.3", "DooDesch", "https://github.com/DooDesch-Mods/ScheduleOne-SideHustle")]
+[assembly: MelonInfo(typeof(SideHustle.Core), "Side Hustle", DooDesch.ModVersion.Current, "DooDesch", "https://github.com/DooDesch-Mods/ScheduleOne-SideHustle")]
 [assembly: MelonGame("TVGS", "Schedule I")]
 
 namespace SideHustle
@@ -40,6 +40,11 @@ namespace SideHustle
             // Native bigger lobbies - raise the co-op cap ourselves (no external BiggerLobbies dependency).
             // Idempotent + single-flight guarded, so a standalone FullHouse.dll or BiggerLobbies alongside is fine.
             DooDesch.FullHouse.Lobbies.Install();
+
+            // Tell the player in the console which of their mods have a newer release. Covers every loaded
+            // mod that declares a GitHub repo in its MelonInfo, not just this one. Off-thread and silent on
+            // failure; players can switch it off under [DooDesch] in MelonPreferences.cfg.
+            DooDesch.Nudge.Nudge.Watch();
 
             // Keep the boot-time profile picker (a MelonPlugin, shipped embedded) installed and current.
             Profiles.BootInstaller.EnsureInstalled();
@@ -211,6 +216,13 @@ namespace SideHustle
                 Hub.Teardown();
                 MenuInjector.Reset();
             }
+        }
+
+        /// <summary>Quitting the game withdraws this host's web listing right away. Without it the entry lingered
+        /// until the backend's ~90s TTL swept it, so the lobby browser showed a lobby nobody could join.</summary>
+        public override void OnApplicationQuit()
+        {
+            try { Sync.VanillaLobby.UnpublishDirectoryBlocking(); } catch { /* shutting down */ }
         }
 
         public override void OnUpdate()

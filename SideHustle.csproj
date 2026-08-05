@@ -17,6 +17,12 @@
     <Compile Remove="Boot/**/*.cs" />
   </ItemGroup>
 
+  <!-- Generates DooDesch.ModVersion.Current from this project's own version property, so MelonInfo carries the
+       released version and cannot drift out of it. MUST come after the Workspace Remove so CI keeps the file. -->
+  <Import Project="$(MSBuildThisFileDirectory)../Workspace/build/ModVersion.props" Condition="Exists('$(MSBuildThisFileDirectory)../Workspace/build/ModVersion.props')" />
+  <Import Project="$(MSBuildThisFileDirectory)Workspace/build/ModVersion.props" Condition="Exists('$(MSBuildThisFileDirectory)Workspace/build/ModVersion.props')" />
+
+
   <!-- Shared DooDesch.UI in-game design-system layer (tokens, controls, states, toasts/banners) - linked source.
        Local: Workspace is a sibling (../Workspace). CI checks it out as a subfolder (./Workspace). Import whichever exists. -->
   <Import Project="$(MSBuildThisFileDirectory)../Workspace/build/DooDeschUI.props" Condition="Exists('$(MSBuildThisFileDirectory)../Workspace/build/DooDeschUI.props')" />
@@ -27,6 +33,12 @@
        sibling (../Stash). CI checks it out as a subfolder (./Stash). Import whichever exists. -->
   <Import Project="$(MSBuildThisFileDirectory)../Stash/build/FullHouse.props" Condition="Exists('$(MSBuildThisFileDirectory)../Stash/build/FullHouse.props')" />
   <Import Project="$(MSBuildThisFileDirectory)Stash/build/FullHouse.props" Condition="Exists('$(MSBuildThisFileDirectory)Stash/build/FullHouse.props')" />
+
+  <!-- Shared Nudge update check (namespace DooDesch.Nudge) from the public Stash repo - linked source. Announces
+       every loaded mod that has a newer GitHub release. Same sibling-or-subfolder import as FullHouse above; the
+       props also defines NO_EXTERNAL_FETCH for the Thunderstore build, which compiles the endpoint out. -->
+  <Import Project="$(MSBuildThisFileDirectory)../Stash/build/Nudge.props" Condition="Exists('$(MSBuildThisFileDirectory)../Stash/build/Nudge.props')" />
+  <Import Project="$(MSBuildThisFileDirectory)Stash/build/Nudge.props" Condition="Exists('$(MSBuildThisFileDirectory)Stash/build/Nudge.props')" />
 
   <!--
     Side Hustle - MelonLoader IL2CPP gamemode-hub mod for Schedule I.
