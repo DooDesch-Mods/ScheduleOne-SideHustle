@@ -3,6 +3,14 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [2.2.6] - 2026-08-06
+
+### Fixed
+
+- A setting whose description runs past two lines shows its name again. In PropHunt's host form the
+  play-area radius, the auto-start toggle and the sewer goblin toggle appeared as a description with no
+  title, because the row was pinned to one height and the wrapped text pushed the name out of it.
+
 ## [2.2.5] - 2026-08-06
 
 ### Added
