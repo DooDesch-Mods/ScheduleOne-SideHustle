@@ -11,6 +11,12 @@ All notable changes to Side Hustle are documented here. This project adheres to
   the choice: match the host and restart, or join as you are. Before, you joined with everything you had
   loaded, and a mod the host never allowed could break the round for everybody.
 
+### Changed
+
+- Public lobbies keep working on the Schedule I 0.4.6f12 beta. That update moves the "must be friends with the
+  host" rule into the connection handshake, so the old bypass no longer reaches it; Side Hustle now asks the
+  game for the open mode it already has instead. Nothing changes on 0.4.6f11.
+
 ### Fixed
 
 - A session that ends badly tells you why at the main menu instead of dropping you there in silence.
