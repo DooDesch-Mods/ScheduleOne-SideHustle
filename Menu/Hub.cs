@@ -45,6 +45,8 @@ namespace SideHustle.Menu
         private static Text _rcLabel;
         private static float _rcRemaining;
         private static Action _rcOnRestart;
+        private static Action _rcPending;        // the committed restart, waiting for the notice to get a frame
+        private static float _rcPendingDelay;
         private static bool RestartCountdownActive => _rcScrim != null;
 
         // Rows are taller than the vanilla 70px save slots so each entry gets room to breathe; the name and subtitle
@@ -88,6 +90,7 @@ namespace SideHustle.Menu
         internal static void TickInput()
         {
             TickRestartCountdown();   // keep counting even if the screen state changes underneath the prompt
+            if (_chromeSweepFrames > 0) { _chromeSweepFrames--; StripSaveSlotChrome(); }
             if (_cloneScreen == null || !_cloneScreen.IsOpen) return;
             if (RestartCountdownActive) return;   // modal: swallow right-click-back while the restart prompt is up
             if (Input.GetMouseButtonDown(1))
@@ -245,6 +248,8 @@ namespace SideHustle.Menu
         {
             _back = null;
             _mpDesc = null;
+            // Leaving for the list abandons any join being checked, so a comparison finishing afterwards must not act.
+            InvalidateJoinChecks();
 
             // Somebody may have started hosting since the last scan - refresh in the background (renders from the
             // cache now, and only re-renders if the discovered set really changed).
@@ -538,6 +543,9 @@ namespace SideHustle.Menu
                     }
                 }
 
+                StripSaveSlotChrome();
+                _chromeSweepFrames = 30;   // and keep wiping for a moment - the screen re-enables them as it opens
+
                 // Alias strip: a non-slot child inserted at the TOP of the native Container AFTER the slots above are
                 // built, so the clone-template pick + RepurposeRow loop only ever see real slots. The VLG then lays it
                 // out above the cards; the cards keep their exact native size/spacing and only the panel grows to fit it.
@@ -670,8 +678,9 @@ namespace SideHustle.Menu
 
             HideChild(slot, "Container/Info/Created");
             HideChild(slot, "Container/Info/LastPlayed");
-            HideChild(slot, "Container/Info/Export");
-            HideChild(slot, "Container/Import");
+
+            // Export/Import are NOT hidden here - they are not children of a row. See StripSaveSlotChrome, which
+            // sweeps the whole panel once the rows are built.
 
             WireRowButton(slot, "Button", row.OnClick);
             WireRowButton(slot, "Container/Button", row.OnClick);
@@ -753,7 +762,15 @@ namespace SideHustle.Menu
                 {
                     Name = "Confirm and launch",
                     Subtitle = "Restarts into a temporary profile with just these mods, then opens the gamemode. Your installed mods stay untouched.",
-                    OnClick = () => { Preferences.RecordLaunch(desc.Id); Mods.ModSwitcher.ApplyPolicyAndRestart(desc, plan); }
+                    // Same notice as the host path: the relaunch has to be visibly deliberate, or it reads as a crash.
+                    OnClick = () =>
+                    {
+                        Preferences.RecordLaunch(desc.Id);
+                        Action go = () => Mods.ModSwitcher.ApplyPolicyAndRestart(desc, plan);
+                        if (!ShowRestartingNotice()) { go(); return; }
+                        _rcPending = go;
+                        _rcPendingDelay = 0.6f;
+                    }
                 });
             }
             rows.Add(new Row { Name = "Cancel", Subtitle = "Back to the gamemode list.", OnClick = ShowGamemodeList });
@@ -830,11 +847,61 @@ namespace SideHustle.Menu
             _rcLabel = null;
         }
 
-        private static void RestartCountdownFire() { var a = _rcOnRestart; _rcOnRestart = null; RestartCountdownClose(); a?.Invoke(); }
+        /// <summary>
+        /// Swap the prompt for the same full-screen notice a joining player gets, then restart a moment later.
+        ///
+        /// The host used to get nothing here: the prompt vanished and the process relaunched, which from the outside is
+        /// indistinguishable from the game crashing. A player who does not know a restart is expected assumes it broke.
+        ///
+        /// The delay is what makes the notice actually arrive. ApplyPolicyAndRestart does its work and relaunches
+        /// within the same call, so a screen built immediately before it never gets a frame to draw in - the joining
+        /// player's version of this screen only shows because downloads happen asynchronously after it. Handing the
+        /// restart to the ticker gives Unity frames to render first.
+        /// </summary>
+        private static void RestartCountdownFire()
+        {
+            var a = _rcOnRestart;
+            _rcOnRestart = null;
+            RestartCountdownClose();
+            if (a == null) return;
+
+            if (!ShowRestartingNotice()) { a(); return; }   // nowhere to draw -> restart rather than stall
+            _rcPending = a;
+            _rcPendingDelay = 0.6f;
+        }
+
+        /// <summary>The joining player's "INSTALLING AND RESTARTING" screen, worded for the host: nothing is being
+        /// installed here, the game is relaunching with a smaller mod set.</summary>
+        private static bool ShowRestartingNotice()
+        {
+            try
+            {
+                if (_clone == null || _cloneScreen == null || !_cloneScreen.IsOpen) return false;
+                _back = null;
+                ClearFormHost();
+                SetTmp(_clone.transform, "Title", "Restarting");
+                var host = CreateFormHost("SH_HostRestarting", 560f);
+                if (host == null) return false;
+                ProfilesViews.BuildBigStatus(host, "RESTARTING WITH THE REQUIRED MODS",
+                    "The game comes back on its own and opens your lobby - hang tight. Don't close the game. " +
+                    "Your installed mods are left untouched.");
+                return true;
+            }
+            catch (Exception e) { Core.Log?.Warning("[hub] could not show the restart notice: " + e.Message); return false; }
+        }
+
         private static void RestartCountdownCancel() { _rcOnRestart = null; RestartCountdownClose(); }   // stay on the host form
 
         private static void TickRestartCountdown()
         {
+            // The committed restart, held back by a few frames so the notice above is on screen when it happens.
+            if (_rcPending != null)
+            {
+                _rcPendingDelay -= Time.unscaledDeltaTime;
+                if (_rcPendingDelay <= 0f) { var a = _rcPending; _rcPending = null; a(); }
+                return;
+            }
+
             if (_rcScrim == null) return;
             _rcRemaining -= Time.unscaledDeltaTime;
             int secs = Mathf.Max(0, Mathf.CeilToInt(_rcRemaining));
@@ -898,6 +965,15 @@ namespace SideHustle.Menu
         private static string JoinAndAccept(GamemodeDescriptor desc, LobbyRow row) { JoinNow(desc, row); return null; }
 
         private static void JoinNow(GamemodeDescriptor desc, LobbyRow row)
+        {
+            // Compare our mod set against the host's first. A host running "required mods only" curates its set for
+            // a reason, and a joiner arriving with everything else still loaded silently undoes that - see
+            // BeginModCheckedJoin. It hands control back through JoinDirect once the player has decided.
+            if (BeginModCheckedJoin(desc, row, () => JoinDirect(desc, row))) return;
+            JoinDirect(desc, row);
+        }
+
+        private static void JoinDirect(GamemodeDescriptor desc, LobbyRow row)
         {
             Preferences.RecordLaunch(desc.Id);
             CloseHubScreen();
@@ -1023,7 +1099,90 @@ namespace SideHustle.Menu
         private static void HideChild(Transform root, string path)
         {
             Transform t = root.Find(path);
-            if (t != null) t.gameObject.SetActive(false);
+            if (t != null) { t.gameObject.SetActive(false); return; }
+
+            // The path is the vanilla save-slot hierarchy, which this screen only borrows - so a game update that
+            // moves an element makes the exact-path lookup miss and the element reappears, with nothing to say it
+            // failed. Fall back to the leaf name anywhere under the row, which survives being reparented.
+            string leaf = path;
+            int slash = leaf.LastIndexOf('/');
+            if (slash >= 0 && slash < leaf.Length - 1) leaf = leaf.Substring(slash + 1);
+            HideDescendantsNamed(root, leaf);
+        }
+
+        /// <summary>
+        /// Take the game's save-slot furniture off this screen, panel-wide.
+        ///
+        /// Export and Import belong to save slots; the hub only borrows that prefab, and there is nothing here to write
+        /// to a zip. Three attempts missed them and each failure taught something:
+        ///   - an exact path under a row: matched nothing,
+        ///   - the leaf name under a row: they are not named "Export"/"Import",
+        ///   - their components under a row: they are not children of a row at all.
+        /// The evidence for the last one was that the type-based search threw nothing and still changed nothing. So the
+        /// search runs over the WHOLE panel, and it counts what it hid - a silent zero is what let this ship twice.
+        /// </summary>
+        private static void StripSaveSlotChrome()
+        {
+            if (_clone == null) return;
+            int n = HideComponentInChildren<Il2CppScheduleOne.UI.MainMenu.SaveExportButton>(_clone.transform)
+                  + HideComponentInChildren<Il2CppScheduleOne.UI.MainMenu.SaveImportButton>(_clone.transform);
+            if (n > 0) Core.Log?.Msg($"[hub] hid {n} save-slot export/import control(s) on the panel.");
+        }
+
+        /// <summary>
+        /// Frames left to keep re-hiding the save-slot controls after a screen is built.
+        ///
+        /// One sweep is not enough, and the shape of the bug says why: the buttons were visible on the FIRST visit to
+        /// the gamemode list and gone on every later one. The native screen switches them back on as part of opening -
+        /// which happens after our rows are laid out - and that only runs once per open. So the sweep has to outlive the
+        /// build by a few frames rather than fire in the middle of it.
+        ///
+        /// A short window instead of a permanent per-frame sweep: GetComponentsInChildren allocates across the interop
+        /// boundary, and paying that every frame for the whole time a menu is open buys nothing after the screen has
+        /// settled.
+        /// </summary>
+        private static int _chromeSweepFrames;
+
+        /// <summary>
+        /// Hide every descendant carrying this component, including inactive ones. Returns how many were switched off,
+        /// so a caller can tell "nothing to do" from "looked in the wrong place".</summary>
+        ///
+        /// Identity by type is what makes this stick where a path or a name did not: the component travels with the
+        /// object however the prefab is reorganised. Whole GameObjects are switched off rather than the components
+        /// themselves, because a disabled script leaves its button and label sitting there, visible and dead.
+        /// </summary>
+        private static int HideComponentInChildren<T>(Transform root) where T : Component
+        {
+            if (root == null) return 0;
+            int n = 0;
+            try
+            {
+                var found = root.GetComponentsInChildren<T>(true);
+                if (found == null) return 0;
+                for (int i = 0; i < found.Length; i++)
+                {
+                    var c = found[i];
+                    if (c == null || c.gameObject == null) continue;
+                    if (c.gameObject.activeSelf) c.gameObject.SetActive(false);
+                    n++;
+                }
+            }
+            catch (Exception e) { Core.Log?.Warning($"[hub] could not hide {typeof(T).Name}: {e.Message}"); }
+            return n;
+        }
+
+        /// <summary>Hide every descendant with this exact name. Used as the fallback above, so a decoration the
+        /// screen does not own cannot come back just because the game moved it.</summary>
+        private static void HideDescendantsNamed(Transform root, string name)
+        {
+            if (root == null || string.IsNullOrEmpty(name)) return;
+            for (int i = 0; i < root.childCount; i++)
+            {
+                var c = root.GetChild(i);
+                if (c == null) continue;
+                if (string.Equals(c.name, name, StringComparison.Ordinal)) { c.gameObject.SetActive(false); continue; }
+                HideDescendantsNamed(c, name);
+            }
         }
 
         private static void CentreRow(Transform t, float dy, float inset)

@@ -47,6 +47,7 @@ namespace SideHustle.Sync
         // Backend directory (fallback) publish state for the current host session.
         private static string _dirSecret;
         private static ulong _dirLobbyId;
+        private static Func<string, DirPublish> _dirBuild;   // how to rebuild this entry if the backend loses it
 
         private static string AppBuildId()
         {
@@ -202,6 +203,8 @@ namespace SideHustle.Sync
             if (build == null) return;
             if (string.IsNullOrEmpty(_dirSecret)) _dirSecret = Guid.NewGuid().ToString("N");
             _dirLobbyId = lobbyId;
+            _dirBuild = build;
+            _dirGen++;   // invalidates any heartbeat still in flight for the previous listing   // kept so a heartbeat that finds the entry gone can rebuild it
             var pub = build(_dirSecret);
             Task.Run(() => LobbyDirectory.PublishAsync(pub));
         }
@@ -212,7 +215,18 @@ namespace SideHustle.Sync
             if (_dirLobbyId == 0) return;
             string id = _dirLobbyId.ToString(); string sec = _dirSecret;
             Task.Run(() => LobbyDirectory.RemoveAsync(id, sec));
-            _dirLobbyId = 0; _dirSecret = null;
+            _dirLobbyId = 0; _dirSecret = null; _dirBuild = null; _dirGen++;
+        }
+
+        /// <summary>Drop the directory entry and WAIT briefly for the request to land. Only for application quit: the
+        /// normal fire-and-forget removal never completes when the process is tearing down, which is why a host who
+        /// alt-F4s used to sit on the website until the 90s TTL swept them.</summary>
+        internal static void UnpublishDirectoryBlocking()
+        {
+            if (_dirLobbyId == 0) return;
+            string id = _dirLobbyId.ToString(); string sec = _dirSecret;
+            _dirLobbyId = 0; _dirSecret = null; _dirBuild = null; _dirGen++;
+            try { LobbyDirectory.RemoveAsync(id, sec).Wait(TimeSpan.FromSeconds(2)); } catch { /* quitting anyway */ }
         }
 
         /// <summary>Stop advertising (host went back to the menu). The lobby itself dies with the session.</summary>
@@ -240,8 +254,27 @@ namespace SideHustle.Sync
             int members = 1;
             try { var l = LobbyOrNull(); if (l != null) members = Math.Max(1, l.PlayerCount); } catch { }
             string id = _dirLobbyId.ToString(); string sec = _dirSecret;
-            Task.Run(() => LobbyDirectory.HeartbeatAsync(id, sec, members));
+            var build = _dirBuild;
+            ulong lobby = _dirLobbyId;
+            int gen = _dirGen;
+            Task.Run(async () =>
+            {
+                bool known = await LobbyDirectory.HeartbeatAsync(id, sec, members).ConfigureAwait(false);
+                // The backend keeps its directory in memory, so a redeploy drops every entry while the hosts are
+                // still playing. A 404 means "you are no longer listed" - re-publish instead of heartbeating into
+                // the void until the host re-hosts.
+                if (known || build == null) return;
+                // ...but only if this listing is still OURS. Teardown can run while the request is in flight, and
+                // re-publishing then resurrects a lobby that has ended - with the local state already cleared, nothing
+                // is left that could withdraw it again, so it stays advertised until the backend expires it.
+                if (gen != _dirGen || _dirLobbyId != lobby || _dirSecret != sec) return;
+                try { await LobbyDirectory.PublishAsync(build(sec)).ConfigureAwait(false); } catch { }
+            });
         }
+
+        /// <summary>Bumped whenever the published listing changes or is withdrawn, so an in-flight heartbeat can
+        /// tell whether the entry it is about to re-publish is still the current one.</summary>
+        private static int _dirGen;
 
         private static float _hbTimer;
 

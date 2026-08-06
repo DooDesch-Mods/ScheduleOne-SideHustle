@@ -201,6 +201,131 @@ namespace SideHustle.Menu
                               + "restarts, and joins the lobby. Your own mods stay untouched.");
         }
 
+        /// <summary>
+        /// Joining a gamemode you DO have installed, but with a different mod set than the host.
+        ///
+        /// Until now this case skipped every check: only players who lacked the gamemode entirely went through the
+        /// install flow, so anyone who owned it joined carrying whatever else they had loaded. The host curates its
+        /// set with "required mods only" precisely to avoid that, and the joiner then quietly undid it - a mod the
+        /// host does not run can patch the same game methods the gamemode does and break the round for everyone,
+        /// which is exactly the class of problem the curation exists to prevent.
+        ///
+        /// The comparison, the consent screen, the profile build and the auto-rejoin already existed for the
+        /// not-installed case. This routes the installed case into the same machinery; the only difference is that
+        /// joining as you are stays on offer, because unlike a missing gamemode a mismatched set is a risk rather
+        /// than a hard blocker.
+        ///
+        /// Returns true when it has taken over the screen - the caller must not join.
+        /// </summary>
+        /// <summary>
+        /// Rising counter identifying the join attempt in flight. Any navigation or a new attempt invalidates the old
+        /// one, so a comparison that finishes after the player moved on cannot act.
+        ///
+        /// Without it the completion only knew that SOME hub screen was still open: going back and starting a second
+        /// join left the first comparison free to finish and join the FIRST lobby, or to draw its consent over the new
+        /// screen - with the coordinator then out of step with the Steam join actually being attempted.
+        /// </summary>
+        private static int _joinGen;
+
+        internal static void InvalidateJoinChecks() => _joinGen++;
+
+        internal static bool BeginModCheckedJoin(GamemodeDescriptor desc, LobbyRow row, Action joinAnyway)
+        {
+            if (desc == null || row == null || row.LobbyId == 0 || joinAnyway == null) return false;
+            if (_clone == null || _cloneScreen == null || !_cloneScreen.IsOpen) return false;
+
+            var g = new Ghost { Name = desc.DisplayName ?? desc.Id, GamemodeId = desc.Id };
+            _ghostRetried = false;
+            int gen = ++_joinGen;
+
+            ShowRows(g.Name, new List<Row>
+            {
+                new Row { Name = "Checking your mods...", Subtitle = "Reading the host's list.", Disabled = true }
+            });
+            try { Il2CppSteamworks.SteamMatchmaking.RequestLobbyData(new Il2CppSteamworks.CSteamID(row.LobbyId)); } catch { }
+            WaitForInstalledManifest(g, row, joinAnyway, gen, 0);
+            return true;
+        }
+
+        /// <summary>
+        /// Wait for the host's mod list before comparing, retrying like the not-installed flow already does.
+        ///
+        /// Steam delivers the big chunked lobby values LATE on a list snapshot, which the ghost path documents and
+        /// retries seven times for. Reading once and joining unchecked on a miss - which is what this did - meant the
+        /// safeguard silently did not apply during ordinary metadata propagation. A safeguard that fails open exactly
+        /// when it is slow to answer is worse than none, because nobody can tell the difference.
+        /// </summary>
+        private static void WaitForInstalledManifest(Ghost g, LobbyRow row, Action joinAnyway, int gen, int attempt)
+        {
+            if (gen != _joinGen) return;                                  // the player moved on
+            if (_cloneScreen == null || !_cloneScreen.IsOpen) return;
+
+            SyncManifest manifest = null; string mhash = null; bool got = false;
+            try { got = VanillaLobby.TryReadPayloads(row.LobbyId, out manifest, out _, out mhash) && manifest.Mods.Count > 0; }
+            catch { got = false; }
+
+            if (got) { BeginInstalledCompare(g, row, manifest, mhash, joinAnyway, gen); return; }
+
+            if (attempt >= JoinManifestAttempts)
+            {
+                // Genuinely absent, as far as we can tell: an older host, or one whose gamemode could not resolve its
+                // own files. Joining beats refusing - the comparison is a safeguard, not something the session needs.
+                Core.Log?.Msg("[mp] join: no mod list on the lobby after " + JoinManifestAttempts +
+                              " tries - joining without a comparison. " + VanillaLobby.DescribeReadFailure(row.LobbyId));
+                joinAnyway();
+                return;
+            }
+            try { Il2CppSteamworks.SteamMatchmaking.RequestLobbyData(new Il2CppSteamworks.CSteamID(row.LobbyId)); } catch { }
+            System.Threading.Tasks.Task.Run(async () =>
+            {
+                await System.Threading.Tasks.Task.Delay(700);
+                MainThread.Post(() => WaitForInstalledManifest(g, row, joinAnyway, gen, attempt + 1));
+            });
+        }
+
+        private static void BeginInstalledCompare(Ghost g, LobbyRow row, SyncManifest manifest, string mhash,
+                                                 Action joinAnyway, int gen)
+        {
+            ShowRows(g.Name, new List<Row>
+            {
+                new Row { Name = "Checking your mods...", Subtitle = "Comparing your set with the host's.", Disabled = true }
+            });
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                SyncDiff diff = null;
+                try { diff = SyncResolver.Compute(manifest); }
+                catch (Exception e) { Core.Log?.Warning("[mp] join: mod compare failed: " + e.Message); }
+                MainThread.Post(() =>
+                {
+                    if (gen != _joinGen) return;                          // a newer attempt owns the screen now
+                    if (_cloneScreen == null || !_cloneScreen.IsOpen) return;
+                    // Could not compare, or nothing to reconcile - join exactly as before.
+                    if (diff == null || (!diff.NeedsRestart && !diff.AnyVersionWarn)) { joinAnyway(); return; }
+
+                    Core.Log?.Msg($"[mp] join: mod set differs from the host " +
+                                  $"(link/download {diff.Count(DiffStatus.Cached) + diff.Count(DiffStatus.Download)}, " +
+                                  $"ours-only {diff.LocalOnly.Count}) - asking the player.");
+                    ShowInstalledConsent(g, row, manifest, diff, mhash, joinAnyway);
+                });
+            });
+        }
+
+        private static void ShowInstalledConsent(Ghost g, LobbyRow row, SyncManifest manifest, SyncDiff diff,
+                                                 string mhash, Action joinAnyway)
+        {
+            if (_clone == null) return;
+            _back = ShowGamemodeList;
+            SyncManualInstallView.PrefetchLinks(diff);
+            ClearFormHost();
+            SetTmp(_clone.transform, "Title", g.Name);
+            var host = CreateFormHost("SH_JoinModCheck", 560f);
+            SyncConsentView.Build(host, manifest, diff, enforced: false, hasPrefs: false,
+                onSyncJoin: () => GhostSyncAndJoin(g, row, manifest, diff, mhash),
+                onPlainJoin: joinAnyway,
+                onBack: () => ShowGamemodeList(),
+                enforcedNote: null);
+        }
+
         private static void GhostSyncAndJoin(Ghost g, LobbyRow row, SyncManifest manifest, SyncDiff diff, string mhash)
         {
             // Mods nobody can fetch automatically (a Nexus link, or one with no source at all) get the checklist -

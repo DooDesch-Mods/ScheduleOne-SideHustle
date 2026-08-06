@@ -154,7 +154,8 @@ namespace SideHustle.Multiplayer
 
         internal static void Tick()
         {
-            if (_state == State.Idle || _state == State.InSession) return;
+            if (_state == State.Idle) return;
+            if (_state == State.InSession) { TickSessionAlive(); return; }
             _timer += Time.unscaledDeltaTime;
 
             switch (_state)
@@ -290,9 +291,48 @@ namespace SideHustle.Multiplayer
             }
         }
 
+        private static float _backAtMenuFor;
+
+        /// <summary>
+        /// Notice when a live session has quietly ended underneath us.
+        ///
+        /// Reaching "in session" used to be the end of this state machine's job, so a client whose world dropped it
+        /// back to the menu was never cleaned up: still a member of the Steam lobby, still receiving the host's
+        /// state, still advertised as being in the game, and never told why. The player sees the main menu and
+        /// assumes they left; the host still counts them.
+        ///
+        /// The other recovery path (ClientExitGuard) cannot cover this one - it only looks at gameplay scenes,
+        /// and this failure ends up on the menu by definition.
+        /// </summary>
+        private static void TickSessionAlive()
+        {
+            // WORLD sessions only. A MenuSpace gamemode builds its overlay ON the menu and never boots a world, so
+            // "no world + menu scene" is its NORMAL, healthy state - this watchdog would have killed every such session
+            // three seconds in. The signal is only meaningful where a world is supposed to be running.
+            if (_desc == null || _desc.Surface != GamemodeSurface.World) { _backAtMenuFor = 0f; return; }
+
+            bool onMenu;
+            try { onMenu = !WorldBoot.IsInGame && UnityEngine.SceneManagement.SceneManager.GetActiveScene().name == "Menu"; }
+            catch { return; }
+
+            if (!onMenu) { _backAtMenuFor = 0f; return; }
+
+            // A short dwell keeps a normal, deliberate exit (which reaches Idle on its own within a frame or two)
+            // from being reported as a failure.
+            _backAtMenuFor += Time.unscaledDeltaTime;
+            if (_backAtMenuFor < 3f) return;
+            _backAtMenuFor = 0f;
+
+            AbortToHub("the session stopped unexpectedly");
+        }
+
         private static void AbortToHub(string reason)
         {
+            _backAtMenuFor = 0f;
             Core.Log?.Warning("[mp] aborting session: " + reason);
+            // Tell the player too, not just the log. Shown once they are back in the menu - right here there is
+            // nothing to draw on, and the scene reload below would destroy it anyway.
+            Menu.SessionNotice.Set(reason);
             if (_desc != null && _ctx == null)
             {
                 try { _desc.OnExitToHub?.Invoke(new LaunchContext { Descriptor = _desc }); } catch { /* ignore */ }

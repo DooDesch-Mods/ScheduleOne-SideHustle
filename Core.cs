@@ -238,6 +238,7 @@ namespace SideHustle
             Sync.SyncCoordinator.Tick();
             Sync.SyncCoordinator.TickGate();   // an enforcing host kicks unsynced members
             Sync.VanillaLobby.HeartbeatTick(UnityEngine.Time.unscaledDeltaTime);   // keep a published lobby on the web directory
+            Menu.SessionNotice.Tick();   // why the last session ended - NOT gated on the menu flag, see SessionNotice
             Multiplayer.ClientExitGuard.TickWatchdog();   // recover a kicked/dropped client stranded on a loading screen
 
             if (_inMenu)
