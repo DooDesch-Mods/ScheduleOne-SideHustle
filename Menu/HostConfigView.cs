@@ -270,10 +270,11 @@ namespace SideHustle.Menu
             var ble = block.AddComponent<LayoutElement>(); ble.minHeight = 98; ble.preferredHeight = 98; ble.flexibleWidth = 1;
             var bv = block.AddComponent<VerticalLayoutGroup>(); bv.spacing = 4; bv.childControlWidth = true; bv.childControlHeight = true; bv.childForceExpandWidth = true; bv.childForceExpandHeight = false; bv.childAlignment = TextAnchor.UpperLeft;
 
-            // Says what the picker DOES. "(new host? pick one, then Start)" asked the reader to work out who it was
-            // talking to and what the parenthesis had to do with the arrows next to it; the one thing worth knowing -
-            // that moving off a preset rewrites every row underneath - was the part it left out.
-            var title = UIFactory.Text("title", "Game mode preset - fills in every setting below", block.transform, Theme.Label, TextAnchor.MiddleLeft, FontStyle.Bold);
+            // The title reports the STATE, and it has to follow the selection: the form opens on the host's saved
+            // settings, so it says so - but the moment they cycle to a named preset that sentence would be a lie, and
+            // then the useful thing to say is what picking one does to the rows underneath. The old text,
+            // "(new host? pick one, then Start)", said neither.
+            var title = UIFactory.Text("title", "Game mode preset", block.transform, Theme.Label, TextAnchor.MiddleLeft, FontStyle.Bold);
             title.color = Theme.TextPrimary; title.raycastTarget = false;
             var tle = title.gameObject.AddComponent<LayoutElement>(); tle.minHeight = 20; tle.preferredHeight = 20;
 
@@ -300,6 +301,11 @@ namespace SideHustle.Menu
             {
                 index = ((i % n) + n) % n;
                 var p = presets[index];
+                // DefaultSelected marks the entry a gamemode rebuilt from the host's last session - the only entry
+                // that is not a fixed preset, and the only one the title can claim was "loaded".
+                title.text = p.DefaultSelected
+                    ? "Game mode preset - your last settings are loaded"
+                    : "Game mode preset - fills in every setting below";
                 nameTxt.text = p.Experimental ? (p.Name ?? "") + "   - EXPERIMENTAL" : (p.Name ?? "");
                 nameTxt.color = p.Experimental ? new Color(1f, 0.72f, 0.2f) : Theme.Accent;   // amber badge for not-yet-built mechanics
                 descTxt.text = string.IsNullOrEmpty(p.Recommended) ? (p.Hint ?? "") : (p.Recommended + "  -  " + (p.Hint ?? ""));
