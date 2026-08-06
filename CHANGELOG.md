@@ -5,6 +5,12 @@ All notable changes to Side Hustle are documented here. This project adheres to
 
 ## [2.2.6] - 2026-08-06
 
+### Changed
+
+- The preset picker in a host form says what it does: "Game mode preset - fills in every setting below". It used to
+  ask "new host? pick one, then Start", which explained neither the arrows next to it nor that moving off a preset
+  rewrites every row underneath.
+
 ### Fixed
 
 - A setting whose description runs past two lines shows its name again. In PropHunt's host form the

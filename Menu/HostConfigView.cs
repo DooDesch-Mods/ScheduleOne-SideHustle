@@ -270,7 +270,10 @@ namespace SideHustle.Menu
             var ble = block.AddComponent<LayoutElement>(); ble.minHeight = 98; ble.preferredHeight = 98; ble.flexibleWidth = 1;
             var bv = block.AddComponent<VerticalLayoutGroup>(); bv.spacing = 4; bv.childControlWidth = true; bv.childControlHeight = true; bv.childForceExpandWidth = true; bv.childForceExpandHeight = false; bv.childAlignment = TextAnchor.UpperLeft;
 
-            var title = UIFactory.Text("title", "Game mode preset  (new host? pick one, then Start)", block.transform, Theme.Label, TextAnchor.MiddleLeft, FontStyle.Bold);
+            // Says what the picker DOES. "(new host? pick one, then Start)" asked the reader to work out who it was
+            // talking to and what the parenthesis had to do with the arrows next to it; the one thing worth knowing -
+            // that moving off a preset rewrites every row underneath - was the part it left out.
+            var title = UIFactory.Text("title", "Game mode preset - fills in every setting below", block.transform, Theme.Label, TextAnchor.MiddleLeft, FontStyle.Bold);
             title.color = Theme.TextPrimary; title.raycastTarget = false;
             var tle = title.gameObject.AddComponent<LayoutElement>(); tle.minHeight = 20; tle.preferredHeight = 20;
 
