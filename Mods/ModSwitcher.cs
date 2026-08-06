@@ -160,6 +160,11 @@ namespace SideHustle.Mods
                 AltBase.Teardown(altPath);
                 return;
             }
+            // A SECOND copy of the same tokens, beside the profile rather than inside its cfg. One malformed line
+            // anywhere in MelonPreferences.cfg - from any mod, in any category - makes MelonLoader fall back to
+            // defaults for the whole file, and the pending join went with it: the restart happened and the player
+            // was left in the menu. See Sync/PendingHandoff.
+            Sync.PendingHandoff.Write(altPath, tokens);
 
 #if DEBUG
             if (DryRunForTests)

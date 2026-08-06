@@ -97,6 +97,12 @@ namespace SideHustle
                 bool namedProfileSession = Mods.AltBase.IsNamedProfileSession();
                 bool policySession = Mods.AltBase.IsAltSession() && !namedProfileSession;
 
+                // Recover the session tokens from the file beside the profile when the cfg did not carry them. Both
+                // session checks above are PATH based and therefore survive a broken MelonPreferences.cfg - the tokens
+                // did not, and losing them means the restart happens and the player is left in the menu with no lobby.
+                // Restored into Preferences so every read below (and the staleness exemption) works unchanged.
+                RestorePendingTokens(policySession);
+
                 // A pending vanilla-sync rejoin means this session base is a SYNC profile, built from the HOST's bytes
                 // on purpose. It must never be measured against the local install: a host running a different build of
                 // a shared mod would always read as "stale" and bounce back, dropping the rejoin token and stranding
@@ -200,6 +206,44 @@ namespace SideHustle
                     _reopenHubFrames = 90;
                 }
             }
+        }
+
+        /// <summary>
+        /// Take the tokens a relaunch left beside the profile and fill in whatever the cfg lost.
+        ///
+        /// MelonPreferences is all-or-nothing: one malformed line anywhere in the file and every category falls back
+        /// to its defaults, so a pending join written into the cfg simply vanishes - silently, and only for players
+        /// whose config some other mod had already broken. The file this reads is ours alone and is deleted as it is
+        /// read, so a token can never fire twice.
+        /// </summary>
+        private static void RestorePendingTokens(bool policySession)
+        {
+            if (!policySession) return;
+            try
+            {
+                var tokens = Sync.PendingHandoff.TakeAll();
+                if (tokens.Count == 0) return;
+
+                int restored = 0;
+                if (string.IsNullOrEmpty(Preferences.PendingVanillaJoin) && tokens.TryGetValue("PendingVanillaJoin", out var vj) && vj.Length > 0)
+                { Preferences.PendingVanillaJoin = vj; restored++; }
+                if (string.IsNullOrEmpty(Preferences.PendingGamemodeJoin) && tokens.TryGetValue("PendingGamemodeJoin", out var gj) && gj.Length > 0)
+                { Preferences.PendingGamemodeJoin = gj; restored++; }
+                if (string.IsNullOrEmpty(Preferences.PendingContinue) && tokens.TryGetValue("PendingContinue", out var pc) && pc.Length > 0)
+                { Preferences.PendingContinue = pc; restored++; }
+                if (string.IsNullOrEmpty(Preferences.PendingHostOptions) && tokens.TryGetValue("PendingHostOptions", out var ho) && ho.Length > 0)
+                { Preferences.PendingHostOptions = ho; restored++; }
+                if (string.IsNullOrEmpty(Preferences.ActiveGamemodeId) && tokens.TryGetValue("ActiveGamemodeId", out var gm) && gm.Length > 0)
+                { Preferences.ActiveGamemodeId = gm; restored++; }
+                if (string.IsNullOrEmpty(Preferences.ActiveAltBase) && tokens.TryGetValue("ActiveAltBase", out var ab) && ab.Length > 0)
+                { Preferences.ActiveAltBase = ab; restored++; }
+
+                if (restored > 0)
+                    Log.Warning($"[sync] MelonPreferences did not carry {restored} session token(s) - recovered them from " +
+                                "the profile. Something in MelonPreferences.cfg does not parse; the rest of your settings " +
+                                "are on their defaults this session.");
+            }
+            catch (Exception e) { Log.Warning("[sync] could not restore the pending tokens: " + e.Message); }
         }
 
         public override void OnSceneWasUnloaded(int buildIndex, string sceneName)

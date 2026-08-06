@@ -3,6 +3,15 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [2.2.7] - 2026-08-07
+
+### Fixed
+
+- Joining after the mod-sync restart works even when your MelonPreferences.cfg has a broken line in it. One bad line
+  anywhere in that file, from any mod, made the game forget which lobby it was going back to - so it restarted and
+  left you in the menu. The lobby is now remembered next to the profile instead, and the log says when your config
+  could not be read.
+
 ## [2.2.6] - 2026-08-06
 
 ### Changed
