@@ -7,9 +7,9 @@ All notable changes to Side Hustle are documented here. This project adheres to
 
 ### Changed
 
-- The preset picker in a host form says what it does: "Game mode preset - fills in every setting below". It used to
-  ask "new host? pick one, then Start", which explained neither the arrows next to it nor that moving off a preset
-  rewrites every row underneath.
+- The preset picker in a host form says where its values come from. On your saved settings it reads "your last
+  settings are loaded", on a named preset "fills in every setting below". It used to ask "new host? pick one, then
+  Start", which explained neither the arrows next to it nor that moving off a preset rewrites every row underneath.
 
 ### Fixed
 
