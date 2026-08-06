@@ -41,6 +41,16 @@ namespace SideHustle.Sync
         /// <summary>Package-cache directories of DEPENDENCY packages fetched only for their Plugins/UserLibs payload
         /// (e.g. SteamNetworkLib for PropHunt) - shared libraries a synced mod cannot load without.</summary>
         public List<string> LibPackageDirs = new List<string>();
+
+        /// <summary>
+        /// Entries the resolver tried to fetch and could NOT, with the reason - "PropHunt 1.3.0 (no file matching the
+        /// host's build)". Filled during the download pass, not during Compute: whether a file is fetchable is only
+        /// known once the source has been asked.
+        ///
+        /// These used to exist only as a log line, so a player whose sync failed reached "the gamemode is still
+        /// missing" with no idea which mod or why. The progress view already has a place to list them.
+        /// </summary>
+        public List<string> Unresolved = new List<string>();
         public int Count(DiffStatus s) => Entries.Count(e => e.Status == s);
 
         /// <summary>A synced profile is only needed when something must be ASSEMBLED that the currently loaded
@@ -164,6 +174,7 @@ namespace SideHustle.Sync
                     else
                     {
                         Core.Log?.Warning($"[sync] '{e.Mod.File}': no GitHub release asset matched the host's hash; falling back to the manual link.");
+                        diff.Unresolved.Add($"{e.Mod.Name ?? e.Mod.File} {e.Mod.Version} - no published file matches the host's build");
                         e.Status = DiffStatus.Manual;
                         allOk = false;
                     }
@@ -180,6 +191,7 @@ namespace SideHustle.Sync
                 if (dir == null)
                 {
                     Core.Log?.Warning($"[sync] '{e.Mod.File}': {fullName} {version} could not be downloaded; falling back to the manual link.");
+                    diff.Unresolved.Add($"{fullName} {version} - could not be downloaded");
                     Downgrade(e, "Thunderstore didn't hand it over - grab it here instead");
                     allOk = false; continue;
                 }

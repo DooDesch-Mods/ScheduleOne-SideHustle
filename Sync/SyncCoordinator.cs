@@ -73,6 +73,7 @@ namespace SideHustle.Sync
             if (!map.TryGetValue("lobby", out var ls) || !ulong.TryParse(ls, out _joinLobbyId) || _joinLobbyId == 0)
             {
                 Core.Log?.Warning("[sync] rejoin token unreadable; staying in the menu.");
+                Menu.RejoinNotice.Hide();
                 return;
             }
             map.TryGetValue("mhash", out _joinMHash);
@@ -95,11 +96,13 @@ namespace SideHustle.Sync
             catch (Exception e) { RejoinFailed("lobby lookup failed: " + e.Message); return; }
 
             Core.Log?.Msg($"[sync] rejoining lobby {_joinLobbyId} after the mod-sync restart...");
+            Menu.RejoinNotice.Show("Looking for the lobby and checking its mod list has not changed...");
             _timer = 0f;
             _lobbyRetry = 0f;
             // Prime lobby discovery: a fresh (just-restarted) client must re-learn the host's lobby exists before
             // RequestLobbyData will resolve it. A vanilla lobby-list query repopulates that registry.
-            try { Multiplayer.ServerBrowser.BeginQueryVanilla(_ => { }); } catch { }
+            try { Multiplayer.ServerBrowser.BeginQueryVanilla(_ => { }); }
+            catch (Exception e) { Core.Log?.Warning("[sync] lobby discovery could not be primed: " + e.Message); }
             _state = State.ClientCheckingLobby;
         }
 
@@ -135,6 +138,7 @@ namespace SideHustle.Sync
         private static void RejoinFailed(string reason)
         {
             Core.Log?.Warning("[sync] rejoin failed: " + reason);
+            Menu.RejoinNotice.Hide();
             LobbyInviteAccess.Disable();
             PlayerAlias.Disable();   // OnMenuScene early-returns once Idle, so the alias must be cleared here too
             _state = State.Idle;
@@ -169,6 +173,9 @@ namespace SideHustle.Sync
                             break;
                         }
                         Core.Log?.Msg("[sync] lobby verified; joining...");
+                        // The notice comes down on its own when the menu scene unloads for the world - from there the
+                        // game's own loading screen is the better signal.
+                        Menu.RejoinNotice.Update("Lobby verified - loading the world...");
                         LobbyCoordinator.JoinLobby(_joinLobbyId);
                         _timer = 0f;
                         _state = State.ClientJoining;
@@ -182,8 +189,11 @@ namespace SideHustle.Sync
                         if (_lobbyRetry >= 2f)
                         {
                             _lobbyRetry = 0f;
-                            try { SteamMatchmaking.RequestLobbyData(new CSteamID(_joinLobbyId)); } catch { }
-                            try { Multiplayer.ServerBrowser.BeginQueryVanilla(_ => { }); } catch { }
+                            Menu.RejoinNotice.Update($"Looking for the lobby... {(int)_timer}s of 20");
+                            try { SteamMatchmaking.RequestLobbyData(new CSteamID(_joinLobbyId)); }
+                            catch (Exception e) { Core.Log?.Warning("[sync] lobby data re-request failed: " + e.Message); }
+                            try { Multiplayer.ServerBrowser.BeginQueryVanilla(_ => { }); }
+                            catch (Exception e) { Core.Log?.Warning("[sync] lobby discovery pass failed: " + e.Message); }
                         }
                     }
                     break;
