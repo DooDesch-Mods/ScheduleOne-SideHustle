@@ -91,6 +91,7 @@ namespace SideHustle.Menu
         {
             TickRestartCountdown();   // keep counting even if the screen state changes underneath the prompt
             if (_chromeSweepFrames > 0) { _chromeSweepFrames--; StripSaveSlotChrome(); }
+            SyncDownloadProgress.Tick();   // the sync bar counts VERIFIED mods, so it has to be polled
             if (_cloneScreen == null || !_cloneScreen.IsOpen) return;
             if (RestartCountdownActive) return;   // modal: swallow right-click-back while the restart prompt is up
             if (Input.GetMouseButtonDown(1))

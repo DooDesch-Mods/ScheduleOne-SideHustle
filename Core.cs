@@ -166,6 +166,9 @@ namespace SideHustle
                     Preferences.PendingVanillaJoin = "";
                     _vanillaJoinPayload = vanillaJoin;
                     _reopenHubFrames = 90;
+                    // Say so NOW, not in 90 frames. The game just closed and reopened itself; an idle main menu is
+                    // exactly what a failed restart looks like, so the wait cannot be the first thing with no message.
+                    Menu.RejoinNotice.Show("Your mods are installed. Finding the session again - don't close the game.");
                 }
                 // After installing a gamemode we did not have, join the lobby that install was for.
                 string gmJoin = policySession ? Preferences.PendingGamemodeJoin : "";
@@ -174,6 +177,7 @@ namespace SideHustle
                     Preferences.PendingGamemodeJoin = "";
                     _gamemodeJoinPayload = gmJoin;
                     _reopenHubFrames = 90;
+                    Menu.RejoinNotice.Show("Your mods are installed. Finding the session again - don't close the game.");
                 }
                 // After relaunching into a gamemode profile, continue straight into the gamemode (mods are curated).
                 string cont = policySession ? Preferences.PendingContinue : "";
@@ -208,8 +212,10 @@ namespace SideHustle
                 // so zeroing the counter alone would strand a payload that a later menu entry then fires as a stale
                 // rejoin/continue.
                 _vanillaJoinPayload = null;
+                _gamemodeJoinPayload = null;
                 _continueId = null;
                 _continueHost = null;
+                Menu.RejoinNotice.Hide();   // a rejoin that never fired must not leave its notice on the world
                 _runtimeNoticeFrames = 0;
                 _runtimeNoticeProfileId = null;
                 Hub.ResetAdvertised();

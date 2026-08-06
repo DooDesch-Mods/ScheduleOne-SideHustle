@@ -184,6 +184,8 @@ namespace SideHustle.Menu
 
         /// <summary>The overlay canvas this class owns; created lazily, kept across scene loads.</summary>
         private static UnityEngine.GameObject _overlayCanvas;
+        /// <summary>The live download progress view for a host-mod sync, so the async download can report into it.</summary>
+        private static InstallProgressView.Controller _syncUi;
 
         /// <summary>
         /// Canvas root for a modal dialog, usable even when the hub screen is not the active view
@@ -699,16 +701,18 @@ namespace SideHustle.Menu
                 ClearFormHost();
                 SetTmp(_clone.transform, "Title", "Joining the host");
                 var host = CreateFormHost("SH_Syncing", 560f);
-                ProfilesViews.BuildBigStatus(host, "RESTARTING WITH HOST MODS",
-                    "The game restarts and rejoins the host on its own - hang tight, this can take a moment. Don't close the game.");
+                // Same reasoning as the gamemode join: the wait IS the download, so the screen shows the download.
+                _syncUi = InstallProgressView.Build(host, "Matching the host's mods",
+                    SyncDownloadProgress.PlanFrom(diff), diff.Unresolved, onCancel: null);
             }
 
+            var sink = _syncUi != null ? new SyncDownloadProgress(_syncUi, diff) : null;
             System.Threading.Tasks.Task.Run(async () =>
             {
                 bool downloadsOk = false;
                 try
                 {
-                    downloadsOk = await SyncResolver.DownloadMissingAsync(diff, null, System.Threading.CancellationToken.None);
+                    downloadsOk = await SyncResolver.DownloadMissingAsync(diff, sink, System.Threading.CancellationToken.None);
                 }
                 catch (Exception e) { Core.Log?.Warning("[sync] downloads failed: " + e.Message); }
 
@@ -769,9 +773,12 @@ namespace SideHustle.Menu
                         : cfg => PrefsSync.ApplyOverlay(cfg, hostPrefs);
                     string libNote = userLibInputs.Count + pluginInputs.Count > 0
                         ? $" + {userLibInputs.Count + pluginInputs.Count} library file(s)" : "";
-                    Mods.ModSwitcher.RelaunchIntoSyncProfile("sync-" + row.OwnerSteamId, inputs, tokens,
-                        overlay, $"syncing {inputs.Count} mod(s){libNote} for '{row.LobbyName}'",
-                        pluginInputs, userLibInputs);
+                    // Same commit point as the gamemode join. This path used to relaunch with nothing on screen,
+                    // which is the whole reason the notice looked intermittent between runs.
+                    CommittedRestart.Then(row.LobbyName ?? row.HostName ?? "the host", () =>
+                        Mods.ModSwitcher.RelaunchIntoSyncProfile("sync-" + row.OwnerSteamId, inputs, tokens,
+                            overlay, $"syncing {inputs.Count} mod(s){libNote} for '{row.LobbyName}'",
+                            pluginInputs, userLibInputs));
                 });
             });
         }

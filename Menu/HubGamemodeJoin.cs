@@ -24,6 +24,8 @@ namespace SideHustle.Menu
 
         // One retry through the checklist when a download failed; a second pass installs whatever is there.
         private static bool _ghostRetried;
+        /// <summary>The live download progress view, kept so the async download can report into it.</summary>
+        private static InstallProgressView.Controller _installUi;
 
         /// <summary>
         /// The lobby browser for a gamemode the player does NOT have - deliberately the same view an installed
@@ -143,11 +145,16 @@ namespace SideHustle.Menu
 
         // The gamemode's own mod did not arrive (download failed, or it is a hand-install nobody grabbed): offer the
         // download link so the player can finish it themselves rather than restarting for nothing.
-        private static void ShowGhostMissingMod(Ghost g)
+        /// <summary>
+        /// Nothing installable arrived. <paramref name="reasons"/> is what the resolver could not fetch and why - the
+        /// screen used to say only that something was missing, which left the player with no idea whether to retry, wait
+        /// or install by hand. The reasons are the difference between a dead end and a next step.
+        /// </summary>
+        private static void ShowGhostMissingMod(Ghost g, IReadOnlyList<string> reasons = null)
         {
             _back = ShowGamemodeList;
             bool canLookUp = DownloadLink.IsAllowed(g.Url) || Sync.NexusLookup.CanLookUp(g.Name);
-            ShowRows(g.Name, new List<Row>
+            var rows = new List<Row>
             {
                 new Row { Name = "The gamemode itself is still missing", Subtitle = "Nothing was installed, so joining would not work.", Disabled = true },
                 new Row
@@ -160,7 +167,21 @@ namespace SideHustle.Menu
                     Disabled = !canLookUp
                 },
                 new Row { Name = "Back", Subtitle = "Back to the gamemode list.", OnClick = ShowGamemodeList }
-            });
+            };
+
+            // Insert the WHY between the headline and the manual link, so it is read before the button is pressed.
+            if (reasons != null && reasons.Count > 0)
+            {
+                int at = 1;
+                foreach (var r in reasons)
+                {
+                    if (string.IsNullOrWhiteSpace(r)) continue;
+                    rows.Insert(at++, new Row { Name = r, Subtitle = "Could not be fetched automatically.", Disabled = true });
+                    if (at > 4) break;   // a wall of rows stops being read; the log carries the full list
+                }
+            }
+
+            ShowRows(g.Name, rows);
         }
 
         private static void BeginGhostCompare(Ghost g, LobbyRow row, SyncManifest manifest, string mhash)
@@ -353,14 +374,17 @@ namespace SideHustle.Menu
                 ClearFormHost();
                 SetTmp(_clone.transform, "Title", "Installing " + g.Name);
                 var host = CreateFormHost("SH_GhostInstalling", 560f);
-                ProfilesViews.BuildBigStatus(host, "INSTALLING AND RESTARTING",
-                    "The game restarts with the gamemode installed and joins the lobby on its own - hang tight. Don't close the game.");
+                // The real progress view, not a static card: this is the part of the flow that takes time, so it is the
+                // part that has to show what is happening. The card said nothing while several megabytes came down.
+                _installUi = InstallProgressView.Build(host, "Installing " + g.Name,
+                    SyncDownloadProgress.PlanFrom(diff), diff.Unresolved, onCancel: null);
             }
 
+            var sink = _installUi != null ? new SyncDownloadProgress(_installUi, diff) : null;
             System.Threading.Tasks.Task.Run(async () =>
             {
                 bool allFetched = false;
-                try { allFetched = await SyncResolver.DownloadMissingAsync(diff, null, System.Threading.CancellationToken.None); }
+                try { allFetched = await SyncResolver.DownloadMissingAsync(diff, sink, System.Threading.CancellationToken.None); }
                 catch (Exception e) { Core.Log?.Warning("[mp] gamemode join: downloads failed: " + e.Message); }
 
                 var inputs = SyncResolver.ToInputs(diff);
@@ -370,7 +394,8 @@ namespace SideHustle.Menu
                     // The gamemode's own mod is the point of the whole flow: without it a restart lands the player in
                     // the menu with nothing gained, so stop here and say why instead.
                     string ownFile = "";
-                    try { ownFile = Il2CppSteamworks.SteamMatchmaking.GetLobbyData(new Il2CppSteamworks.CSteamID(row.LobbyId), LobbyCoordinator.KeyGamemodeFile); } catch { }
+                    try { ownFile = Il2CppSteamworks.SteamMatchmaking.GetLobbyData(new Il2CppSteamworks.CSteamID(row.LobbyId), LobbyCoordinator.KeyGamemodeFile); }
+                    catch (Exception e) { Core.Log?.Warning("[mp] could not read the lobby's gamemode file: " + e.Message); }
                     bool Resolved(DiffEntry e) => e.Status == DiffStatus.Present || e.Status == DiffStatus.Cached;
                     bool ok = string.IsNullOrEmpty(ownFile)
                         ? diff.Entries.Any(Resolved)
@@ -378,7 +403,7 @@ namespace SideHustle.Menu
                     if (!ok)
                     {
                         Core.Log?.Error("[mp] gamemode join: the gamemode's own mod could not be installed; staying in the menu.");
-                        ShowGhostMissingMod(g);
+                        ShowGhostMissingMod(g, diff.Unresolved);
                         return;
                     }
 
@@ -416,8 +441,16 @@ namespace SideHustle.Menu
                         ["PendingHostOptions"] = "",
                         ["ActiveGamemodeId"] = g.GamemodeId ?? "",
                     };
-                    Mods.ModSwitcher.RelaunchIntoSyncProfile("gmjoin-" + g.GamemodeId, inputs, tokens, prefsOverlay: null,
-                        logLabel: $"installing {inputs.Count} mod(s) to join '{g.Name}'", pluginInputs, userLibInputs);
+                    // FINISH the progress view, then restart a moment later.
+                    //
+                    // With everything already in the package cache the download reports nothing at all, so the bar sat
+                    // at zero and the game then vanished into a relaunch with no warning - indistinguishable from a
+                    // crash. Completing the bar and saying what happens next costs half a second and is the difference
+                    // between "it restarted itself" and "it broke".
+                    // One shared commit point for both sync paths - see CommittedRestart.
+                    CommittedRestart.Then(g.Name, () =>
+                        Mods.ModSwitcher.RelaunchIntoSyncProfile("gmjoin-" + g.GamemodeId, inputs, tokens, prefsOverlay: null,
+                            logLabel: $"installing {inputs.Count} mod(s) to join '{g.Name}'", pluginInputs, userLibInputs));
                 });
             });
         }
@@ -437,6 +470,7 @@ namespace SideHustle.Menu
             if (!map.TryGetValue("lobby", out var ls) || !ulong.TryParse(ls, out var lobbyId) || lobbyId == 0)
             {
                 Core.Log?.Warning("[mp] gamemode-join token unreadable; staying in the menu.");
+                RejoinNotice.Hide();
                 return;
             }
 
@@ -444,6 +478,7 @@ namespace SideHustle.Menu
             if (desc == null)
             {
                 Core.Log?.Warning($"[mp] '{gmId}' is still not registered after the install; staying in the menu.");
+                RejoinNotice.Hide();
                 if (_cloneScreen != null && !_cloneScreen.IsOpen) { ShowGamemodeList(); _cloneScreen.Open(); }
                 return;
             }
@@ -451,7 +486,8 @@ namespace SideHustle.Menu
             // This is a FRESH process: it has no cached lobby data yet, so reading metadata right away returns blanks
             // and every check would pass vacuously. Ask Steam and retry until the lobby actually answers - then verify
             // it is still the same gamemode lobby before entering it.
-            try { Il2CppSteamworks.SteamMatchmaking.RequestLobbyData(new Il2CppSteamworks.CSteamID(lobbyId)); } catch { }
+            try { Il2CppSteamworks.SteamMatchmaking.RequestLobbyData(new Il2CppSteamworks.CSteamID(lobbyId)); }
+            catch (Exception e) { Core.Log?.Warning("[mp] could not ask Steam for the lobby data: " + e.Message); }
             VerifyThenJoin(desc, lobbyId, wantHash, 0);
         }
 
@@ -462,7 +498,10 @@ namespace SideHustle.Menu
         {
             var info = LobbyCoordinator.ReadInfo(lobbyId);
             string liveHash = "";
-            try { liveHash = Il2CppSteamworks.SteamMatchmaking.GetLobbyData(new Il2CppSteamworks.CSteamID(lobbyId), VanillaLobby.KeyMHash); } catch { }
+            // Swallowing this would be worse than failing: an empty hash reads as "the lobby has not answered yet",
+            // so a broken read turns into a silent retry loop and then a "lobby is gone" the host never caused.
+            try { liveHash = Il2CppSteamworks.SteamMatchmaking.GetLobbyData(new Il2CppSteamworks.CSteamID(lobbyId), VanillaLobby.KeyMHash); }
+            catch (Exception e) { Core.Log?.Warning("[mp] could not read the lobby's mod hash: " + e.Message); }
             // "Answered" means the keys we verify against are actually there. A half-propagated lobby (id present,
             // hash still empty) must keep waiting, otherwise the mod-set check passes vacuously.
             bool answered = !string.IsNullOrEmpty(info.GamemodeId)
@@ -471,7 +510,9 @@ namespace SideHustle.Menu
             {
                 if (attempt < RejoinDataAttempts)
                 {
-                    try { Il2CppSteamworks.SteamMatchmaking.RequestLobbyData(new Il2CppSteamworks.CSteamID(lobbyId)); } catch { }
+                    RejoinNotice.Update($"Looking for the session... attempt {attempt + 1} of {RejoinDataAttempts}");
+                    try { Il2CppSteamworks.SteamMatchmaking.RequestLobbyData(new Il2CppSteamworks.CSteamID(lobbyId)); }
+                    catch (Exception e) { Core.Log?.Warning("[mp] lobby data re-request failed: " + e.Message); }
                     System.Threading.Tasks.Task.Run(async () =>
                     {
                         await System.Threading.Tasks.Task.Delay(700);
@@ -505,6 +546,9 @@ namespace SideHustle.Menu
             }
 
             Core.Log?.Msg($"[mp] installed '{desc.DisplayName}'; joining lobby {lobbyId} now.");
+            // Left up on purpose: it comes down when the menu scene unloads for the world, so the gap between the last
+            // check and the game's loading screen is covered too.
+            RejoinNotice.Update($"Joining {desc.DisplayName} - loading the world...");
             CloseHubScreen();
             MultiplayerCoordinator.StartJoin(desc, new LobbyRow
             {
@@ -522,6 +566,7 @@ namespace SideHustle.Menu
         // is one click from another lobby instead of staring at a menu wondering what happened.
         private static void ShowInstalledButLobbyGone(GamemodeDescriptor desc, string message = null)
         {
+            RejoinNotice.Hide();   // this screen IS the answer now; a "rejoining" overlay on top of it would contradict it
             try
             {
                 EnsureClone();

@@ -3,6 +3,26 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [2.2.5] - 2026-08-06
+
+### Added
+
+- The wait while mods download now shows what it is doing: every mod the host runs is listed, and the bar moves
+  one step per mod that finished and passed its hash check.
+- A notice tells you the game is about to restart, on both routes - joining a gamemode you do not own, and
+  matching a host's mods. The finished mod list stays readable behind it.
+- After the restart the screen says it is rejoining and shows how long it has been looking for the lobby,
+  instead of an idle main menu while nothing appears to happen.
+- A mod that could not be fetched is named on screen with the reason, so you can tell whether to try again or
+  install it by hand.
+
+### Fixed
+
+- The bar no longer sits at zero when every mod is already in the cache, and the game no longer closes itself
+  with nothing on screen.
+- Matching a host's mods restarted with no message at all. Only the gamemode route ever showed one, which is
+  why the notice looked like it appeared at random.
+
 ## [2.2.4] - 2026-08-06
 
 ### Added
