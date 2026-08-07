@@ -234,8 +234,14 @@ namespace SideHustle.Mods
 
                 bool ok = Shared.ProfileBuilder.BuildModsDir(Path.Combine(altPath, "Mods"), modInputs,
                     s => Core.Log?.Warning("[profiles] " + s));
-                ok &= BuildSeededFolder(Path.Combine(altPath, "Plugins"), Path.Combine(root, "Plugins"), pluginInputs);
-                ok &= BuildSeededFolder(Path.Combine(altPath, "UserLibs"), Path.Combine(root, "UserLibs"), userLibInputs);
+                // The mod file names this profile carries, so a seeded library can be traced back to the package
+                // that shipped it and dropped when that package is not here - see BuildSeededFolder.
+                var profileMods = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var m in modInputs ?? (IReadOnlyList<Shared.BuildInput>)Array.Empty<Shared.BuildInput>())
+                    if (m?.FileName != null) profileMods.Add(m.FileName);
+
+                ok &= BuildSeededFolder(Path.Combine(altPath, "Plugins"), Path.Combine(root, "Plugins"), pluginInputs, profileMods);
+                ok &= BuildSeededFolder(Path.Combine(altPath, "UserLibs"), Path.Combine(root, "UserLibs"), userLibInputs, profileMods);
                 if (ok) Core.Log?.Msg($"[profiles] isolated base ready at '{altPath}'.");
                 return ok;
             }
@@ -270,22 +276,79 @@ namespace SideHustle.Mods
             catch (Exception e) { Core.Log?.Warning("[profiles] MelonLoader base build failed: " + e.Message); return false; }
         }
 
-        // A profile Plugins/UserLibs folder = every DLL from the matching global folder (seeded, so nothing that
-        // loaded globally breaks) PLUS the profile's own package files, all hardlinked. The profile's own files win a
-        // name clash over the global seed. Reuses the generic mods-dir builder.
-        private static bool BuildSeededFolder(string destDir, string globalDir, IReadOnlyList<Shared.BuildInput> extras)
+        /// <summary>
+        /// A profile Plugins/UserLibs folder = the profile's own package files, PLUS the DLLs from the matching global
+        /// folder, all hardlinked. The global seed is what keeps things that loaded outside a profile working (the S1API
+        /// loader, a hand-installed helper); the profile's own files win a name clash.
+        ///
+        /// What it does NOT seed: a library that a KNOWN package shipped when that package's mod is not in this profile.
+        /// Removing Hash from a profile removed Sideload with it, correctly, and then seeded Sideload's Jint, AngleSharp
+        /// and Esprima back in from the global folder - the mod was gone and its libraries stayed. A library follows the
+        /// package that brought it; anything the cache cannot account for is left alone.
+        /// </summary>
+        private static bool BuildSeededFolder(string destDir, string globalDir, IReadOnlyList<Shared.BuildInput> extras,
+                                              HashSet<string> profileModFiles)
         {
             var inputs = new List<Shared.BuildInput>();
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var e in extras ?? (IReadOnlyList<Shared.BuildInput>)Array.Empty<Shared.BuildInput>())
                 if (e?.FileName != null && seen.Add(e.FileName)) inputs.Add(e);
+
+            var orphaned = LibrariesOfAbsentPackages(profileModFiles);
             if (Directory.Exists(globalDir))
                 foreach (var f in Directory.GetFiles(globalDir, "*.dll"))
                 {
                     string name = Path.GetFileName(f);
-                    if (seen.Add(name)) inputs.Add(new Shared.BuildInput { FileName = name, SourcePath = f });
+                    if (seen.Contains(name)) continue;                    // the profile provides it itself
+                    if (orphaned.Contains(name))
+                    {
+                        Core.Log?.Msg($"[profiles] not seeding '{name}': it came with a package this profile does not have.");
+                        continue;
+                    }
+                    seen.Add(name);
+                    inputs.Add(new Shared.BuildInput { FileName = name, SourcePath = f });
                 }
             return Shared.ProfileBuilder.BuildModsDir(destDir, inputs, s => Core.Log?.Warning("[profiles] " + s));
+        }
+
+        /// <summary>
+        /// Plugin/UserLib file names that belong to cached packages whose OWN mods are not in this profile.
+        ///
+        /// "Belongs to" is decided per package from its cache manifest, and a name is only orphaned when EVERY package
+        /// that ships it is absent: two mods may share a library, and one of them being present has to keep it. A name
+        /// no cached package claims is never orphaned - it could be hand-installed, and dropping it would break a
+        /// profile over a file this code knows nothing about.
+        /// </summary>
+        private static HashSet<string> LibrariesOfAbsentPackages(HashSet<string> profileModFiles)
+        {
+            var orphaned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                string root = GameRoot();
+                if (root == null) return orphaned;
+                string cacheRoot = Profiles.PackageCache.RootFor(root);
+                if (!Directory.Exists(cacheRoot)) return orphaned;
+
+                foreach (var pkgDir in Directory.GetDirectories(cacheRoot))
+                    foreach (var verDir in Directory.GetDirectories(pkgDir))
+                    {
+                        var mf = Profiles.PackageCache.ReadManifest(verDir);
+                        if (mf == null) continue;
+                        var libs = (mf.Plugins ?? new List<string>()).Concat(mf.UserLibs ?? new List<string>()).ToList();
+                        if (libs.Count == 0) continue;
+
+                        bool present = (mf.Mods ?? new List<string>())
+                            .Any(m => profileModFiles != null && profileModFiles.Contains(m));
+                        foreach (var lib in libs)
+                        {
+                            if (present) { claimed.Add(lib); orphaned.Remove(lib); }
+                            else if (!claimed.Contains(lib)) orphaned.Add(lib);
+                        }
+                    }
+            }
+            catch (Exception e) { Core.Log?.Warning("[profiles] could not work out which libraries belong to absent packages: " + e.Message); }
+            return orphaned;
         }
 
         /// <summary>

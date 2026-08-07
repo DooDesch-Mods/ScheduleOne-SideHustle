@@ -3,6 +3,15 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [2.2.8] - 2026-08-07
+
+### Fixed
+
+- Removing a mod from a profile now takes its libraries with it. Taking Hash out removed Sideload too, correctly, and
+  then put Sideload's Jint, AngleSharp and Esprima back from your global UserLibs folder - the mod was gone and its
+  libraries stayed. A library follows the package that brought it, and anything that came from outside a package is
+  still left alone.
+
 ## [2.2.7] - 2026-08-07
 
 ### Fixed
