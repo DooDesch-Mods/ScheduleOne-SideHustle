@@ -164,10 +164,19 @@ namespace SideHustle.Multiplayer
             catch (Exception e) { Core.Log?.Warning("[mp] server-browser callback threw: " + e.Message); }
         }
 
+        /// <summary>Last advertised-lobby count that was logged, so a poll that keeps finding the same thing stays
+        /// quiet. The list is re-queried on a timer while the hub is open, and "0 found" every few seconds buried
+        /// everything else in the log.</summary>
+        private static int _lastAdvertisedLogged = -1;
+
         private static void OnAdvertisedLobbyList(LobbyMatchList_t result, bool ioFailure)
         {
             var rows = ReadRows();
-            Core.Log?.Msg($"[mp] advertised lobbies: {rows.Count} found.");
+            if (rows.Count != _lastAdvertisedLogged)
+            {
+                _lastAdvertisedLogged = rows.Count;
+                Core.Log?.Msg($"[mp] advertised lobbies: {rows.Count} found.");
+            }
             try { _advOnResults?.Invoke(rows); }
             catch (Exception e) { Core.Log?.Warning("[mp] advertised-lobby callback threw: " + e.Message); }
             if (rows.Count == 0) ProbeUnfiltered();

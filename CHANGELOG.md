@@ -3,6 +3,14 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [2.2.9] - 2026-08-07
+
+### Fixed
+
+- The log stays readable. Opening the gamemode list wrote the same "hid 10 save-slot controls" line thirty times in a
+  third of a second, and the lobby poll repeated "advertised lobbies: 0 found" every few seconds. Both now write one
+  line when something actually changes.
+
 ## [2.2.8] - 2026-08-07
 
 ### Fixed

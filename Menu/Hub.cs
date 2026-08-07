@@ -1164,7 +1164,12 @@ namespace SideHustle.Menu
                 {
                     var c = found[i];
                     if (c == null || c.gameObject == null) continue;
-                    if (c.gameObject.activeSelf) c.gameObject.SetActive(false);
+                    // Count what CHANGED, not what was found. Counting finds made the sweep report its ten controls on
+                    // every frame of its window, and the caller logs a non-zero count - thirty identical lines per
+                    // screen open. A repeat sweep that changes nothing is now silent, and a line still appears if the
+                    // native screen really did switch them back on.
+                    if (!c.gameObject.activeSelf) continue;
+                    c.gameObject.SetActive(false);
                     n++;
                 }
             }
