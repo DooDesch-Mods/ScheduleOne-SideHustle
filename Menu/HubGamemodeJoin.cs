@@ -215,6 +215,7 @@ namespace SideHustle.Menu
             // enforced: a gamemode session always runs the host's set - joining "as you are" is not on offer here,
             // because without the gamemode's own mod there is nothing to join with.
             SyncConsentView.Build(host, manifest, diff, enforced: true, hasPrefs: false,
+                row?.OwnerSteamId ?? 0UL, row?.HostName, row?.AcceptsMessages ?? false,
                 onSyncJoin: () => GhostSyncAndJoin(g, row, manifest, diff, mhash),
                 onPlainJoin: null,
                 onBack: () => ShowGhostBrowser(g),
@@ -341,6 +342,7 @@ namespace SideHustle.Menu
             SetTmp(_clone.transform, "Title", g.Name);
             var host = CreateFormHost("SH_JoinModCheck", 560f);
             SyncConsentView.Build(host, manifest, diff, enforced: false, hasPrefs: false,
+                row?.OwnerSteamId ?? 0UL, row?.HostName, row?.AcceptsMessages ?? false,
                 onSyncJoin: () => GhostSyncAndJoin(g, row, manifest, diff, mhash),
                 onPlainJoin: joinAnyway,
                 onBack: () => ShowGamemodeList(),

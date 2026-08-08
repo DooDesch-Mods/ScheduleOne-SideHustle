@@ -191,6 +191,18 @@ namespace SideHustle.Menu
 
             backBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => { _active = false; onBack?.Invoke(); }));
 
+            // The way back to a column the player closed - this is the screen where the host is the only remaining
+            // move, so a one-way X here would be the worst place to have one. Toggles, like the card's button.
+            if (ChatPanel.Possible(hostSteamId, hostAcceptsMessages))
+            {
+                var (chGO, chBtn, _chLbl) = UIFactory.ButtonWithLabel("Chat", "Chat", footer.transform, Theme.Button, 120, 40);
+                var chrt = chGO.GetComponent<RectTransform>();
+                chrt.anchorMin = chrt.anchorMax = new Vector2(0, 0.5f);
+                chrt.pivot = new Vector2(0, 0.5f);
+                chrt.anchoredPosition = new Vector2(148f, 0f);
+                chBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => ChatPanel.Toggle(hostSteamId, hostName)));
+            }
+
             var (contGO, cBtn, _c) = UIFactory.ButtonWithLabel("Continue", "Continue", footer.transform, Theme.Accent, 220, 40);
             Place2(contGO, left: false);
             continueBtn = cBtn;

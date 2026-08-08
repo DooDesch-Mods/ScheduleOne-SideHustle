@@ -19,6 +19,7 @@ namespace SideHustle.Menu
         /// host's sync gate; the gamemode-install flow overrides it, where the reason is simply that the player does
         /// not have the gamemode yet.</param>
         internal static void Build(Transform formHost, SyncManifest manifest, SyncDiff diff, bool enforced, bool hasPrefs,
+            ulong hostSteamId, string hostName, bool hostAcceptsMessages,
             Action onSyncJoin, Action onPlainJoin, Action onBack, string enforcedNote = null)
         {
             const float Pad = 30f;
@@ -108,6 +109,16 @@ namespace SideHustle.Menu
             var (backGO, backBtn, _b) = UIFactory.ButtonWithLabel("Back", "Back", footer.transform, Theme.Button, 140, 40);
             Place(backGO, left: true, xOffset: 0);
             backBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => onBack?.Invoke()));
+
+            // The way back to a column the player closed. Without it the X in its header is a one-way door: the
+            // lobby card that opened it is two screens behind, and this is the screen where the question occurs to
+            // them. Toggles, exactly like the card's button, so the same control both opens and puts it away.
+            if (ChatPanel.Possible(hostSteamId, hostAcceptsMessages))
+            {
+                var (chGO, chBtn, _c) = UIFactory.ButtonWithLabel("Chat", "Chat", footer.transform, Theme.Button, 120, 40);
+                Place(chGO, left: true, xOffset: 148);
+                chBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => ChatPanel.Toggle(hostSteamId, hostName)));
+            }
 
             var (syncGO, syncBtn, _s) = UIFactory.ButtonWithLabel("Sync", "Sync and join (restart)", footer.transform, Theme.Accent, 220, 40);
             Place(syncGO, left: false, xOffset: 0);

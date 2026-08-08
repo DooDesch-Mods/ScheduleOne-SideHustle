@@ -692,6 +692,7 @@ namespace SideHustle.Menu
             if (ChatPanel.Possible(row.OwnerSteamId, row.AcceptsMessages)) ChatPanel.Show(row.OwnerSteamId, row.HostName);
 
             SyncConsentView.Build(host, manifest, diff, row.Enforced, hasPrefs: !string.IsNullOrEmpty(hostPrefs),
+                row.OwnerSteamId, row.HostName, row.AcceptsMessages,
                 onSyncJoin: () => StartSyncAndJoin(row, manifest, diff, mhash, hostPrefs),
                 onPlainJoin: () => { ChatPanel.Hide(); CloseHubScreen(); LobbyCoordinator.JoinLobby(row.LobbyId); },
                 onBack: () => { ChatPanel.Hide(); ShowVanillaBrowser(); });
