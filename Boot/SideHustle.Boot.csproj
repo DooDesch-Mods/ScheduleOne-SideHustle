@@ -26,9 +26,11 @@
     <WorkspaceLibPath Condition="'$(WorkspaceLibPath)' == ''">$(MSBuildThisFileDirectory)../Workspace/lib</WorkspaceLibPath>
     <MelonLoaderPath>$(WorkspaceLibPath)/il2cpp/melonloader</MelonLoaderPath>
 
-    <!-- Dev deploy target: the _MPTest copy, never the real install by default. -->
-    <PluginsDirectory Condition="'$(PluginsDirectory)' == ''">F:\Projects\Mods\Schedule1\_MPTest\Schedule I\Plugins</PluginsDirectory>
+    <!-- PluginsDirectory comes from Deploy.props (the test copy), imported below - the same guard the mod uses. -->
   </PropertyGroup>
+
+  <Import Project="$(MSBuildThisFileDirectory)../../Workspace/build/Deploy.props" Condition="Exists('$(MSBuildThisFileDirectory)../../Workspace/build/Deploy.props')" />
+  <Import Project="$(MSBuildThisFileDirectory)../Workspace/build/Deploy.props" Condition="Exists('$(MSBuildThisFileDirectory)../Workspace/build/Deploy.props')" />
 
   <!-- Shared profile data/build core (pure BCL), compiled into BOTH the mod and this plugin so the picker can
        read profiles.json and rebuild a stale profile without any game or SideHustle.dll dependency. -->
@@ -44,6 +46,14 @@
   <ItemGroup>
     <Reference Include="MelonLoader">
       <HintPath>$(MelonLoaderPath)/MelonLoader.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- The mod gate patches MelonLoader's own per-file loader. Harmony ships with MelonLoader; this plugin
+         still touches no Unity and no Il2Cpp interop, because none of that exists yet when it runs. -->
+    <!-- Reading which assemblies a mod is built against, to keep its libraries loaded with it. The same reader
+         MelonLoader's own scanner uses on every file, and it never loads what it reads. -->
+    <Reference Include="Mono.Cecil">
+      <HintPath>$(MelonLoaderPath)/Mono.Cecil.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>

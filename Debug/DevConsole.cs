@@ -78,6 +78,7 @@ namespace SideHustle.Debugging
             new[] { "shphone", "shphone [up|down] - raise the phone on its home screen, with no app open" },
             new[] { "shloadmod", "shloadmod <file.dll> - load a mod NOW, from Mods/_late (the mod-gate spike)" },
             new[] { "shmods", "which mods are registered, and which sit unloaded in Mods/_late" },
+            new[] { "shgate", "shgate [load] - what the boot gate held back, and load it now" },
             new[] { "shmanual", "shmanual [steamid] - open the manual-install screen with sample rows" },
             new[] { "shbrowser", "open the vanilla lobby LIST (the screen with Join and Chat)" },
             new[] { "shtyping", "is a text field holding the keyboard - which is what blocks Escape" },
@@ -113,6 +114,7 @@ namespace SideHustle.Debugging
                     case "shphone": Phone(parts); break;
                     case "shloadmod": LoadModLate(parts); break;
                     case "shmods": ListMods(); break;
+                    case "shgate": Gate(parts); break;
                     case "shmanual": ManualDemo(parts); break;
                     case "shbrowser": Menu.Hub.OpenVanillaListForTest(); break;
                     case "shtyping": Typing(); break;
@@ -324,6 +326,22 @@ namespace SideHustle.Debugging
                 }
                 Core.Log?.Msg("[dev] melons now " + MelonLoader.MelonMod.RegisteredMelons.Count);
             }
+        }
+
+        /// <summary>What the boot gate held back, and the way to load it without a lobby. The whole point of the
+        /// gate is that nothing patched the game yet, so this is also how you find out whether a given mod
+        /// survives being loaded late - run it from the menu and watch what the mod says about itself.</summary>
+        private static void Gate(string[] parts)
+        {
+            var waiting = Mods.LateLoader.PendingFiles;
+            Core.Log?.Msg($"[dev] shgate: {waiting.Count} held back, {MelonLoader.MelonMod.RegisteredMelons.Count} running");
+            foreach (string f in waiting) Core.Log?.Msg("  " + System.IO.Path.GetFileName(f));
+            if (parts.Length < 2 || !parts[1].Equals("load", StringComparison.OrdinalIgnoreCase))
+            {
+                if (waiting.Count > 0) Core.Log?.Msg("[dev] 'shgate load' loads them now.");
+                return;
+            }
+            Mods.LateLoader.LoadAll("shgate");
         }
 
         private static void ListMods()
