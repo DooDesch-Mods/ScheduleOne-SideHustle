@@ -326,16 +326,27 @@ namespace SideHustle.Menu
                 rows.Add(new Row
                 {
                     Name = waiting.Name,
-                    Subtitle = "Installed, not loaded yet. Pick it and it starts.",
+                    Subtitle = "Click to start.",
                     Corner = by + (string.IsNullOrWhiteSpace(waiting.Version) ? "Ready" : waiting.Version),
                     OnClick = () =>
                     {
-                        if (Mods.GamemodeProbe.Load(waiting)) ShowGamemodeList();
-                        else ShowRows("Choose a gamemode", new List<Row>
+                        // One click, not two. Loading the mod is a step the player did not ask for and should not
+                        // have to notice - it takes under a second and ends with the gamemode's own descriptor
+                        // registered, which is what they clicked for. Whatever is new in the registry afterwards
+                        // is it; matching by identity beats matching by name, which a mod is free to differ on.
+                        var before = new HashSet<string>(API.Registered.Select(d => d.Id));
+                        if (!Mods.GamemodeProbe.Load(waiting))
                         {
-                            new Row { Name = waiting.Name + " could not be loaded", Subtitle = "See the log for what it said.", Disabled = true },
-                            new Row { Name = "Back", Subtitle = "Back to the gamemode list.", OnClick = ShowGamemodeList }
-                        });
+                            ShowRows("Choose a gamemode", new List<Row>
+                            {
+                                new Row { Name = waiting.Name + " could not be started", Subtitle = "The log says why.", Disabled = true },
+                                new Row { Name = "Back", Subtitle = "Back to the gamemode list.", OnClick = ShowGamemodeList }
+                            });
+                            return;
+                        }
+                        var fresh = API.Registered.FirstOrDefault(d => !before.Contains(d.Id));
+                        if (fresh != null) OnSelectGamemode(fresh);
+                        else ShowGamemodeList();   // loaded but registered nothing: show what there is
                     }
                 });
             }
