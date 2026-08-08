@@ -51,6 +51,11 @@ namespace SideHustle.Phone
         private static readonly HashSet<ulong> _muted = new HashSet<ulong>();
         private static readonly HashSet<ulong> _unread = new HashSet<ulong>();
 
+        /// <summary>The peer whose message just landed, waiting to be turned into a notification. Handed over once
+        /// and cleared, the same way WhatsDab does it: a notification is an EVENT, and re-deriving it from the
+        /// thread list would fire again on every unrelated change.</summary>
+        private static ulong _arrived;
+
         private static Callback<P2PSessionRequest_t> _sessionRequest;
         private static bool _installed;
 
@@ -223,6 +228,7 @@ namespace SideHustle.Phone
 
             Add(from, new Message { Mine = false, Text = text, At = now });
             _unread.Add(from);
+            _arrived = from;
             Core.Log?.Msg($"[chat] message from {NameOf(from)}: {text}");
         }
 
@@ -285,6 +291,21 @@ namespace SideHustle.Phone
 
         internal static bool IsUnread(ulong peer) => _unread.Contains(peer);
 
+        /// <summary>The peer whose message arrived since the last call, or 0. Consumed by reading it.</summary>
+        internal static ulong TakeArrival()
+        {
+            ulong who = _arrived;
+            _arrived = 0UL;
+            return who;
+        }
+
+        /// <summary>The newest line in a thread, for a notification body.</summary>
+        internal static string LastText(ulong peer)
+        {
+            var list = Thread(peer);
+            return list.Count > 0 ? list[list.Count - 1].Text : "";
+        }
+
         internal static void MarkRead(ulong peer)
         {
             if (_unread.Remove(peer)) Revision++;
@@ -320,6 +341,7 @@ namespace SideHustle.Phone
             _threads.Clear();
             _unread.Clear();
             _lastHeard.Clear();
+            _arrived = 0UL;
             Revision++;
         }
     }

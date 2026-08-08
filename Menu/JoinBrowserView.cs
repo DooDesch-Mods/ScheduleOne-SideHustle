@@ -135,7 +135,7 @@ namespace SideHustle.Menu
                 crt.anchorMin = new Vector2(1, 0.5f); crt.anchorMax = new Vector2(1, 0.5f); crt.pivot = new Vector2(1, 0.5f);
                 crt.anchoredPosition = new Vector2(-116, 0); crt.sizeDelta = new Vector2(84, 40);
                 chatBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() =>
-                    ChatPanel.Show(captured.OwnerSteamId, captured.HostName)));
+                    ChatPanel.Toggle(captured.OwnerSteamId, captured.HostName)));
 
                 // The two texts must stop before the extra button, or a long lobby name draws straight through it.
                 nrt.offsetMax = new Vector2(branch == null ? -208 : -280, -4);

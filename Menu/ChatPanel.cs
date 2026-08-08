@@ -107,6 +107,24 @@ namespace SideHustle.Menu
 
         internal static bool IsOpen => _panel != null;
 
+        /// <summary>Which host the open column belongs to, or 0. The browser needs it to decide whether its Chat
+        /// button closes this conversation or switches to another one.</summary>
+        internal static ulong OpenPeer => _panel != null ? _peer : 0UL;
+
+        /// <summary>
+        /// What a Chat button on a lobby card does: close this host's column if it is the one showing, otherwise
+        /// open theirs.
+        ///
+        /// Both halves matter and neither is obvious from the other. Somebody comparing three published sessions
+        /// asks each host in turn, so the button has to SWITCH rather than refuse; and having asked, they want the
+        /// column out of the way to read the list again, so the same button has to close it.
+        /// </summary>
+        internal static void Toggle(ulong hostSteamId, string hostName)
+        {
+            if (OpenPeer == hostSteamId) { Hide(); return; }
+            Show(hostSteamId, hostName);
+        }
+
         /// <summary>Pumped from Core.OnUpdate while a menu is up. One event when the thread actually moved, which
         /// for a conversation nobody is typing in is almost never.</summary>
         internal static void Tick()

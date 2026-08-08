@@ -63,6 +63,7 @@ function send() {
   render();
 }
 
+$('close').addEventListener('click', () => s1.call('chat.close', ''));
 $('send').addEventListener('click', send);
 $('reply').addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
 

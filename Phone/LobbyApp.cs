@@ -168,6 +168,33 @@ namespace SideHustle.Phone
             if (now == _pushed) return;
             _pushed = now;
             try { _app.Emit("lobby.changed", now); } catch { /* the page will catch up on its next open */ }
+
+            // The badge is the number a player sees without opening anything, so it carries the same count the
+            // Chat tab shows. Set on every change rather than tracked: the framework remembers it across a phone
+            // rebuild, and re-setting the same value costs nothing.
+            try { _app.Badge(ChatRelay.UnreadCount); } catch { }
+
+            NotifyIfUnseen();
+        }
+
+        /// <summary>
+        /// Interrupt the host only for a message they are not already watching arrive.
+        ///
+        /// The app being on screen is enough to stay quiet - they are looking at the thread, so the new bubble IS
+        /// the notification. With the phone in their pocket nothing else would tell them, and this is the whole
+        /// point of the feature: somebody outside the session is asking to be let in, and a host who never notices
+        /// is exactly the case the chat exists to fix.
+        /// </summary>
+        private static void NotifyIfUnseen()
+        {
+            ulong from = ChatRelay.TakeArrival();
+            if (from == 0UL) return;
+            if (_app == null || _app.IsOnScreen) return;
+
+            string text = ChatRelay.LastText(from);
+            if (string.IsNullOrEmpty(text)) return;
+
+            try { _app.Notify(ChatRelay.NameOf(from), text); } catch { /* no phone to draw on yet */ }
         }
     }
 }
