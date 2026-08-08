@@ -7,40 +7,31 @@ All notable changes to Side Hustle are documented here. This project adheres to
 
 ### Added
 
-- The main menu carries a column on the right with the things you used to have to open a screen to find out:
-  how many published sessions are listed and how many of those are taking players, whether you booted into a
-  mod profile instead of your normal setup, and whether anyone messaged you. Switch it off with
-  `MenuStatePanel`.
-- A Lobby app on your phone changes the things you used to have to end the session for: the lobby name, the
-  join password, public or friends only, how many seats, whether joiners need your mods, and publishing the
-  session. Host only, and every change applies to the next person who joins rather than to anyone already
-  in. The password says outright that it is only checked in the Side Hustle browser and that a Steam invite
-  goes around it.
-- You can talk to a host before you commit to joining them. Lobby cards get a Chat button next to Join, and the
-  screens you pass through while joining carry the conversation down the right-hand side, so a mod you cannot
-  download turns into a question instead of a dead end. It goes straight between the two of you over Steam, so it
-  costs the host none of their seats and needs no friend request.
-  - Their side of it is the Lobby app on their phone. The Chat button only shows for hosts who take messages;
-    switch yours off under `AcceptStrangerMessages`, or mute one person from the app. The column itself can be
-    turned off with `JoinChatPanel`.
+- The main menu shows a column on the right: sessions listed, how many take players, the mod profile you
+  booted into, and whether anyone messaged you. Switch it off with `MenuStatePanel`.
+- A Lobby app on your phone changes what used to need a new session: name, join password, public or friends
+  only, seats, mod requirement, publishing. Host only, and it applies to the next person who joins.
+- Lobby cards get a Chat button next to Join, and the join screens carry that conversation down the right,
+  so a mod you cannot download becomes a question instead of a dead end.
+  - It only shows for hosts who take messages. Switch yours off with `AcceptStrangerMessages`, mute one
+    person from the app, or hide the column with `JoinChatPanel`.
 - Lobby cards say which branch the host plays on, IL2CPP in green or Mono in red. The two cannot play
-  together, and nothing on the card used to tell you that before you tried.
+  together, and nothing on the card used to tell you before you tried.
 - The Rejoining screen gets a Cancel button after eight seconds. It leaves the host's lobby so you stop
-  holding one of their seats, and puts you back in the Side Hustle menu with your synced mods still set
-  up - "Restore my mods" is there when you want them back.
+  holding a seat, and your synced mods stay set up.
 
 ### Fixed
 
-- Joining a lobby that was published from the pause menu works. The game only starts loading for a joiner
-  when the host's lobby is marked ready, and a lobby opened while the host was already playing never got
-  that mark, so you installed their mods, restarted, and arrived at your own main menu.
-- A lobby that cannot take players is marked "not accepting joiners" in the browser, and picking one asks
-  first. Finding that out used to cost a full mod download and a game restart.
-- When a join is never going to start, Side Hustle stops after 15 seconds and puts the reason on screen.
-  It used to leave "Rejoining" up for two minutes.
-- The manual install list says why a mod cannot be downloaded, in one short line. A mod the host built
-  themselves looked exactly like one that was still on its way, and once the reason did appear it was a
-  sentence long enough to run straight through the mod's own name.
+- Joining a lobby published from the pause menu works. It was never marked ready for players, so you
+  installed the host's mods, restarted, and landed on your own main menu.
+- A join that cannot work stops early: lobbies taking no players are marked in the browser, and a join that
+  never starts gives up after 15 seconds with the reason on screen.
+- The manual install list says in one short line why a mod cannot be downloaded. A mod the host built
+  themselves looked exactly like one still on its way.
+- Backing out of a lobby you were checking leaves it behind. Its mod list kept loading and threw that
+  lobby's sync screen over whatever you picked next, seconds later.
+- The Publish button stays out of gamemode rounds. Pressing it while hosting one rewrote the round's own
+  lobby details, and unpublishing then made the lobby impossible to join.
 
 ## [2.2.9] - 2026-08-07
 
