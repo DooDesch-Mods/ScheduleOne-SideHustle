@@ -74,7 +74,23 @@ namespace SideHustle.Sync
             try { return PersistentSingleton<Lobby>.Instance; } catch { return null; }
         }
 
-        /// <summary>Write the vanilla-lobby metadata onto the CURRENT lobby (we must be in/owning it).</summary>
+        /// <summary>
+        /// Steam carries a lobby's WHOLE key/value set in one 8 KB metadata blob, so every key spends from the same
+        /// budget - vanilla's own five writes included. Past it SetLobbyData simply answers false, and what gets
+        /// refused is whatever happened to be written last.
+        /// </summary>
+        private const int LobbyDataBudget = 8192;
+
+        /// <summary>Left untouched for vanilla's keys (owner, version, host_loading, ready, load_tutorial), Steam's
+        /// per-key overhead, and the renames, seat changes and passwords the host sets later from the phone app. A
+        /// lobby that spends its last byte on the mod list is a lobby that cannot be renamed.</summary>
+        private const int BudgetReserve = 1500;
+
+        /// <summary>
+        /// Write the vanilla-lobby metadata onto the CURRENT lobby (we must be in/owning it). True when the mod-set
+        /// hash is on the lobby and read back correctly - which is to say, when a joiner can sync with this session
+        /// at all. Everything else is advertisement and is written best-effort.
+        /// </summary>
         internal static bool Tag(HostOptions opts, string manifestText, string prefsText, bool enforce,
             string orgName, string modSummary)
         {
@@ -89,54 +105,83 @@ namespace SideHustle.Sync
                 SteamMatchmaking.SetLobbyJoinable(sid, true);
                 SteamMatchmaking.SetLobbyMemberLimit(sid, Math.Max(2, opts.MaxPlayers));
 
+                int spent = 0;
+                bool Put(string key, string value)
+                {
+                    value = value ?? "";
+                    if (SteamMatchmaking.SetLobbyData(sid, key, value)) { spent += key.Length + value.Length; return true; }
+                    Core.Log?.Warning($"[sync] Steam refused lobby key '{key}' ({value.Length} chars) "
+                                      + $"after {spent} chars of lobby data.");
+                    return false;
+                }
+
+                // Free whatever payload is already on this lobby before measuring anything. Those bytes still count,
+                // so a re-tag that skipped this would size the new payload against a budget the old one is holding.
+                ClearPayload(sid);
+
+                string mhash = SyncCodec.Hash(manifestText, prefsText);
+
                 // Vanilla gates lobby ENTRY on the "version" key: SteamLobbyService.OnLobbyEntered bounces any joiner
                 // whose Application.version differs from the lobby's "version" value. Vanilla writes that key from a
                 // global LobbyCreated_t callback, so for a lobby the mod created itself the timing is not guaranteed -
                 // and when Steam was down at Lobby.Start the game runs MockLobbyService, which registers no callbacks
                 // at all and never writes it. Writing the same value here is idempotent and keeps the lobby joinable
                 // either way; without it a joiner reads an empty version and gets "Lobby version mismatch".
-                SteamMatchmaking.SetLobbyData(sid, "version", UnityEngine.Application.version);
+                Put("version", UnityEngine.Application.version);
 
-                SteamMatchmaking.SetLobbyData(sid, KeyVanilla, "1");
-                SteamMatchmaking.SetLobbyData(sid, LobbyCoordinator.KeyMax, opts.MaxPlayers.ToString());
-                SteamMatchmaking.SetLobbyData(sid, LobbyCoordinator.KeyVisibility, priv ? "priv" : "pub");
-                SteamMatchmaking.SetLobbyData(sid, LobbyCoordinator.KeyPassword, opts.HasPassword ? "1" : "0");
-                SteamMatchmaking.SetLobbyData(sid, LobbyCoordinator.KeyPwHash, opts.HasPassword ? LobbyCoordinator.HashPassword(opts.Password) : "");
-                SteamMatchmaking.SetLobbyData(sid, LobbyCoordinator.KeyHostName, LobbyCoordinator.LocalPersonaName());
-                SteamMatchmaking.SetLobbyData(sid, LobbyCoordinator.KeyLobbyName,
+                Put(KeyVanilla, "1");
+                Put(LobbyCoordinator.KeyMax, opts.MaxPlayers.ToString());
+                Put(LobbyCoordinator.KeyVisibility, priv ? "priv" : "pub");
+                Put(LobbyCoordinator.KeyPassword, opts.HasPassword ? "1" : "0");
+                Put(LobbyCoordinator.KeyPwHash, opts.HasPassword ? LobbyCoordinator.HashPassword(opts.Password) : "");
+                Put(LobbyCoordinator.KeyHostName, LobbyCoordinator.LocalPersonaName());
+                Put(LobbyCoordinator.KeyLobbyName,
                     string.IsNullOrEmpty(opts.LobbyName) ? LobbyCoordinator.LocalPersonaName() : opts.LobbyName);
-                SteamMatchmaking.SetLobbyData(sid, KeyOrg, orgName ?? "");
-                SteamMatchmaking.SetLobbyData(sid, KeyEnforce, enforce ? "1" : "0");
-                SteamMatchmaking.SetLobbyData(sid, KeyModSummary, modSummary ?? "");
-                SteamMatchmaking.SetLobbyData(sid, LobbyCoordinator.KeyRuntime, LobbyCoordinator.ThisRuntime);
-                SteamMatchmaking.SetLobbyData(sid, KeyMessages, Config.Preferences.AcceptStrangerMessages ? "1" : "0");
+                Put(LobbyCoordinator.KeyRuntime, LobbyCoordinator.ThisRuntime);
+                Put(KeyEnforce, enforce ? "1" : "0");
+
+                // The hash goes in before the browser-card text and long before anything bulky. It is sixteen
+                // characters and it is the only thing that lets a joiner accept the backend copy of the mod list, so
+                // it must never be the write that runs out of room - which is exactly what it was: a host syncing
+                // 54 KB of preferences filled the lobby with chunks, and the hash after them was refused. The
+                // session then advertised a mod requirement no joiner could read, let alone satisfy.
+                bool hashOk = Put(KeyMHash, mhash);
+
+                Put(KeyOrg, orgName);
+                Put(KeyModSummary, modSummary);
+                Put(KeyMessages, Config.Preferences.AcceptStrangerMessages ? "1" : "0");
+
                 var mChunks = SyncCodec.Pack(manifestText);
                 var pChunks = SyncCodec.Pack(prefsText);
-                // Chunks first, then the chunk count is cleared if any of them was refused: a manifest that is
-                // advertised as readable but only half-written makes a joiner retry a payload that cannot exist.
-                //
-                // The HASH is published either way, and it has to be. It is sixteen characters, so it fits when a
-                // multi-kilobyte manifest does not, and it is the only thing a joiner can check the backend copy
-                // against - clear it and the backend fallback is dead, because an unverifiable copy is refused.
-                // A manifest too big for Steam is precisely the case the backend exists for.
-                bool payloadOk = WriteChunks(sid, ManifestChunkPrefix, KeyManifestChunks, mChunks)
-                                 & WriteChunks(sid, PrefsChunkPrefix, KeyPrefsChunks, pChunks);
-                bool hashOk = SteamMatchmaking.SetLobbyData(sid, KeyMHash, SyncCodec.Hash(manifestText, prefsText));
-                if (!payloadOk)
+                int payloadCost = ChunkCost(ManifestChunkPrefix, KeyManifestChunks, mChunks)
+                                  + ChunkCost(PrefsChunkPrefix, KeyPrefsChunks, pChunks);
+                bool payloadFits = spent + payloadCost <= LobbyDataBudget - BudgetReserve;
+                bool payloadOk = false;
+                if (payloadFits)
                 {
-                    SteamMatchmaking.SetLobbyData(sid, KeyManifestChunks, "");
-                    Core.Log?.Warning(hashOk
-                        ? "[sync] the lobby refused the manifest chunks - joiners will read the backend copy and verify it against the published hash."
-                        : "[sync] the lobby refused both the manifest and its hash - joiners cannot sync with this lobby.");
+                    // All or nothing: the hash covers manifest AND prefs together, so half a payload validates
+                    // against nothing and only spends budget a rename will want later.
+                    payloadOk = WriteChunks(sid, ManifestChunkPrefix, KeyManifestChunks, mChunks)
+                                & WriteChunks(sid, PrefsChunkPrefix, KeyPrefsChunks, pChunks);
+                    if (!payloadOk) ClearPayload(sid);
                 }
-                else if (!hashOk)
-                {
-                    SteamMatchmaking.SetLobbyData(sid, KeyManifestChunks, "");
-                    Core.Log?.Warning("[sync] the lobby refused the manifest hash - not advertising a manifest a joiner could not verify.");
-                }
+
+                // Read the hash back instead of trusting the write. This is the one key a joiner cannot do without,
+                // and a payload that was just cleared may have freed the room it needs.
+                if (!hashOk || SteamMatchmaking.GetLobbyData(sid, KeyMHash) != mhash)
+                    hashOk = Put(KeyMHash, mhash) && SteamMatchmaking.GetLobbyData(sid, KeyMHash) == mhash;
+
                 int maxChunk = 0; foreach (var c in mChunks) if (c.Length > maxChunk) maxChunk = c.Length;
-                Core.Log?.Msg($"[sync] vanilla lobby published (version={UnityEngine.Application.version}, enforce={enforce}, " +
-                              $"manifest {manifestText.Length} chars -> {mChunks.Length} chunk(s), biggest {maxChunk}b, prefs {pChunks.Length} chunk(s)).");
+                Core.Log?.Msg($"[sync] vanilla lobby published (version={UnityEngine.Application.version}, enforce={enforce}, "
+                              + $"manifest {manifestText.Length} chars -> {mChunks.Length} chunk(s), biggest {maxChunk}b, "
+                              + $"prefs {pChunks.Length} chunk(s), {spent} of {LobbyDataBudget - BudgetReserve} chars used).");
+                if (!payloadOk)
+                    Core.Log?.Msg($"[sync] the mod list needs {payloadCost} chars and Steam's whole lobby carries "
+                                  + $"{LobbyDataBudget - BudgetReserve} - joiners read the backend copy and check it "
+                                  + "against the published hash instead.");
+                if (!hashOk)
+                    Core.Log?.Warning("[sync] Steam refused the mod-set hash - joiners cannot sync with this lobby. "
+                                      + "Re-publishing from the Lobby app is the way back.");
 
                 // Also publish to the backend directory as a FALLBACK (a joiner reads Steam first; the backend only
                 // rescues a too-large-for-Steam manifest). Off-main-thread, best-effort - Steam is the source of truth.
@@ -159,13 +204,13 @@ namespace SideHustle.Sync
                         ModSummary = modSummary ?? "",
                         GameVersion = UnityEngine.Application.version,
                         AppBuild = AppBuildId(),
-                        Mhash = SyncCodec.Hash(manifestText, prefsText),
+                        Mhash = mhash,
                         Manifest = manifestText,
                         Prefs = prefsText ?? "",
                     });
                 }
                 catch (Exception e) { Core.Log?.Warning("[dir] publish build failed: " + e.Message); }
-                return true;
+                return hashOk;
             }
             catch (Exception e)
             {
@@ -188,6 +233,10 @@ namespace SideHustle.Sync
                 string mhash = SyncCodec.Hash(manifestText, "");
                 var mChunks = SyncCodec.Pack(manifestText);
                 var pChunks = SyncCodec.Pack("");
+                // Free the previous payload first. Its bytes count against the lobby's 8 KB whether or not any count
+                // key still points at them, so re-publishing over it is how a lobby runs out of room for its own
+                // mod set (see LobbyDataBudget).
+                ClearPayload(sid);
                 // Write the payload FIRST and only claim the hash when every chunk landed: Steam can reject a lobby
                 // data write (size limits, transient failure), and a half-written manifest that still advertises a
                 // hash is worse than none - a joiner would keep retrying a payload that can never validate.
@@ -338,6 +387,85 @@ namespace SideHustle.Sync
             for (int i = 0; i < chunks.Length; i++)
                 ok &= SteamMatchmaking.SetLobbyData(sid, prefix + i, chunks[i]);
             return ok;
+        }
+
+        /// <summary>
+        /// Whether this lobby has told us the payload is NOT on Steam: it carries the mod-set hash but no chunk count.
+        /// A host whose mod list is too big for Steam's 8 KB publishes the hash alone, and re-reading Steam for five
+        /// seconds only delays the backend read that was always going to be the one that answers.
+        ///
+        /// Both halves matter. Before the lobby data arrives, everything reads empty - including the hash - so the
+        /// missing chunk count on its own means "not known yet", not "not published".
+        /// </summary>
+        internal static bool PayloadOnBackendOnly(ulong lobbyId)
+        {
+            try
+            {
+                var sid = new CSteamID(lobbyId);
+                if (string.IsNullOrEmpty(SteamMatchmaking.GetLobbyData(sid, KeyMHash))) return false;
+                int.TryParse(SteamMatchmaking.GetLobbyData(sid, KeyManifestChunks), out int count);
+                return count <= 0;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>The mod-set hash the CURRENT lobby actually advertises, or "" when it carries none. What a joiner
+        /// reads, so it is also the only honest thing to arm the sync gate with.</summary>
+        internal static string PublishedMHash()
+        {
+            try
+            {
+                CSteamID sid = new CSteamID(LobbyCoordinator.CurrentLobbyId);
+                if (sid.m_SteamID == 0UL) return "";
+                return SteamMatchmaking.GetLobbyData(sid, KeyMHash) ?? "";
+            }
+            catch { return ""; }
+        }
+
+        /// <summary>Move the mod-set requirement on the card without touching the gate. The pair belongs together
+        /// (SyncCoordinator.SetEnforce owns that), but a session that has just discovered it cannot enforce needs the
+        /// advertisement corrected on its own.</summary>
+        internal static void AdvertiseEnforce(bool enforce)
+        {
+            try
+            {
+                CSteamID sid = new CSteamID(LobbyCoordinator.CurrentLobbyId);
+                if (sid.m_SteamID != 0UL) SteamMatchmaking.SetLobbyData(sid, KeyEnforce, enforce ? "1" : "0");
+            }
+            catch (Exception e) { Core.Log?.Warning("[sync] could not update the mod-set flag: " + e.Message); }
+        }
+
+        /// <summary>What a chunked payload costs against <see cref="LobbyDataBudget"/>, keys included.</summary>
+        private static int ChunkCost(string prefix, string countKey, string[] chunks)
+        {
+            int cost = countKey.Length + 2;
+            for (int i = 0; i < chunks.Length; i++) cost += prefix.Length + 2 + chunks[i].Length;
+            return cost;
+        }
+
+        /// <summary>
+        /// Erase the chunked manifest and prefs from a lobby, values included.
+        ///
+        /// Clearing the two count keys alone would be enough for a reader - it takes the count as authoritative - but
+        /// not for the budget: the chunk values keep their bytes, and those bytes are what the next write runs out of.
+        /// </summary>
+        private static void ClearPayload(CSteamID sid)
+        {
+            ClearChunkFamily(sid, ManifestChunkPrefix, KeyManifestChunks);
+            ClearChunkFamily(sid, PrefsChunkPrefix, KeyPrefsChunks);
+        }
+
+        private static void ClearChunkFamily(CSteamID sid, string prefix, string countKey)
+        {
+            try
+            {
+                int.TryParse(SteamMatchmaking.GetLobbyData(sid, countKey), out int count);
+                SteamMatchmaking.SetLobbyData(sid, countKey, "");
+                // One past the advertised count, because a shorter payload than last time leaves a stray chunk that
+                // no count points at and that nothing would ever clear.
+                for (int i = 0; i <= count; i++) SteamMatchmaking.SetLobbyData(sid, prefix + i, "");
+            }
+            catch (Exception e) { Core.Log?.Warning($"[sync] could not clear '{countKey}': {e.Message}"); }
         }
 
         /// <summary>

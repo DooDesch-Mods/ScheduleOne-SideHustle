@@ -42,6 +42,11 @@ namespace SideHustle.Sync
         internal static bool IsBusy => _state != State.Idle;
         internal static bool IsInSession => _state == State.InSession;
 
+        /// <summary>Whether this process is holding a mod list it could advertise. False in someone else's session and
+        /// in a lobby opened with the pause-menu Publish button, where "no mod list on the lobby" is simply how that
+        /// lobby is and not something the host can fix.</summary>
+        internal static bool HasModList => !string.IsNullOrEmpty(_manifestText);
+
         internal static void StartHostVanilla(Il2CppScheduleOne.Persistence.SaveInfo save, HostOptions opts,
             string manifestText, string prefsText, string modSummary, bool enforce)
         {
@@ -288,7 +293,23 @@ namespace SideHustle.Sync
                     if (WorldBoot.IsWorldReady())
                     {
                         _state = State.InSession;
-                        if (_enforce) SyncGate.Enable(SyncCodec.Hash(_manifestText, _prefsText));
+                        // Arm from the hash the LOBBY carries, not from the one we computed. They are the same hash
+                        // whenever the write landed, and when it did not there is nothing for a joiner to sync
+                        // against - arming anyway is how a session came to remove every player who tried to join a
+                        // mod list they could not read.
+                        if (_enforce)
+                        {
+                            string published = VanillaLobby.PublishedMHash();
+                            if (!string.IsNullOrEmpty(published)) SyncGate.Enable(published);
+                            else
+                            {
+                                _enforce = false;
+                                VanillaLobby.AdvertiseEnforce(false);
+                                Core.Log?.Warning("[sync] this lobby carries no mod-set hash, so the requirement is "
+                                                  + "off - nobody is removed for a list they cannot read. Publish "
+                                                  + "again from the Lobby app to turn it back on.");
+                            }
+                        }
                         Core.Log?.Msg($"[sync] vanilla session live: '{_org}' lobby {LobbyCoordinator.CurrentLobbyId}, " +
                                       $"{LobbyCoordinator.MemberCount} player(s), enforce={_enforce}.");
                     }
@@ -328,9 +349,42 @@ namespace SideHustle.Sync
         {
             _enforce = enforce;
             if (!enforce) { SyncGate.Disable(); return true; }
+
+            // Nothing published to check against - but this session may still HOLD its mod list, in which case the
+            // right answer is to advertise it again rather than refuse. Without this the switch was one-way: turning
+            // the requirement off and back on left the host stuck on "this session publishes no mod list", with no way
+            // back short of re-hosting.
+            if (string.IsNullOrEmpty(expectedMHash)) expectedMHash = RepublishModList();
+
             if (string.IsNullOrEmpty(expectedMHash)) { SyncGate.Disable(); return false; }
             SyncGate.Enable(expectedMHash);
             return true;
+        }
+
+        /// <summary>
+        /// Write this session's mod list onto the current lobby again and answer its hash, or "" when there is nothing
+        /// to write.
+        ///
+        /// "Nothing to write" is a real case and not a failure: the lobby may be one this coordinator never hosted -
+        /// someone else's session, or one published with the pause-menu button - and then this process holds no
+        /// manifest to advertise.
+        /// </summary>
+        internal static string RepublishModList()
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(_manifestText) || !LobbyCoordinator.IsHost) return "";
+                if (!VanillaLobby.Tag(_opts, _manifestText, _prefsText, _enforce, _org, _modSummary)) return "";
+
+                string mhash = SyncCodec.Hash(_manifestText, _prefsText);
+                Core.Log?.Msg("[sync] re-advertised this session's mod set (" + _manifestText.Length + " chars).");
+                return mhash;
+            }
+            catch (Exception e)
+            {
+                Core.Log?.Warning("[sync] could not re-advertise the mod set: " + e.Message);
+                return "";
+            }
         }
 
         /// <summary>The menu scene unloaded, which happens for exactly one reason: a world is loading. What the next

@@ -3,6 +3,20 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [2.3.1] - 2026-08-08
+
+### Added
+
+- The Lobby app offers "Publish again" when your mod list is not on the lobby. Nobody can join until it is.
+
+### Fixed
+
+- Other players can join your session again. A large synced mod list left no room on the lobby for the checksum joiners check it against, so every sync failed.
+- The mod requirement switches back on after you switch it off. It re-publishes the list instead of refusing with "nothing to check".
+- Holding the seats stepper stops lagging. The number moves at once and Steam hears about it once, 0.4s after your last click.
+- A rename Steam refuses keeps what you typed and says so. The field used to come back empty.
+- The Publish row says your session is already listed instead of offering a button that answers "could not".
+
 ## [2.3.0] - 2026-08-08
 
 ### Added
