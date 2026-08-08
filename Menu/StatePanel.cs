@@ -228,6 +228,9 @@ namespace SideHustle.Menu
         /// that just landed is not immediately chased by another query.</summary>
         private static void Adopt(System.Collections.Generic.List<Sync.VanillaLobbyRow> rows)
         {
+            // A completed query is a completed query, whoever asked for it - so nothing of ours is still outstanding.
+            // Cheap insurance on the one latch in this class that, left stuck, stops the column updating for good.
+            _querying = false;
             _sinceQuery = 0f;
             int wasLobbies = _lobbies;
             if (rows == null) { _lobbies = 0; _joinable = 0; }

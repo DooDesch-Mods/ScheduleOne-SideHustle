@@ -268,6 +268,7 @@ namespace SideHustle.Menu
 
         private static void ShowVanillaChoice()
         {
+            InvalidateJoinChecks();   // whatever join was being prepared, the player is somewhere else now
             _mpDesc = null;
             _back = ShowGamemodeList;
             var rows = new List<Row>
@@ -461,6 +462,7 @@ namespace SideHustle.Menu
         private static void ShowVanillaBrowser()
         {
             if (_clone == null) return;
+            InvalidateJoinChecks();   // back on the list: the lobby being read is no longer the one being joined
             _back = ShowVanillaChoice;
             ClearFormHost();
             SetTmp(_clone.transform, "Title", "Join a vanilla lobby");
@@ -512,8 +514,24 @@ namespace SideHustle.Menu
             };
         }
 
+        /// <summary>
+        /// Whether the attempt that started at <paramref name="gen"/> is still the one the player is waiting on.
+        /// </summary>
+        /// <remarks>
+        /// The manifest read retries itself for five seconds through background delays, and the compare that follows
+        /// hashes every installed mod on a worker. Both come back by posting to the main thread, and the only thing
+        /// they used to check was whether SOME hub screen was open - which it is after a back press, because the
+        /// player is looking at the lobby list again. So an abandoned attempt kept running and, seconds later, threw
+        /// the consent screen for the lobby they had walked away from over whatever they had chosen instead.
+        ///
+        /// The counter is the gamemode join's <c>_joinGen</c>, shared on purpose: both flows mean the same thing by
+        /// "the player moved on", and one number cannot get out of step with the other.
+        /// </remarks>
+        private static bool JoinStale(int gen) => gen != _joinGen || _cloneScreen == null || !_cloneScreen.IsOpen;
+
         private static void StartVanillaJoin(VanillaLobbyRow row)
         {
+            InvalidateJoinChecks();    // this lobby is the attempt now; anything still running belongs to the last one
             _vanillaRetried = false;   // a newly picked lobby gets its own "show me what is missing" pass
 
             // Before anything else, including a password prompt: will entering this lobby get us into a game at all?
@@ -582,36 +600,36 @@ namespace SideHustle.Menu
             });
             ChatPanel.Keep(row.OwnerSteamId, row.HostName, row.AcceptsMessages);
             try { Il2CppSteamworks.SteamMatchmaking.RequestLobbyData(new Il2CppSteamworks.CSteamID(row.LobbyId)); } catch { }
-            WaitForManifest(row, 0);
+            WaitForManifest(row, 0, _joinGen);
         }
 
         // Retry reading the host's chunked manifest (re-requesting lobby data each attempt) until it validates or the
         // ~3s window elapses. The read + UI run on the main thread; only the delay rides a background task.
-        private static void WaitForManifest(VanillaLobbyRow row, int attempt)
+        private static void WaitForManifest(VanillaLobbyRow row, int attempt, int gen)
         {
-            if (_cloneScreen == null || !_cloneScreen.IsOpen) return;
+            if (JoinStale(gen)) return;
             if (VanillaLobby.TryReadPayloads(row.LobbyId, out var manifest, out var hostPrefs, out var mhash))
             {
-                BeginSyncCompare(row, manifest, hostPrefs, mhash);
+                BeginSyncCompare(row, manifest, hostPrefs, mhash, gen);
                 return;
             }
             if (attempt >= 7)   // ~5s of Steam (the primary path) before falling back to the backend directory
             {
-                TryDirectoryFallback(row);
+                TryDirectoryFallback(row, gen);
                 return;
             }
             try { Il2CppSteamworks.SteamMatchmaking.RequestLobbyData(new Il2CppSteamworks.CSteamID(row.LobbyId)); } catch { }
             System.Threading.Tasks.Task.Run(async () =>
             {
                 await System.Threading.Tasks.Task.Delay(700);
-                MainThread.Post(() => WaitForManifest(row, attempt + 1));
+                MainThread.Post(() => WaitForManifest(row, attempt + 1, gen));
             });
         }
 
         // Steam couldn't produce the manifest (likely too large to propagate) - fall back to the backend directory.
         // The backend is untrusted, so its manifest is only accepted when it hashes to the mhash the host wrote to the
         // real Steam lobby (see VanillaLobby.TryReadFromDirectoryAsync).
-        private static void TryDirectoryFallback(VanillaLobbyRow row)
+        private static void TryDirectoryFallback(VanillaLobbyRow row, int gen)
         {
             Core.Log?.Msg("[sync] Steam manifest unavailable; trying the backend fallback...");
             ShowRows("Reading the host's mods...", new List<Row>
@@ -624,11 +642,11 @@ namespace SideHustle.Menu
                 var res = await VanillaLobby.TryReadFromDirectoryAsync(row.LobbyId);
                 MainThread.Post(() =>
                 {
-                    if (_cloneScreen == null || !_cloneScreen.IsOpen) return;
+                    if (JoinStale(gen)) return;
                     if (res != null)
                     {
                         Core.Log?.Msg("[sync] backend fallback provided the manifest.");
-                        BeginSyncCompare(row, res.Manifest, res.Prefs, res.Mhash);
+                        BeginSyncCompare(row, res.Manifest, res.Prefs, res.Mhash, gen);
                     }
                     else
                     {
@@ -639,7 +657,7 @@ namespace SideHustle.Menu
             });
         }
 
-        private static void BeginSyncCompare(VanillaLobbyRow row, SyncManifest manifest, string hostPrefs, string mhash)
+        private static void BeginSyncCompare(VanillaLobbyRow row, SyncManifest manifest, string hostPrefs, string mhash, int gen)
         {
             ShowRows("Comparing mods...", new List<Row>
             {
@@ -654,7 +672,7 @@ namespace SideHustle.Menu
                 catch (Exception e) { Core.Log?.Warning("[sync] diff failed: " + e.Message); }
                 MainThread.Post(() =>
                 {
-                    if (_cloneScreen == null || !_cloneScreen.IsOpen) return;
+                    if (JoinStale(gen)) return;
                     if (diff == null) { ShowUnsyncableJoin(row, "Comparing failed (see log)."); return; }
 
                     bool nothingToFetch = diff.Count(DiffStatus.Download) == 0 && diff.Count(DiffStatus.Manual) == 0;

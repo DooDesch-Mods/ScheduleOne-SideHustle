@@ -51,10 +51,11 @@ namespace SideHustle.Sync
             {
                 if (__instance == null || __instance.Lobby == null || __instance.InviteButton == null) return;
 
-                // The panel no longer owns a Canvas - LateUpdate drives Container.gameObject instead.
+                // The panel no longer owns a Canvas - LateUpdate drives Container.gameObject instead. The rest of the
+                // test lives in CanPublish, shared with the phone app's row: two surfaces offering the same switch
+                // must not disagree about whether it applies.
                 bool eligible = __instance.Container != null && __instance.Container.gameObject.activeInHierarchy
-                                && __instance.Lobby.IsInLobby && __instance.Lobby.IsHost
-                                && !SyncCoordinator.IsInSession;   // a Side Hustle-hosted session already publishes itself
+                                && CanPublish;
 
                 if (!eligible)
                 {
@@ -101,16 +102,26 @@ namespace SideHustle.Sync
         /// button and the phone app are two views of the same switch, so both read it from here.</summary>
         internal static bool IsPublished => _published;
 
-        /// <summary>Whether live publishing applies at all right now: we host a real co-op lobby that Side Hustle
-        /// did not start itself (one it started publishes itself). Same test the button's visibility uses.</summary>
+        /// <summary>
+        /// Whether live publishing applies at all right now: we host a real co-op lobby that Side Hustle did not
+        /// start itself (one it started publishes itself). Same test the button's visibility uses.
+        /// </summary>
+        /// <remarks>
+        /// Both coordinators have to be idle, not just the sync one. A GAMEMODE host is also "in a lobby, hosting",
+        /// and that lobby already carries its own name, seats, visibility and join manifest - publishing over it
+        /// rewrites every one of them with vanilla co-op values, and unpublishing then calls Untag, which sets the
+        /// lobby unjoinable. A running PropHunt round would lose anyone still trying to get in, and nothing on
+        /// screen would connect that to the button that did it.
+        /// </remarks>
         internal static bool CanPublish
         {
             get
             {
                 try
                 {
+                    if (SyncCoordinator.IsBusy || Multiplayer.MultiplayerCoordinator.IsBusy) return false;
                     var lobby = PersistentSingleton<Lobby>.Instance;
-                    return lobby != null && lobby.IsInLobby && lobby.IsHost && !SyncCoordinator.IsInSession;
+                    return lobby != null && lobby.IsInLobby && lobby.IsHost;
                 }
                 catch { return false; }
             }
@@ -135,6 +146,10 @@ namespace SideHustle.Sync
                     Core.Log?.Msg("[sync] lobby unpublished.");
                     return;
                 }
+
+                // Re-checked at the moment of the click, not only when the surface was drawn: a gamemode session can
+                // start between the two, and publishing over its lobby rewrites metadata the round is using.
+                if (!CanPublish) { Core.Log?.Warning("[sync] this lobby is not one that can be published."); return; }
 
                 if (!_indexRequested)
                 {
