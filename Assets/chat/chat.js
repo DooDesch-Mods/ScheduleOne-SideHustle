@@ -74,6 +74,10 @@ function send() {
   }
   field.value = '';
   render();
+  // Back into the box for the next line. Deliberately here and not at mount: the column has no data-typing,
+  // because parking the caret there on open raises GameInput.IsTyping and kills Escape for the whole screen.
+  // Asking for focus after an explicit send is the version that costs nothing.
+  field.focus();
 }
 
 $('close').addEventListener('click', () => s1.call('chat.close', ''));
