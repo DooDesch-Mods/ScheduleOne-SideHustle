@@ -394,6 +394,8 @@ function renderChat(body) {
       ask('chat.accepting') === '1'
         ? 'Someone who finds your session but cannot get in can send you a line. It lands here.'
         : 'You have messages from strangers switched off, so nothing reaches you here.'));
+    const mutedEmpty = mutedBlock();
+    if (mutedEmpty) wrap.appendChild(mutedEmpty);
     wrap.appendChild(acceptingRow());
     body.appendChild(wrap);
     return;
@@ -402,6 +404,26 @@ function renderChat(body) {
   if (!threads.some((t) => t.id === openThread)) openThread = threads[0].id;
 
   const cols = el('div', 'cols tall');
+/** Everyone muted, with the way back. A mute is one click next to a thread, so it WILL be hit by accident -
+ *  and once it is, the thread is gone and there is nothing left to undo it from. The name is kept for exactly
+ *  this. The conversation itself does not come back; only the next thing they say. */
+function mutedBlock() {
+  let muted = [];
+  const raw = ask('chat.muted');
+  if (raw) { try { muted = JSON.parse(raw); } catch (e) { console.error('unreadable mute list:', e.message); } }
+  if (muted.length === 0) return null;
+
+  const box = el('div', 'mutedbox');
+  box.appendChild(el('div', 'mutedhead', muted.length === 1 ? '1 person muted' : muted.length + ' people muted'));
+  for (const m of muted) {
+    const row = el('div', 'mutedrow');
+    row.appendChild(el('div', 'mutedname', m.name));
+    row.appendChild(button('btn small', 'Unmute', null, () => { ask('chat.unmute', m.id); render(); }));
+    box.appendChild(row);
+  }
+  return box;
+}
+
 /* One element for the whole session, re-appended on every render.
  *
  * Sideload rescues a form control across a rebuild by DOM IDENTITY - it looks the element up in a map built from
@@ -439,6 +461,8 @@ function composeInput() {
     list.appendChild(row);
   }
   threadcol.appendChild(list);
+  const muted = mutedBlock();
+  if (muted) threadcol.appendChild(muted);
   cols.appendChild(threadcol);
 
   const pane = el('div', 'col');

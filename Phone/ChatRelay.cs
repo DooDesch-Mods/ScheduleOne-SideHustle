@@ -336,15 +336,41 @@ namespace SideHustle.Phone
             return peer.ToString();
         }
 
-        /// <summary>Stop hearing from one person, and forget what they said. Per-sender, because switching the
-        /// whole relay off because of one person is a heavier answer than the problem.</summary>
+        /// <summary>
+        /// Stop hearing from one person, and forget what they said. Per-sender, because switching the whole relay
+        /// off because of one person is a heavier answer than the problem.
+        ///
+        /// The conversation goes, the NAME stays. That is what makes this undoable: a mute is one click next to a
+        /// thread and is going to be hit by accident, and without the name there is nothing left to point an
+        /// unmute at.
+        /// </summary>
         internal static void Mute(ulong peer)
         {
+            if (peer == 0UL) return;
             _muted.Add(peer);
             _threads.Remove(peer);
             _unread.Remove(peer);
             Revision++;
-            Core.Log?.Msg("[chat] muted " + peer);
+            Core.Log?.Msg("[chat] muted " + NameOf(peer) + " (" + peer + ")");
+        }
+
+        /// <summary>Hear from them again. The conversation muting threw away does not come back - only the next
+        /// thing they say.</summary>
+        internal static void Unmute(ulong peer)
+        {
+            if (!_muted.Remove(peer)) return;
+            Revision++;
+            Core.Log?.Msg("[chat] unmuted " + NameOf(peer) + " (" + peer + ")");
+        }
+
+        internal static bool IsMuted(ulong peer) => _muted.Contains(peer);
+
+        /// <summary>Everyone currently muted, newest first, so the app can offer the way back.</summary>
+        internal static IReadOnlyList<ulong> Muted()
+        {
+            var ids = new List<ulong>(_muted);
+            ids.Sort();
+            return ids;
         }
 
         /// <summary>The session ended - the conversation was about getting into THAT session.</summary>
@@ -353,6 +379,7 @@ namespace SideHustle.Phone
             if (_threads.Count == 0 && _unread.Count == 0) return;
             _threads.Clear();
             _unread.Clear();
+            // _muted deliberately survives: it is a decision about a person, not about a session.
             _lastHeard.Clear();
             _lastWritten.Clear();
             _arrived = 0UL;

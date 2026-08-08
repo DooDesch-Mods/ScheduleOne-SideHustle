@@ -48,6 +48,8 @@ namespace SideHustle.Phone
                     .OnCall("chat.messages", peer => Messages(peer))
                     .OnCall("chat.send", arg => SendChat(arg))
                     .OnCall("chat.mute", peer => { if (ulong.TryParse(peer, out ulong id)) ChatRelay.Mute(id); return "ok"; })
+                    .OnCall("chat.unmute", peer => { if (ulong.TryParse(peer, out ulong id)) ChatRelay.Unmute(id); return "ok"; })
+                    .OnCall("chat.muted", _ => Muted())
                     .OnCall("chat.accepting", v =>
                     {
                         if (v == "1" || v == "0") LobbyControls.SetAccepting(v == "1");
@@ -85,6 +87,16 @@ namespace SideHustle.Phone
                     .Add("host", m.IsHost)
                     .Add("self", m.IsSelf)
                     .Add("friend", m.IsFriend));
+            return arr.ToString();
+        }
+
+        /// <summary>Everyone muted, with the name they had. The conversation is gone by design; the name is what
+        /// makes the mute undoable, which matters because it is one click next to a thread.</summary>
+        private static string Muted()
+        {
+            var arr = Json.Array();
+            foreach (ulong peer in ChatRelay.Muted())
+                arr.Item(Json.Object().Add("id", peer.ToString()).Add("name", ChatRelay.NameOf(peer)));
             return arr.ToString();
         }
 
