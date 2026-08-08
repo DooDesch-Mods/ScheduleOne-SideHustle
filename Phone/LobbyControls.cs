@@ -49,10 +49,24 @@ namespace SideHustle.Phone
             catch { return ""; }
         }
 
+        /// <summary>
+        /// Write one lobby key, and say which one Steam refused.
+        ///
+        /// Every control in the app ends here, so a silent false is a control that "does nothing" with no way to find
+        /// out why. Steam refuses a write when the lobby's whole 8 KB of metadata is spent (see
+        /// VanillaLobby.LobbyDataBudget) - which is how renaming a session came to fail on a lobby carrying a large
+        /// published mod list, long after hosting.
+        /// </summary>
         private static bool Write(string key, string value)
         {
             if (!IsHost) return false;
-            try { return SteamMatchmaking.SetLobbyData(Sid, key, value ?? ""); }
+            try
+            {
+                if (SteamMatchmaking.SetLobbyData(Sid, key, value ?? "")) return true;
+                Core.Log?.Warning($"[lobby] Steam refused '{key}' ({(value ?? "").Length} chars) - "
+                                  + "the lobby's metadata is full.");
+                return false;
+            }
             catch (Exception e) { Core.Log?.Warning($"[lobby] could not write '{key}': {e.Message}"); return false; }
         }
 
@@ -173,14 +187,25 @@ namespace SideHustle.Phone
         internal static bool SetEnforce(bool enforce)
         {
             string mhash = Read(VanillaLobby.KeyMHash);
-            if (enforce && string.IsNullOrEmpty(mhash))
+
+            // Arm the gate FIRST, then advertise. It can publish a missing mod list on the way, so a lobby whose hash
+            // went missing recovers here instead of being told there is nothing to check - and if it genuinely cannot
+            // arm, nothing was advertised that the gate does not back up.
+            if (!SyncCoordinator.SetEnforce(enforce, mhash))
             {
-                Core.Log?.Warning("[lobby] this lobby publishes no mod list, so a mod-set requirement would have "
-                                  + "nothing to check joiners against - not switching it on.");
+                Core.Log?.Warning("[lobby] this session has no mod list to check joiners against - "
+                                  + "the requirement stays off.");
                 return false;
             }
-            if (!Write(VanillaLobby.KeyEnforce, enforce ? "1" : "0")) return false;
-            SyncCoordinator.SetEnforce(enforce, mhash);
+
+            if (!Write(VanillaLobby.KeyEnforce, enforce ? "1" : "0"))
+            {
+                // The advertisement is what joiners read. Without it the gate would remove people for a rule the
+                // lobby never announced, so it goes back off rather than half on.
+                SyncCoordinator.SetEnforce(false, "");
+                return false;
+            }
+
             Core.Log?.Msg($"[lobby] mod-set requirement is now {(enforce ? "on" : "off")}.");
             return true;
         }

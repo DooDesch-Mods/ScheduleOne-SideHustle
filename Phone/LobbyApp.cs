@@ -42,6 +42,7 @@ namespace SideHustle.Phone
                     .OnCall("lobby.setVisibility", v => LobbyControls.SetPublic(v == "pub") ? "ok" : "error")
                     .OnCall("lobby.setMax", v => SetMax(v))
                     .OnCall("lobby.setEnforce", v => SetEnforce(v == "1"))
+                    .OnCall("lobby.republish", _ => Sync.SyncCoordinator.RepublishModList().Length > 0 ? "ok" : "error")
                     .OnCall("lobby.togglePublish", _ => TogglePublish())
                     .OnCall("lobby.players", _ => Players())
                     .OnCall("chat.threads", _ => Threads())
@@ -71,18 +72,29 @@ namespace SideHustle.Phone
             return LobbyControls.SetMaxPlayers(seats).ToString(CultureInfo.InvariantCulture);
         }
 
-        /// <summary>Answers "ok", or the reason the page needs to say something better than "could not". A lobby with
-        /// no published mod list has nothing to check joiners against, and a switch that fails without saying why is
-        /// how a host ends up flipping it four times.</summary>
+        /// <summary>Answers "ok", or the reason the page needs to say something better than "could not". A switch that
+        /// fails without saying why is how a host ends up flipping it four times.
+        ///
+        /// The old pre-check refused whenever the lobby carried no published mod list, which made the switch one-way:
+        /// off and back on left the host stuck. SetEnforce publishes a missing list itself now, so the only remaining
+        /// failure is a session that genuinely has no list to publish - somebody else's lobby.</summary>
         private static string SetEnforce(bool on)
         {
-            if (on && !LobbyControls.PublishesModList) return "nolist";
-            return LobbyControls.SetEnforce(on) ? "ok" : "error";
+            if (LobbyControls.SetEnforce(on)) return "ok";
+            return on ? "nolist" : "error";
         }
 
+        private static string ModListState()
+        {
+            if (LobbyControls.PublishesModList) return "ok";
+            return Sync.SyncCoordinator.HasModList ? "missing" : "none";
+        }
+
+        /// <summary>"1"/"0" for the new state, or "n/a" when live publishing does not apply to this lobby at all -
+        /// which is the normal case for a Side Hustle session, since that publishes itself.</summary>
         private static string TogglePublish()
         {
-            if (!Sync.LivePublish.CanPublish) return "error";
+            if (!Sync.LivePublish.CanPublish) return "n/a";
             Sync.LivePublish.TogglePublished();
             return Sync.LivePublish.IsPublished ? "1" : "0";
         }
@@ -172,6 +184,11 @@ namespace SideHustle.Phone
                 .Add("max", LobbyControls.MaxPlayers)
                 .Add("ceiling", LobbyControls.SeatCeiling)
                 .Add("enforce", LobbyControls.Enforcing)
+                // Whether a joiner can read this session's mod list: "ok" when the lobby advertises the hash they
+                // check it against, "missing" when this session holds a list the lobby is not carrying, "none" when
+                // there is no list in this process to publish. The middle case is a session nobody can join, and it
+                // is fixable in one tap, so the page has to be able to tell it from the other two.
+                .Add("modlist", host ? ModListState() : "none")
                 .Add("canPublish", Sync.LivePublish.CanPublish)
                 .Add("published", Sync.LivePublish.IsPublished)
                 .Add("unread", ChatRelay.UnreadCount)

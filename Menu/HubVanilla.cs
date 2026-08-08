@@ -613,7 +613,10 @@ namespace SideHustle.Menu
                 BeginSyncCompare(row, manifest, hostPrefs, mhash, gen);
                 return;
             }
-            if (attempt >= 7)   // ~5s of Steam (the primary path) before falling back to the backend directory
+            // Two ways to reach the backend: the host says up front that Steam is not carrying the payload (a mod list
+            // past Steam's 8 KB of lobby data publishes the hash alone), or Steam simply never produced it. Only the
+            // second one is worth waiting five seconds for.
+            if (attempt >= 7 || VanillaLobby.PayloadOnBackendOnly(row.LobbyId))
             {
                 TryDirectoryFallback(row, gen);
                 return;
