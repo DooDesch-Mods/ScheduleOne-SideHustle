@@ -3,7 +3,7 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [2.4.0] - 2026-08-08
 
 ### Added
 
@@ -12,6 +12,10 @@ All notable changes to Side Hustle are documented here. This project adheres to
 - Joining a synced lobby skips the restart. The host's mods load out of the package cache while you stay on the screen you were on.
   - A mod already running at a different version than the session wants still costs one. The log names the mod and both versions.
 - The gamemode list shows installed gamemodes that have not loaded yet, with the name, version and author their own file declares. One click loads and starts it.
+
+### Changed
+
+- The Lobby app's icon on your phone is white instead of teal.
 
 ## [2.3.1] - 2026-08-08
 
