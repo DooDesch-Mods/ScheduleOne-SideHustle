@@ -39,6 +39,10 @@
        props also defines NO_EXTERNAL_FETCH for the Thunderstore build, which compiles the endpoint out. -->
   <Import Project="$(MSBuildThisFileDirectory)../Stash/build/Nudge.props" Condition="Exists('$(MSBuildThisFileDirectory)../Stash/build/Nudge.props')" />
   <Import Project="$(MSBuildThisFileDirectory)Stash/build/Nudge.props" Condition="Exists('$(MSBuildThisFileDirectory)Stash/build/Nudge.props')" />
+  <!-- Where a build is allowed to install: the test copy by default, and never a real game installation
+       without saying so out loud. See Workspace/build/Deploy.props. -->
+  <Import Project="$(MSBuildThisFileDirectory)../Workspace/build/Deploy.props" Condition="Exists('$(MSBuildThisFileDirectory)../Workspace/build/Deploy.props')" />
+  <Import Project="$(MSBuildThisFileDirectory)Workspace/build/Deploy.props" Condition="Exists('$(MSBuildThisFileDirectory)Workspace/build/Deploy.props')" />
 
   <!--
     Side Hustle - MelonLoader IL2CPP gamemode-hub mod for Schedule I.
@@ -70,7 +74,6 @@
     <!-- Dev deploy target: the _MPTest copy, never the real install by default - same rule the boot plugin already
          states, and relative so it holds on any checkout. The MCP build tool overrides it with the active test slot;
          a real install is only ever written by passing -p:ModsDirectory explicitly. -->
-    <ModsDirectory Condition="'$(ModsDirectory)' == ''">$(MSBuildThisFileDirectory)../_MPTest/Schedule I/Mods</ModsDirectory>
   </PropertyGroup>
 
   <!-- Backend selection derived from the active TargetFramework (il2cpp only for now) -->
