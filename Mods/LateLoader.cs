@@ -86,6 +86,97 @@ namespace SideHustle.Mods
             return any;
         }
 
+        /// <summary>Why a session cannot be entered without restarting, or null when it can.</summary>
+        internal sealed class Collision
+        {
+            internal string ModName;
+            internal string Loaded;
+            internal string Wanted;
+            public override string ToString() => $"{ModName} {Loaded} is running, the session wants {Wanted}";
+        }
+
+        /// <summary>
+        /// Whether this session's mod set can be reached from here without restarting the game.
+        /// </summary>
+        /// <remarks>
+        /// The whole point of the gate. Nothing loaded at startup, so a session that needs mods can simply load
+        /// them - no profile directory, no relaunch, no losing the menu. What cannot be done in-process is
+        /// REPLACING an assembly that is already loaded, so a version that differs from the one running is the one
+        /// case that still costs a restart.
+        ///
+        /// A mod the session does not want but that is already loaded is NOT a collision. It stays out of the
+        /// session's way by not being asked to do anything, and unloading it (MelonBase.UnregisterInstance does
+        /// unpatch Harmony) would still leave its spawned objects and static state behind - a worse answer than
+        /// leaving it idle.
+        /// </remarks>
+        internal static Collision FirstCollision(IEnumerable<KeyValuePair<string, string>> wanted)
+        {
+            var running = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var melon in MelonMod.RegisteredMelons)
+            {
+                string file = null;
+                try { file = Path.GetFileName(melon.MelonAssembly?.Location); } catch { }
+                if (string.IsNullOrEmpty(file)) continue;
+                string version = null;
+                try { version = melon.Info?.Version; } catch { }
+                running[file] = version ?? "";
+            }
+
+            foreach (var entry in wanted)
+            {
+                if (!running.TryGetValue(entry.Key, out string have)) continue;   // not loaded: load it, no problem
+                string want = VersionOf(entry.Value);
+                if (want == null || have.Length == 0) continue;                   // unreadable: not a claim worth making
+                if (string.Equals(have, want, StringComparison.OrdinalIgnoreCase)) continue;
+                return new Collision { ModName = entry.Key, Loaded = have, Wanted = want };
+            }
+            return null;
+        }
+
+        /// <summary>The version a file declares, without loading it. Reflection would load the assembly, which is
+        /// the exact thing this check exists to decide about.</summary>
+        private static string VersionOf(string path)
+        {
+            try
+            {
+                if (!File.Exists(path)) return null;
+                var info = System.Diagnostics.FileVersionInfo.GetVersionInfo(path);
+                string v = info.FileVersion;
+                if (string.IsNullOrEmpty(v)) return null;
+                // MelonInfo versions are three-part; a file version carries a fourth that is always 0 here.
+                var parts = v.Split('.');
+                return parts.Length >= 3 ? string.Join(".", parts[0], parts[1], parts[2]) : v;
+            }
+            catch { return null; }
+        }
+
+        /// <summary>
+        /// Load an exact set of files - the host's own bytes, straight out of the package cache.
+        /// </summary>
+        /// <remarks>
+        /// The replacement for building a profile directory and relaunching into it. The bytes are the same ones
+        /// that build would have hardlinked; the difference is that nothing has to be arranged on disk first and
+        /// the player keeps the screen they were standing on.
+        /// </remarks>
+        internal static int LoadSet(IEnumerable<KeyValuePair<string, string>> wanted, string why)
+        {
+            var running = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var melon in MelonMod.RegisteredMelons)
+            {
+                try { running.Add(Path.GetFileName(melon.MelonAssembly?.Location) ?? ""); } catch { }
+            }
+
+            int loaded = 0;
+            foreach (var entry in wanted)
+            {
+                if (running.Contains(entry.Key)) continue;
+                if (LoadOne(entry.Value)) loaded++;
+                Pending.RemoveAll(p => string.Equals(Path.GetFileName(p), entry.Key, StringComparison.OrdinalIgnoreCase));
+            }
+            if (loaded > 0) Core.Log?.Msg($"[gate] {loaded} mod(s) loaded for {why} without restarting.");
+            return loaded;
+        }
+
         /// <summary>
         /// What the gate wrote, or - when that file is missing - what is in Mods and not running.
         ///

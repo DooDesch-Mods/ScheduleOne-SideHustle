@@ -831,6 +831,23 @@ namespace SideHustle.Menu
                     TrustStore.Trust(row.OwnerSteamId, mhash, row.HostName);
                     // Remember this lobby's mod set so the player can turn it into a permanent named profile later.
                     LastSync.Save(row.HostName, new SyncManifest { Mods = diff.Entries.Select(e => e.Mod).ToList() });
+
+                    // The restart is the expensive half of joining, and with the boot gate on it is usually not
+                    // needed at all: nothing loaded at startup, so the host's mods can simply be loaded now, out of
+                    // the same package cache the profile build would have hardlinked from. The one thing that
+                    // cannot be done in-process is replacing an assembly that is already running, so a version
+                    // that differs from ours is what still costs a relaunch - and only that.
+                    var wanted = inputs.Select(i => new KeyValuePair<string, string>(i.FileName, i.SourcePath)).ToList();
+                    var clash = Mods.LateLoader.FirstCollision(wanted);
+                    if (clash == null && Mods.LateLoader.Any)
+                    {
+                        Mods.LateLoader.LoadSet(wanted, "'" + (row.LobbyName ?? row.HostName) + "'");
+                        CloseHubScreen();
+                        SyncCoordinator.StartInPlaceJoin(row.LobbyId, mhash);
+                        return;
+                    }
+                    if (clash != null)
+                        Core.Log?.Msg("[sync] restarting after all - " + clash + ".");
                     var token = ConfigCodec.Encode(new[]
                     {
                         new KeyValuePair<string, string>("lobby", row.LobbyId.ToString()),
