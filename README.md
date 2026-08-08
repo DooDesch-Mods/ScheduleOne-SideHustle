@@ -156,7 +156,7 @@ from your gamemode when it finishes to return to the menu.
 
 Side Hustle 1.1.0 adds multiplayer (Host / Join), the public server browser, and world gamemodes - so
 both singleplayer and multiplayer gamemodes launch straight from the menu. See the
-[wiki](https://github.com/DooDesch-Mods/ScheduleOne-SideHustle/wiki) for the full roadmap and API reference.
+[wiki](https://docs.doodesch.de/mods/sidehustle/) for the full roadmap and API reference.
 
 ## Compatibility
 
