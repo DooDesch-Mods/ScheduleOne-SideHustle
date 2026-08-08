@@ -131,6 +131,17 @@ function say(text, kind) {
  */
 function blockers(s) {
   const out = [];
+  // First because it is total: without the hash on the lobby there is nothing for a joiner to check the mod list
+  // against, so the sync step fails for everyone, however many seats are free.
+  if (s.modlist === 'missing') {
+    out.push({
+      icon: 'modset',
+      line: 'Your mod list is not on the lobby. Joining fails for everyone.',
+      label: 'Publish again',
+      act: republish,
+      can: true,
+    });
+  }
   if (s.members >= s.max) {
     out.push({
       icon: 'seats',
@@ -146,7 +157,7 @@ function blockers(s) {
   if (s.hasPassword) {
     out.push({
       icon: 'password',
-      line: s.password ? 'Password: ' + s.password : 'Password set. You know it, they do not.',
+      line: s.password ? 'Password: ' + s.password : 'Password set.',
       label: 'Remove', act: () => setPassword(''), can: true,
     });
   }
@@ -188,35 +199,71 @@ function diagnosis(s) {
 
 /* ---- actions ---- */
 
-function bumpSeats(by) {
+/* A failed control changed nothing, so it gets a toast and NOT a re-render. The rebuild is what threw away the
+ * name somebody had just typed and left them looking at an empty box. */
+
+/* The seat count the host has clicked their way to but Steam has not been told about yet, and the timer that will
+ * tell it. Null means "no pending change" - the mod's number is the truth. */
+let seatsWanted = null;
+let seatsTimer = null;
+
+function shownMax(s) {
+  return seatsWanted === null ? s.max : seatsWanted;
+}
+
+/* One lobby-data write per burst of clicks, not one per click: the number moves at once, Steam hears about it
+ * 400ms after the last step. Holding + used to stall the app for a frame on every press. */
+function bumpSeats(by, show) {
   const s = state();
-  const got = parseInt(ask('lobby.setMax', String(s.max + by)), 10);
+  const base = shownMax(s);
+  const next = Math.max(2, Math.min(s.ceiling, base + by));
+  if (next === base) return;
+  seatsWanted = next;
+  if (show) show(next);
+  if (seatsTimer) clearTimeout(seatsTimer);
+  seatsTimer = setTimeout(commitSeats, 400);
+}
+
+function commitSeats() {
+  seatsTimer = null;
+  const want = seatsWanted;
+  seatsWanted = null;
+  if (want === null) return;
+  const got = parseInt(ask('lobby.setMax', String(want)), 10);
+  // The exception to the toast-only rule above: the stepper is showing a number nobody accepted, so it has to go
+  // back to the one Steam is handing out.
   if (isNaN(got)) { say('Could not change the seats.', 'bad'); return; }
   // Steam decides, not the page.
-  if (got === s.max) say('Steam kept it at ' + got + '.', 'bad');
+  if (got !== want) say('Steam kept it at ' + got + '.', 'bad');
   else say(got + ' seats.', 'ok');
 }
 
 function setVisibility(pub) {
-  if (ask('lobby.setVisibility', pub ? 'pub' : 'priv') !== 'ok') { say('Could not change who can find you.', 'bad'); return; }
+  if (ask('lobby.setVisibility', pub ? 'pub' : 'priv') !== 'ok') { toast('Could not change who can find you.', 'bad'); return; }
   say(pub ? 'Listed publicly.' : 'Friends only now.', 'ok');
 }
 
 function setPassword(pw) {
-  if (ask('lobby.setPassword', pw) !== 'ok') { say('Could not change the password.', 'bad'); return; }
+  if (ask('lobby.setPassword', pw) !== 'ok') { toast('Steam would not take the password. Try again in a moment.', 'bad'); return; }
   say(pw.trim() ? 'Password set.' : 'Password removed.', 'ok');
 }
 
 function setEnforce(on) {
   const answer = ask('lobby.setEnforce', on ? '1' : '0');
-  if (answer === 'nolist') { say('This session publishes no mod list, so there is nothing to check.', 'bad'); return; }
-  if (answer !== 'ok') { say('Could not change the mod requirement.', 'bad'); return; }
+  if (answer === 'nolist') { toast('This session has no mod list to check joiners against.', 'bad'); return; }
+  if (answer !== 'ok') { toast('Could not change the mod requirement.', 'bad'); return; }
   say(on ? 'Mod set required. Unsynced players are removed.' : 'Mod set no longer required.', 'ok');
+}
+
+function republish() {
+  if (ask('lobby.republish') !== 'ok') { toast('Could not put the mod list on the lobby.', 'bad'); return; }
+  say('Mod list published. Joining works again.', 'ok');
 }
 
 function togglePublish() {
   const answer = ask('lobby.togglePublish');
-  if (answer !== '0' && answer !== '1') { say('Could not change publishing.', 'bad'); return; }
+  if (answer === 'n/a') { toast('Your session is already listed by Side Hustle itself.', 'bad'); return; }
+  if (answer !== '0' && answer !== '1') { toast('Could not change publishing.', 'bad'); return; }
   say(answer === '1' ? 'Published.' : 'Withdrawn.', 'ok');
 }
 
@@ -232,13 +279,18 @@ function head(row, iconName, label, tail) {
 }
 
 function seatsRow(s) {
+  const shown = shownMax(s);
   const row = el('div', 'row');
-  head(row, 'seats', 'Seats', s.max < s.members ? 'below the headcount' : 'up to ' + s.ceiling);
+  head(row, 'seats', 'Seats', shown < s.members ? 'below the headcount' : 'up to ' + s.ceiling);
   const line = el('div', 'seatline');
   const stepper = el('div', 'stepper');
-  stepper.appendChild(button(s.max <= 2 ? 'step off' : 'step', null, 'minus', () => { if (s.max > 2) bumpSeats(-1); }));
-  stepper.appendChild(el('div', 'seatnum', s.max));
-  stepper.appendChild(button(s.max >= s.ceiling ? 'step off' : 'step', null, 'plus', () => { if (s.max < s.ceiling) bumpSeats(1); }));
+  // Handed to bumpSeats so a click can move the digit without a full rebuild, which is what makes holding the
+  // stepper feel like a stepper.
+  const num = el('div', 'seatnum', shown);
+  const show = (v) => { num.textContent = String(v); };
+  stepper.appendChild(button(shown <= 2 ? 'step off' : 'step', null, 'minus', () => bumpSeats(-1, show)));
+  stepper.appendChild(num);
+  stepper.appendChild(button(shown >= s.ceiling ? 'step off' : 'step', null, 'plus', () => bumpSeats(1, show)));
   line.appendChild(stepper);
   row.appendChild(line);
   return row;
@@ -256,7 +308,7 @@ function passwordRow(s) {
   const control = el('div', 'control');
   const field = el('input', 'field');
   field.setAttribute('maxlength', '32');
-  field.setAttribute('placeholder', s.hasPassword && !s.password ? 'Set - type a new one to change it' : 'No password');
+  field.setAttribute('placeholder', s.hasPassword && !s.password ? 'Set password' : 'No password');
   field.value = s.password || '';
   field.addEventListener('keydown', (e) => { if (e.key === 'Enter') setPassword(field.value); });
   control.appendChild(field);
@@ -293,6 +345,15 @@ function publishRow(s) {
   st.appendChild(el('div', s.published ? 'dot live' : 'dot'));
   st.appendChild(el('div', s.published ? 'state-text live' : 'state-text', s.published ? 'Listed' : 'Not listed'));
   h.appendChild(st);
+
+  // The switch only applies to a co-op lobby Side Hustle did not start. Hosting a Side Hustle session, publishing
+  // over it would rewrite the name, seats, visibility and join manifest with vanilla values, so the mod refuses -
+  // and a button that answers "could not" is worse than no button. Say why instead.
+  if (!s.canPublish) {
+    row.appendChild(el('div', 'hint', 'Your session is already listed by Side Hustle itself.'));
+    return row;
+  }
+
   row.appendChild(button('btn wide', s.published ? 'Unpublish' : 'Publish', null, togglePublish));
   return row;
 }
@@ -306,7 +367,10 @@ function nameRow(s) {
   field.setAttribute('placeholder', 'Lobby name');
   field.value = s.name || '';
   const save = () => {
-    if (ask('lobby.setName', field.value) !== 'ok') { say('Could not change the name.', 'bad'); return; }
+    if (ask('lobby.setName', field.value) !== 'ok') {
+      toast('Steam would not take the name. Try again in a moment.', 'bad');
+      return;
+    }
     say('Name changed.', 'ok');
   };
   field.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
@@ -582,7 +646,7 @@ function render() {
   if (s.inLobby) {
     seatsEl.className = s.members >= s.max ? 'seats full' : 'seats';
     seatsEl.appendChild(icon('seats'));
-    seatsEl.appendChild(el('div', null, s.members + ' / ' + s.max));
+    seatsEl.appendChild(el('div', null, s.members + ' / ' + shownMax(s)));
   } else {
     seatsEl.className = 'seats';
     seatsEl.appendChild(el('div', null, '-'));
