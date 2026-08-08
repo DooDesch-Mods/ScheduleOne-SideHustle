@@ -315,6 +315,30 @@ namespace SideHustle.Menu
                     OnClick = () => OnSelectGamemode(desc)
                 });
             }
+
+            // Gamemodes the boot gate held back. They have not run, so there is no descriptor to read - the row
+            // carries what the file itself says and loading it on click fills in the rest. Without this the list
+            // is empty on a machine with four gamemodes installed, which is the whole reason the gate needs it.
+            foreach (var candidate in Mods.GamemodeProbe.Waiting())
+            {
+                var waiting = candidate;
+                string by = string.IsNullOrWhiteSpace(waiting.Author) ? "" : "by " + waiting.Author.Trim() + "   ";
+                rows.Add(new Row
+                {
+                    Name = waiting.Name,
+                    Subtitle = "Installed, not loaded yet. Pick it and it starts.",
+                    Corner = by + (string.IsNullOrWhiteSpace(waiting.Version) ? "Ready" : waiting.Version),
+                    OnClick = () =>
+                    {
+                        if (Mods.GamemodeProbe.Load(waiting)) ShowGamemodeList();
+                        else ShowRows("Choose a gamemode", new List<Row>
+                        {
+                            new Row { Name = waiting.Name + " could not be loaded", Subtitle = "See the log for what it said.", Disabled = true },
+                            new Row { Name = "Back", Subtitle = "Back to the gamemode list.", OnClick = ShowGamemodeList }
+                        });
+                    }
+                });
+            }
             return rows;
         }
 

@@ -62,6 +62,36 @@ namespace SideHustle.Mods
             return registered;
         }
 
+        internal static bool IsPending(string file)
+        {
+            foreach (string p in Pending)
+                if (string.Equals(p, file, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// Load one mod and exactly what it needs, in the order the boot plugin worked out.
+        /// </summary>
+        /// <remarks>
+        /// The first version took every held-back mod ahead of this one in the list, on the grounds that the list
+        /// was already in dependency order. It was, and it was still wrong: picking PropHunt loaded twenty mods,
+        /// froze the menu for as long as that took, and stalled outright on one of them that had no business being
+        /// started from a menu at all. A gamemode needs its own dependencies. Everything else can keep waiting.
+        /// </remarks>
+        internal static bool LoadClosure(IReadOnlyList<string> closure, string target)
+        {
+            if (closure == null || closure.Count == 0) return false;
+            bool ok = false;
+            foreach (string file in closure)
+            {
+                if (!IsPending(file)) continue;   // already running: nothing to do, and never twice
+                Pending.Remove(file);
+                bool loaded = LoadOne(file);
+                if (string.Equals(file, target, StringComparison.OrdinalIgnoreCase)) ok = loaded;
+            }
+            return ok;
+        }
+
         /// <summary>One file, both steps, and a line saying which of them failed. A mod that loads but does not
         /// register is the failure mode worth naming: nothing throws and nothing runs.</summary>
         internal static bool LoadOne(string file)

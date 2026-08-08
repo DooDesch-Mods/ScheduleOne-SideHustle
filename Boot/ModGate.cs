@@ -107,6 +107,26 @@ namespace SideHustle.Boot
                 string dir = Path.Combine(MelonEnvironment.UserDataDirectory, "SideHustle");
                 Directory.CreateDirectory(dir);
                 File.WriteAllLines(Path.Combine(dir, "deferred-mods.txt"), _deferred);
+
+                // The gamemodes among them, with what a menu row needs. Written here because the parse already
+                // happened: reading every DLL twice, once in each assembly, would be the same work for the same
+                // answer. "path|name|version|author", one per line.
+                var rows = new List<string>();
+                foreach (string file in _deferred)
+                {
+                    var facts = Facts(file);
+                    if (!facts.LooksLikeGamemode) continue;
+                    rows.Add(string.Join("|", file,
+                        facts.MelonName ?? Path.GetFileNameWithoutExtension(file),
+                        facts.MelonVersion ?? "", facts.MelonAuthor ?? "",
+                        // What picking THIS one has to load with it, in order. Not the whole list up to it: the
+                        // first version loaded everything ahead of the pick, twenty mods deep, and the game sat
+                        // frozen through all of it before one of them stalled the chain entirely. A gamemode needs
+                        // its own dependencies and nothing else.
+                        string.Join(";", ClosureOf(file))));
+                }
+                File.WriteAllLines(Path.Combine(dir, "deferred-gamemodes.txt"), rows);
+                if (rows.Count > 0) log.Msg($"[gate] {rows.Count} of them look like gamemodes; the menu can list them unloaded.");
             }
             catch (Exception e) { log.Warning("[gate] could not write the deferred list: " + e.Message); }
         }
@@ -230,8 +250,14 @@ namespace SideHustle.Boot
         {
             internal string AssemblyName;
             internal string MelonName;
+            internal string MelonVersion;
+            internal string MelonAuthor;
             internal readonly List<string> References = new List<string>();
             internal readonly List<string> DeclaredDependencies = new List<string>();
+
+            /// <summary>Built against Side Hustle, so it is almost certainly a gamemode - that reference exists to
+            /// call API.Register and nothing else does. Enough to put a row in the menu without loading it.</summary>
+            internal bool LooksLikeGamemode => References.Contains("SideHustle");
         }
 
         private static readonly Dictionary<string, ModFacts> _facts = new Dictionary<string, ModFacts>(StringComparer.OrdinalIgnoreCase);
@@ -264,7 +290,11 @@ namespace SideHustle.Boot
                 {
                     string type = attribute.AttributeType?.Name ?? "";
                     if (type == "MelonInfoAttribute" && attribute.ConstructorArguments.Count > 1)
+                    {
                         facts.MelonName = attribute.ConstructorArguments[1].Value as string;
+                        if (attribute.ConstructorArguments.Count > 2) facts.MelonVersion = attribute.ConstructorArguments[2].Value as string;
+                        if (attribute.ConstructorArguments.Count > 3) facts.MelonAuthor = attribute.ConstructorArguments[3].Value as string;
+                    }
                     else if (type == "MelonAdditionalDependenciesAttribute" || type == "MelonOptionalDependenciesAttribute")
                         foreach (var argument in attribute.ConstructorArguments)
                             if (argument.Value is Mono.Cecil.CustomAttributeArgument[] names)
@@ -275,6 +305,36 @@ namespace SideHustle.Boot
             catch { /* unreadable: no identity, no edges, and it keeps its place */ }
             _facts[file] = facts;
             return facts;
+        }
+
+        /// <summary>Everything one held-back mod needs, itself last, in load order. Only files that are also held
+        /// back - a dependency already running is not something to load again.</summary>
+        private static List<string> ClosureOf(string file)
+        {
+            var byName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string other in _deferred)
+            {
+                var facts = Facts(other);
+                if (facts.AssemblyName != null && !byName.ContainsKey(facts.AssemblyName)) byName[facts.AssemblyName] = other;
+                if (facts.MelonName != null && !byName.ContainsKey(facts.MelonName)) byName[facts.MelonName] = other;
+            }
+
+            var ordered = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            void Walk(string current)
+            {
+                if (!seen.Add(current)) return;
+                var facts = Facts(current);
+                foreach (string need in facts.References)
+                    if (byName.TryGetValue(need, out string dep) && dep != current) Walk(dep);
+                foreach (string need in facts.DeclaredDependencies)
+                    if (byName.TryGetValue(need, out string dep) && dep != current) Walk(dep);
+                ordered.Add(current);
+            }
+
+            Walk(file);
+            return ordered;
         }
 
         private static string AssemblyNameOf(string file) => Facts(file).AssemblyName;
