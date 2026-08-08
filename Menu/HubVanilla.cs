@@ -103,6 +103,7 @@ namespace SideHustle.Menu
             {
                 LobbyId = 1234567, LobbyName = "Sam's modded run", HostName = "Sam", Org = "Kings of Cul-de-Sac",
                 Enforced = true, MHash = "1a2b3c4d5e6f7a8b", Members = 2, MaxPlayers = 4, OwnerSteamId = 76561190000000000UL,
+                HostReady = true, Runtime = LobbyCoordinator.ThisRuntime,   // a healthy lobby, so the self-test exercises the join itself
             };
             return (row, manifest, diff, "1a2b3c4d5e6f7a8b", "[SomeMod_01_Main]\nDifficulty = \"hard\"\nSpawnRate = 2.5\n");
         }
@@ -129,6 +130,7 @@ namespace SideHustle.Menu
             ClearFormHost();
             SetTmp(_clone.transform, "Title", "Manual installs");
             var host = CreateFormHost("SH_ManualInstall", 560f);
+            SyncManualInstallView.SetHost(s.Row?.OwnerSteamId ?? 0UL, s.Row?.HostName);
             SyncManualInstallView.Build(host, s.Diff, onContinue: ShowVanillaChoice, onBack: ShowVanillaChoice);
         }
 
@@ -480,6 +482,7 @@ namespace SideHustle.Menu
             // published mod breakdown is shown on the sync-consent screen after the player picks the lobby.
             string extra = $"save '{r.Org}'";
             if (r.Enforced) extra += "  ·  synced-only";
+            if (!VanillaLobby.AcceptsJoiners(r)) extra += "  ·  not accepting joiners";
             return new LobbyRow
             {
                 LobbyId = r.LobbyId,
@@ -491,12 +494,41 @@ namespace SideHustle.Menu
                 PwHash = r.PwHash,
                 GamemodeName = "Vanilla Co-op",
                 Mode = extra,
+                Runtime = r.Runtime,
             };
         }
 
         private static void StartVanillaJoin(VanillaLobbyRow row)
         {
             _vanillaRetried = false;   // a newly picked lobby gets its own "show me what is missing" pass
+
+            // Before anything else, including a password prompt: will entering this lobby get us into a game at all?
+            // A host whose lobby never got the game's own "ready" key admits members and then leaves them standing in
+            // the menu - and finding that out costs a full mod sync plus a game restart first. Say it here instead.
+            //
+            // Offered rather than refused, because the key can lag: a host who finished loading a second ago has it
+            // set locally before our cached copy of their lobby data shows it.
+            if (!VanillaLobby.AcceptsJoiners(row))
+            {
+                var gate = DialogRoot();
+                if (gate != null)
+                {
+                    DooDesch.UI.Components.ConfirmDialog(gate, "Not accepting joiners",
+                        $"{(string.IsNullOrEmpty(row.HostName) ? "This host" : row.HostName)}'s lobby is listed, but it never told the game it is ready for players - "
+                        + "that happens when a lobby is opened after the host was already playing, on a build older than Side Hustle 2.3.0. "
+                        + "Joining would install their mods, restart your game and then leave you in the menu.\n\n"
+                        + "Ask them to unpublish and publish again, or try anyway if they only just finished loading.",
+                        "Try anyway", () => StartVanillaJoinChecked(row));
+                    return;
+                }
+            }
+
+            StartVanillaJoinChecked(row);
+        }
+
+        /// <summary>The join proper, past the "can this lobby be entered at all" gate.</summary>
+        private static void StartVanillaJoinChecked(VanillaLobbyRow row)
+        {
             // Password gate first (client-side hash compare, the casual gate the gamemode browser also uses).
             if (row.HasPassword && !string.IsNullOrEmpty(row.PwHash))
             {
@@ -679,6 +711,9 @@ namespace SideHustle.Menu
                 ClearFormHost();
                 SetTmp(_clone.transform, "Title", "Manual installs");
                 var mh = CreateFormHost("SH_ManualInstall", 560f);
+                // The owner id the browser already read from the lobby - what turns "you cannot get this mod" into
+                // "ask the person who has it".
+                SyncManualInstallView.SetHost(row?.OwnerSteamId ?? 0UL, row?.HostName);
                 SyncManualInstallView.Build(mh,
                     diff,
                     onContinue: () => BuildAndRestart(row, diff, mhash, hostPrefs),
@@ -738,6 +773,7 @@ namespace SideHustle.Menu
                         ClearFormHost();
                         SetTmp(_clone.transform, "Title", "Still missing");
                         var mh = CreateFormHost("SH_SyncRetry", 560f);
+                        SyncManualInstallView.SetHost(row?.OwnerSteamId ?? 0UL, row?.HostName);
                         SyncManualInstallView.Build(mh, diff,
                             onContinue: () => BuildAndRestart(row, diff, mhash, hostPrefs),
                             onBack: ShowVanillaBrowser);

@@ -56,6 +56,20 @@ namespace SideHustle.Menu
             if (resolved.Count > 0 || rowsChanged) _refresh?.Invoke();
         }
 
+        /// <summary>The host of the lobby this checklist belongs to, so the player can ask them about a mod they
+        /// cannot get. Zero when unknown (the gamemode path does not carry it), which hides the button rather than
+        /// offering one that goes nowhere.</summary>
+        private static ulong _hostSteamId;
+        private static string _hostName = "";
+
+        /// <summary>Name the host before building, so "Ask the host" appears. Separate from Build because the two
+        /// callers know different amounts: the vanilla browser has the owner id, the gamemode path does not.</summary>
+        internal static void SetHost(ulong steamId, string name)
+        {
+            _hostSteamId = steamId;
+            _hostName = name ?? "";
+        }
+
         internal static void Build(Transform formHost, SyncDiff diff, Action onContinue, Action onBack)
         {
             const float Pad = 30f;
@@ -156,6 +170,19 @@ namespace SideHustle.Menu
 
             var (backGO, backBtn, _b) = UIFactory.ButtonWithLabel("Back", "Back", footer.transform, Theme.Button, 140, 40);
             Place2(backGO, left: true);
+
+            // The one thing this screen could never do: say something back. A mod the host built themselves is not
+            // on Nexus and never will be - the only way forward is to ask them. Goes straight to their SteamID over
+            // Steam P2P, so it needs no lobby seat and no friendship.
+            if (_hostSteamId != 0UL)
+            {
+                var (askGO, askBtn, _a) = UIFactory.ButtonWithLabel("AskHost", "Ask the host", footer.transform, Theme.Button, 170, 40);
+                var art2 = askGO.GetComponent<RectTransform>();
+                art2.anchorMin = art2.anchorMax = new Vector2(0, 0.5f);
+                art2.pivot = new Vector2(0, 0.5f);
+                art2.anchoredPosition = new Vector2(156f, 0f);
+                askBtn.onClick.AddListener((UnityEngine.Events.UnityAction)AskHost);
+            }
             backBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => { _active = false; onBack?.Invoke(); }));
 
             var (contGO, cBtn, _c) = UIFactory.ButtonWithLabel("Continue", "Continue", footer.transform, Theme.Accent, 220, 40);
@@ -164,6 +191,28 @@ namespace SideHustle.Menu
             cBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => { _active = false; onContinue?.Invoke(); }));
 
             Render();
+        }
+
+        /// <summary>Ask the host about what is missing. One line, sent and forgotten - there is no inbox on this
+        /// screen, and building one for a menu that exists for thirty seconds would be the wrong shape. The answer
+        /// arrives in the host's phone; if they let you in, you see it because the lobby changes.</summary>
+        private static void AskHost()
+        {
+            var root = Hub.DialogRootStatic();
+            if (root == null) return;
+            string who = string.IsNullOrEmpty(_hostName) ? "the host" : _hostName;
+            Components.PromptDialog(root, "Ask " + who,
+                "They see this on their phone, in the Side Hustle app. Say which mod you cannot get - they are the "
+                + "only one who can send it to you or let you in without it.",
+                "for example: where do I get Sideload?", "Send",
+                text =>
+                {
+                    text = (text ?? "").Trim();
+                    if (text.Length == 0) return "Write something first.";
+                    if (!Phone.ChatRelay.Send(_hostSteamId, text)) return "Steam would not send that. Try again.";
+                    ShowToast("Sent to " + who + ".", Severity.Success);
+                    return null;
+                });
         }
 
         private static void OpenStaging()

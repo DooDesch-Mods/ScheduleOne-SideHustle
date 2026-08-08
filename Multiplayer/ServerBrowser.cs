@@ -256,7 +256,8 @@ namespace SideHustle.Multiplayer
                         PwHash = info.PwHash,
                         BuildId = info.BuildId,
                         GamemodeId = info.GamemodeId,
-                        DownloadUrl = info.DownloadUrl
+                        DownloadUrl = info.DownloadUrl,
+                        Runtime = info.Runtime
                     });
                 }
             }

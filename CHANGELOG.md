@@ -3,6 +3,40 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [2.3.0] - 2026-08-08
+
+### Added
+
+- The main menu carries a column on the right with the things you used to have to open a screen to find out:
+  how many published sessions are listed and how many of those are taking players, whether you booted into a
+  mod profile instead of your normal setup, and whether anyone messaged you. Switch it off with
+  `MenuStatePanel`.
+- A Lobby app on your phone changes the things you used to have to end the session for: the lobby name, the
+  join password, public or friends only, how many seats, whether joiners need your mods, and publishing the
+  session. Host only, and every change applies to the next person who joins rather than to anyone already
+  in. The password says outright that it is only checked in the Side Hustle browser and that a Steam invite
+  goes around it.
+- Someone who finds your session but cannot get in can now send you a line, and it lands in the Lobby app on
+  your phone. It goes straight between the two of you over Steam, so it costs none of your seats and needs no
+  friendship. Mute one person, or switch strangers off entirely under `AcceptStrangerMessages`.
+- Lobby cards say which branch the host plays on, IL2CPP in green or Mono in red. The two cannot play
+  together, and nothing on the card used to tell you that before you tried.
+- The Rejoining screen gets a Cancel button after eight seconds. It leaves the host's lobby so you stop
+  holding one of their seats, and puts you back in the Side Hustle menu with your synced mods still set
+  up - "Restore my mods" is there when you want them back.
+
+### Fixed
+
+- Joining a lobby that was published from the pause menu works. The game only starts loading for a joiner
+  when the host's lobby is marked ready, and a lobby opened while the host was already playing never got
+  that mark, so you installed their mods, restarted, and arrived at your own main menu.
+- A lobby that cannot take players is marked "not accepting joiners" in the browser, and picking one asks
+  first. Finding that out used to cost a full mod download and a game restart.
+- When a join is never going to start, Side Hustle stops after 15 seconds and puts the reason on screen.
+  It used to leave "Rejoining" up for two minutes.
+- The manual install list says why a mod cannot be downloaded. A mod the host built themselves, which you
+  cannot download anywhere, looked exactly like one that was still on its way.
+
 ## [2.2.9] - 2026-08-07
 
 ### Fixed

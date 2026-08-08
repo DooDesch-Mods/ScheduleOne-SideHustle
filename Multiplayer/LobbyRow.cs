@@ -15,5 +15,6 @@ namespace SideHustle.Multiplayer
         public string BuildId;  // host's gamemode build fingerprint (sh_build) - the browser flags a version mismatch
         public string GamemodeId;   // stable gamemode id (sh_gamemode) - matches a lobby to an installed gamemode
         public string DownloadUrl;  // where to get the mod (sh_url) - shown as "Download Mod" for uninstalled gamemodes
+        public string Runtime;      // host's game branch (sh_rt): "il2cpp", "mono", or empty from an older host
     }
 }

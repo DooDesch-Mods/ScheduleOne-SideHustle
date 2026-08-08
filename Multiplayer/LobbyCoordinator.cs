@@ -30,6 +30,25 @@ namespace SideHustle.Multiplayer
         internal const string KeyAdvertise = "sh_adv";   // "1" on a public lobby whose gamemode opted in to discovery
         internal const string KeyUrl = "sh_url";         // where to get the gamemode mod (for the "Download Mod" button)
         internal const string KeyGamemodeFile = "sh_gmfile";   // the gamemode's OWN dll in the published join mod set
+        internal const string KeyRuntime = "sh_rt";            // which game branch the host is playing on
+
+        /// <summary>
+        /// The game branch this build runs on, written onto every lobby we open.
+        ///
+        /// Schedule I ships two incompatible branches from the same Steam app - IL2CPP (default) and Mono
+        /// (alternate) - and their lobbies sit in the same Steam lobby list. Nothing the game itself publishes
+        /// distinguishes them, so a player on the wrong branch can see a lobby, join it, and only find out when
+        /// nothing works. One key fixes that, and it has to come from the compiler rather than from anything measured
+        /// at runtime: a build knows its own branch for certain.
+        ///
+        /// A lobby without the key is simply unknown, never assumed - a host on an older Side Hustle writes nothing.
+        /// </summary>
+        internal const string ThisRuntime =
+#if IL2CPP
+            "il2cpp";
+#else
+            "mono";
+#endif
 
         private static Lobby LobbyOrNull()
         {
@@ -111,6 +130,7 @@ namespace SideHustle.Multiplayer
                 if (!string.IsNullOrEmpty(opts.ConfigBlob))
                     SteamMatchmaking.SetLobbyData(sid, KeyConfig, opts.ConfigBlob);
                 SteamMatchmaking.SetLobbyData(sid, KeyBuild, BuildIdOf(desc));
+                SteamMatchmaking.SetLobbyData(sid, KeyRuntime, ThisRuntime);
                 // Advertise this gamemode's PUBLIC lobbies to players who do not have it installed (a discovery marker
                 // + a download link the browser can open). Private lobbies are never advertised - you cannot join them
                 // anyway - and a gamemode can opt out with Advertise = false (e.g. a WIP mod not ready to be found).
@@ -272,6 +292,7 @@ namespace SideHustle.Multiplayer
                 info.BuildId = SteamMatchmaking.GetLobbyData(sid, KeyBuild);
                 info.GamemodeId = SteamMatchmaking.GetLobbyData(sid, KeyGamemode);
                 info.DownloadUrl = SteamMatchmaking.GetLobbyData(sid, KeyUrl);
+                info.Runtime = SteamMatchmaking.GetLobbyData(sid, KeyRuntime);
                 int.TryParse(SteamMatchmaking.GetLobbyData(sid, KeyMax), out int max);
                 info.MaxPlayers = max;
             }

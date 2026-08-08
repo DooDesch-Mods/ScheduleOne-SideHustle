@@ -175,7 +175,11 @@ namespace SideHustle.Sync
                     {
                         Core.Log?.Warning($"[sync] '{e.Mod.File}': no GitHub release asset matched the host's hash; falling back to the manual link.");
                         diff.Unresolved.Add($"{e.Mod.Name ?? e.Mod.File} {e.Mod.Version} - no published file matches the host's build");
-                        e.Status = DiffStatus.Manual;
+                        // Through Downgrade, not by hand: setting the status directly skipped the note, so the one
+                        // case where the checklist genuinely cannot be worked through - the host is running something
+                        // they built themselves, which exists nowhere to download - looked exactly like a mod still
+                        // waiting to be fetched. The player then hunts a file that was never published.
+                        Downgrade(e, "the host runs a build that was never published - no download can match it");
                         allOk = false;
                     }
                     continue;

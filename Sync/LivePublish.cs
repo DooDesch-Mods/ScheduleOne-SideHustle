@@ -97,6 +97,29 @@ namespace SideHustle.Sync
             catch (Exception e) { Core.Log?.Warning("[sync] publish button build failed: " + e.Message); }
         }
 
+        /// <summary>Whether this session's lobby is currently advertised by the live-publish path. The pause-menu
+        /// button and the phone app are two views of the same switch, so both read it from here.</summary>
+        internal static bool IsPublished => _published;
+
+        /// <summary>Whether live publishing applies at all right now: we host a real co-op lobby that Side Hustle
+        /// did not start itself (one it started publishes itself). Same test the button's visibility uses.</summary>
+        internal static bool CanPublish
+        {
+            get
+            {
+                try
+                {
+                    var lobby = PersistentSingleton<Lobby>.Instance;
+                    return lobby != null && lobby.IsInLobby && lobby.IsHost && !SyncCoordinator.IsInSession;
+                }
+                catch { return false; }
+            }
+        }
+
+        /// <summary>Flip the switch from somewhere other than the button (the phone app). Same code path, so the two
+        /// surfaces cannot drift apart.</summary>
+        internal static void TogglePublished() => Toggle();
+
         private static void Toggle()
         {
             try
@@ -131,6 +154,27 @@ namespace SideHustle.Sync
                 bool ok = VanillaLobby.Tag(opts, plan.Manifest.ToCanonicalText(), "", false, org + "'s game",
                     $"{plan.AutoCount + plan.GhCount}/{plan.LinkCount}/{plan.DroppedCount}");
                 if (!ok) { Core.Log?.Warning("[sync] could not publish the lobby."); return; }
+
+                // Tell the lobby the host's world is up, or nobody can ever join it.
+                //
+                // A joiner only starts loading when SteamLobbyService.OnLobbyEntered finds "ready", "load_tutorial"
+                // or "host_loading" set; none of them matching means the client just sits in the menu with no error.
+                // And "ready" is written in exactly one place in the game - at the END of the host's world load, and
+                // only while already in a lobby (LoadManager). A lobby opened from the pause menu, which is the only
+                // kind this button is offered on, was created long after that ran, so OnLobbyCreated's "false" is
+                // the last word on it forever.
+                //
+                // Here the claim is simply true: the host is standing in their loaded world. The chat message covers
+                // anyone already waiting in the lobby, since they read it instead of the key. Neither is undone on
+                // unpublish - the world stays loaded, so the keys stay honest and a Steam invite keeps working.
+                try
+                {
+                    lobby.SetLobbyData("host_loading", "false");
+                    lobby.SetLobbyData("ready", "true");
+                    lobby.SendLobbyMessage("ready");
+                }
+                catch (Exception e) { Core.Log?.Warning("[sync] could not mark the lobby ready to join: " + e.Message); }
+
                 PublicLobbyAccess.Enable();
                 _published = true;
                 Core.Log?.Msg($"[sync] lobby published live ({plan.AutoCount + plan.GhCount}/{plan.LinkCount}/{plan.DroppedCount} mods).");

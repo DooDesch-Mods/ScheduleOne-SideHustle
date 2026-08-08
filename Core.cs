@@ -54,6 +54,11 @@ namespace SideHustle
             // The live-publish button (pause-menu lobby panel) patch - inert until a co-op host is eligible.
             Sync.LivePublish.Install();
 
+            // The host's in-game lobby controls, as a phone app. Registering is load-order proof and a no-op when
+            // Sideload is absent, so it goes here unconditionally rather than behind a check.
+            Phone.LobbyApp.Register();
+            Phone.ChatRelay.Install();   // P2P-Empfang fuer Leute, die nicht beitreten koennen
+
             // Guarantee a co-op client can always quit back to the menu (vanilla ExitToMenu can silently no-op).
             Multiplayer.ClientExitGuard.Install();
 
@@ -62,6 +67,7 @@ namespace SideHustle
 
 #if DEBUG
             Dev.StubGamemode.Register();
+            Debugging.DevConsole.Install();
 #endif
 
             // Version read from the assembly, never typed twice: a hardcoded string here silently lies about which
@@ -175,6 +181,9 @@ namespace SideHustle
                     // Say so NOW, not in 90 frames. The game just closed and reopened itself; an idle main menu is
                     // exactly what a failed restart looks like, so the wait cannot be the first thing with no message.
                     Menu.RejoinNotice.Show("Your mods are installed. Finding the session again - don't close the game.");
+                    // Nothing has been joined yet, so backing out here is just dropping the payload before it fires.
+                    // The coordinator replaces this with its own way out the moment it takes the step over.
+                    Menu.RejoinNotice.SetCancel(DropPendingJoin);
                 }
                 // After installing a gamemode we did not have, join the lobby that install was for.
                 string gmJoin = policySession ? Preferences.PendingGamemodeJoin : "";
@@ -184,6 +193,7 @@ namespace SideHustle
                     _gamemodeJoinPayload = gmJoin;
                     _reopenHubFrames = 90;
                     Menu.RejoinNotice.Show("Your mods are installed. Finding the session again - don't close the game.");
+                    Menu.RejoinNotice.SetCancel(DropPendingJoin);
                 }
                 // After relaunching into a gamemode profile, continue straight into the gamemode (mods are curated).
                 string cont = policySession ? Preferences.PendingContinue : "";
@@ -275,6 +285,19 @@ namespace SideHustle
             try { Sync.VanillaLobby.UnpublishDirectoryBlocking(); } catch { /* shutting down */ }
         }
 
+        /// <summary>
+        /// The player backed out during the short window between the restart and the coordinator taking over: drop
+        /// the queued rejoin so the countdown cannot fire it a moment later, and put them on the hub. Their mods stay
+        /// as the sync built them - "Restore my mods" is right there in the menu.
+        /// </summary>
+        private void DropPendingJoin()
+        {
+            _vanillaJoinPayload = null;
+            _gamemodeJoinPayload = null;
+            _reopenHubFrames = 0;
+            Hub.OpenScreen();
+        }
+
         public override void OnUpdate()
         {
             // The multiplayer coordinator's state machine must advance every frame (its host/join transitions
@@ -289,11 +312,15 @@ namespace SideHustle
             Sync.SyncCoordinator.TickGate();   // an enforcing host kicks unsynced members
             Sync.VanillaLobby.HeartbeatTick(UnityEngine.Time.unscaledDeltaTime);   // keep a published lobby on the web directory
             Menu.SessionNotice.Tick();   // why the last session ended - NOT gated on the menu flag, see SessionNotice
+            Menu.RejoinNotice.Tick(UnityEngine.Time.unscaledDeltaTime);   // offers the way out, yields to vanilla popups
+            Phone.ChatRelay.Tick();  // liest eingegangene P2P-Nachrichten
+            Phone.LobbyApp.Tick();   // pushes one event to the Lobby app when the session state actually moved
             Multiplayer.ClientExitGuard.TickWatchdog();   // recover a kicked/dropped client stranded on a loading screen
 
             if (_inMenu)
             {
                 MenuInjector.TickRetry();
+                Menu.StatePanel.Tick(UnityEngine.Time.unscaledDeltaTime);   // the right-hand state column
                 DooDesch.UI.SmoothScroll.Tick();   // smooth wheel glide for menu lists (host-config form, etc.)
                 DooDesch.UI.Toast.Tick();          // profile-manager toasts (removals, install results)
                 Hub.TickInput();   // right-click steps one view back (mod-check, host/join choice, browser, ...)

@@ -24,6 +24,12 @@ namespace SideHustle.Sync
         public bool Enforced;
         /// <summary>Host SteamID from the game's own "owner" lobby key (readable without joining) - the trust key.</summary>
         public ulong OwnerSteamId;
+        /// <summary>The game's own "ready" key: the host's world is up and clients are told to load on entry.</summary>
+        public bool HostReady;
+        /// <summary>The game's own "host_loading" key: the host is still loading; a joiner waits on their screen.</summary>
+        public bool HostLoading;
+        /// <summary>Host's game branch (sh_rt): "il2cpp", "mono", or empty from a host on an older build.</summary>
+        public string Runtime;
     }
 
     /// <summary>
@@ -93,6 +99,7 @@ namespace SideHustle.Sync
                 SteamMatchmaking.SetLobbyData(sid, KeyOrg, orgName ?? "");
                 SteamMatchmaking.SetLobbyData(sid, KeyEnforce, enforce ? "1" : "0");
                 SteamMatchmaking.SetLobbyData(sid, KeyModSummary, modSummary ?? "");
+                SteamMatchmaking.SetLobbyData(sid, LobbyCoordinator.KeyRuntime, LobbyCoordinator.ThisRuntime);
                 var mChunks = SyncCodec.Pack(manifestText);
                 var pChunks = SyncCodec.Pack(prefsText);
                 // Chunks first, then the chunk count is cleared if any of them was refused: a manifest that is
@@ -323,6 +330,22 @@ namespace SideHustle.Sync
             return ok;
         }
 
+        /// <summary>
+        /// Whether entering this lobby will actually get the player into a game.
+        ///
+        /// Vanilla starts a joining client's load from SteamLobbyService.OnLobbyEntered, and only when one of the
+        /// host's own lobby keys says so: "ready", "host_loading" or "load_tutorial". None of them set means the
+        /// client enters the lobby, takes a seat, and then sits in the menu forever with nothing on screen.
+        ///
+        /// That is not a rare edge. "ready" is written in exactly one place in the whole game - at the END of the
+        /// host's world load, and only while they are already in a lobby - so any lobby opened after the host was
+        /// already playing keeps the "false" that OnLobbyCreated wrote, permanently. Side Hustle's own live-publish
+        /// button now sets the key itself, but a host on an older build never will, which is what this check is for:
+        /// their lobby is real, discoverable and unjoinable, and the player deserves to learn that from the card
+        /// instead of from a two-minute restart that ends in a dead menu.
+        /// </summary>
+        internal static bool AcceptsJoiners(VanillaLobbyRow row) => row != null && (row.HostReady || row.HostLoading);
+
         internal static VanillaLobbyRow ReadSummary(ulong lobbyId)
         {
             var row = new VanillaLobbyRow { LobbyId = lobbyId };
@@ -338,6 +361,9 @@ namespace SideHustle.Sync
                 row.MHash = SteamMatchmaking.GetLobbyData(sid, KeyMHash);
                 row.Enforced = SteamMatchmaking.GetLobbyData(sid, KeyEnforce) == "1";
                 ulong.TryParse(SteamMatchmaking.GetLobbyData(sid, "owner"), out row.OwnerSteamId);   // the game's own key
+                row.HostReady = SteamMatchmaking.GetLobbyData(sid, "ready") == "true";               // ditto
+                row.HostLoading = SteamMatchmaking.GetLobbyData(sid, "host_loading") == "true";
+                row.Runtime = SteamMatchmaking.GetLobbyData(sid, LobbyCoordinator.KeyRuntime);
                 int.TryParse(SteamMatchmaking.GetLobbyData(sid, LobbyCoordinator.KeyMax), out row.MaxPlayers);
                 try { row.Members = SteamMatchmaking.GetNumLobbyMembers(sid); } catch { row.Members = 1; }
             }

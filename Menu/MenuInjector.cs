@@ -51,6 +51,7 @@ namespace SideHustle.Menu
             _injectedThisScene = false;
             _loggedStructure = false;
             _retries = 0;
+            StatePanel.Reset();   // the panel's canvas died with the old scene; it remounts on the next inject
         }
 
         /// <summary>Called every frame while in the Menu scene until we inject or give up.</summary>
@@ -95,6 +96,7 @@ namespace SideHustle.Menu
                             (UnityAction)Hub.OpenProfilesScreen, existingMain.transform.GetSiblingIndex() + 1);
                     _injectedThisScene = true;
                     Hub.RememberHome(home);
+                    StatePanel.Ensure();
                     if (Mods.AltBase.IsAltSession()) ApplyProfileMenu(home);
                     return;
                 }
@@ -120,6 +122,7 @@ namespace SideHustle.Menu
                 {
                     _injectedThisScene = true;
                     Hub.RememberHome(home);
+                    StatePanel.Ensure();
                     if (Mods.AltBase.IsAltSession()) ApplyProfileMenu(home);
                     Core.Log?.Msg("[menu] Side Hustle entry injected.");
                 }

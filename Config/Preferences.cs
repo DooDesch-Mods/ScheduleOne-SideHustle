@@ -37,6 +37,8 @@ namespace SideHustle.Config
         private static MelonPreferences_Entry<string> _pendingGamemodeJoin;
         private static MelonPreferences_Entry<string> _aliases;
         private static MelonPreferences_Entry<string> _lastSessionError;
+        private static MelonPreferences_Entry<bool> _acceptStrangerMessages;
+        private static MelonPreferences_Entry<bool> _menuPanel;
 
         internal static void Initialize()
         {
@@ -55,6 +57,17 @@ namespace SideHustle.Config
             _askHostOnContinue = _category.CreateEntry("AskHostOnContinue", true, "Ask to host publicly on Continue",
                 "When ON, clicking Continue or a save slot asks whether to open it as a public Side Hustle lobby. " +
                 "Turn OFF to always just play the save.");
+
+            _acceptStrangerMessages = _category.CreateEntry("AcceptStrangerMessages", true,
+                "Let people who cannot join message you",
+                "When ON, someone who found your published lobby but cannot get in - a mod they cannot download, a " +
+                "full session - can send you a short message, and it appears in the Lobby app on your phone. " +
+                "Turn OFF to refuse them silently. Only ever from people looking at YOUR published lobby.");
+
+            _menuPanel = _category.CreateEntry("MenuStatePanel", true, "Show the state panel in the main menu",
+                "When ON, a column down the right of the main menu says which mod set the game booted with, how " +
+                "many published sessions are taking players right now, and whether anyone messaged you. Needs " +
+                "Sideload 1.13.0 or newer; older versions simply show nothing.");
 
             _recent = _category.CreateEntry("RecentlyPlayed", "", "Recently played gamemodes",
                 "Internal: a list of recently launched gamemode ids so the hub can list them first. Managed automatically.");
@@ -91,6 +104,24 @@ namespace SideHustle.Config
 
         /// <summary>Whether clicking Continue / a save slot prompts to host it as a public Side Hustle lobby.</summary>
         internal static bool AskHostOnContinue => _askHostOnContinue?.Value ?? true;
+
+        /// <summary>Whether a stranger who cannot join this host's lobby may send them a short message. The one
+        /// switch that turns the whole relay off - a host who does not want to be reached should not have to mute
+        /// people one at a time.</summary>
+        internal static bool AcceptStrangerMessages
+        {
+            get => _acceptStrangerMessages?.Value ?? true;
+            set { if (_acceptStrangerMessages != null) { _acceptStrangerMessages.Value = value; Save(); } }
+        }
+
+        /// <summary>Whether the main menu carries the Side Hustle state column. Settable, because the panel turns
+        /// itself off once when the installed Sideload is too old to render outside the phone - asking that question
+        /// again on every menu load would be a log line per load and the same answer every time.</summary>
+        internal static bool MenuPanel
+        {
+            get => _menuPanel?.Value ?? true;
+            set { if (_menuPanel != null) { _menuPanel.Value = value; Save(); } }
+        }
 
         /// <summary>Your chosen display name for a given gamemode ("" = use the real Steam persona name). Stored
         /// per-gamemode so you can appear under a different name in each. Applied to the in-game player name for the

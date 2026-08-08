@@ -90,9 +90,26 @@ namespace SideHustle.Menu
                        + (row.HasPassword ? "   ·   Locked" : "")
                        + (versionMismatch ? "   ·   Different version - update to match host" : "");
 
+            // The host's game branch, as a colour rather than another clause in the subtitle. IL2CPP and Mono are the
+            // same Steam app and share this lobby list, but a player on one cannot join the other at all - so this is
+            // not a detail among the others, it is whether the Join button can work. Green for the branch this build
+            // runs on, red for the one it does not, nothing at all for a host too old to say (never a guess).
+            string branch = BranchLabel(row.Runtime);
             var name = UIFactory.Text("name", title, card.transform, Theme.Body, TextAnchor.LowerLeft, FontStyle.Bold);
             name.color = Theme.TextPrimary; name.raycastTarget = false; name.horizontalOverflow = HorizontalWrapMode.Overflow;
-            var nrt = name.rectTransform; nrt.anchorMin = new Vector2(0, 0.5f); nrt.anchorMax = new Vector2(1, 1); nrt.offsetMin = new Vector2(16, 0); nrt.offsetMax = new Vector2(-124, -4);
+            var nrt = name.rectTransform; nrt.anchorMin = new Vector2(0, 0.5f); nrt.anchorMax = new Vector2(1, 1); nrt.offsetMin = new Vector2(16, 0);
+            nrt.offsetMax = new Vector2(branch == null ? -124 : -196, -4);
+
+            if (branch != null)
+            {
+                bool joinable = string.Equals(row.Runtime, LobbyCoordinator.ThisRuntime, StringComparison.OrdinalIgnoreCase);
+                var badge = UIFactory.Text("branch", branch, card.transform, Theme.Caption, TextAnchor.LowerRight, FontStyle.Bold);
+                badge.color = joinable ? Theme.Success : Theme.DangerText;
+                badge.raycastTarget = false; badge.horizontalOverflow = HorizontalWrapMode.Overflow;
+                var brt = badge.rectTransform;
+                brt.anchorMin = new Vector2(1, 0.5f); brt.anchorMax = new Vector2(1, 1);
+                brt.offsetMin = new Vector2(-190, 0); brt.offsetMax = new Vector2(-128, -4);
+            }
 
             var subT = UIFactory.Text("sub", sub, card.transform, Theme.Caption, TextAnchor.UpperLeft);
             // Clip within the card (never draw under the Join button on the right): a long subtitle - e.g. a vanilla
@@ -112,6 +129,16 @@ namespace SideHustle.Menu
         }
 
         // --- helpers ---
+
+        /// <summary>The badge caption for a host's branch key, or null when the host never published one - an
+        /// unlabelled card says "unknown", which is the truth, where a grey "?" badge would just add noise to every
+        /// row hosted by an older build.</summary>
+        private static string BranchLabel(string runtime) => (runtime ?? "").ToLowerInvariant() switch
+        {
+            "il2cpp" => "IL2CPP",
+            "mono" => "MONO",
+            _ => null,
+        };
 
         private static GameObject NewCard(Transform content, float height)
         {
