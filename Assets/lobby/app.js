@@ -208,8 +208,10 @@ function setPassword(pw) {
 }
 
 function setEnforce(on) {
-  if (ask('lobby.setEnforce', on ? '1' : '0') !== 'ok') { say('Could not change the mod requirement.', 'bad'); return; }
-  say(on ? 'Mod set required.' : 'Mod set no longer required.', 'ok');
+  const answer = ask('lobby.setEnforce', on ? '1' : '0');
+  if (answer === 'nolist') { say('This session publishes no mod list, so there is nothing to check.', 'bad'); return; }
+  if (answer !== 'ok') { say('Could not change the mod requirement.', 'bad'); return; }
+  say(on ? 'Mod set required. Unsynced players are removed.' : 'Mod set no longer required.', 'ok');
 }
 
 function togglePublish() {
@@ -511,6 +513,10 @@ function composeInput() {
     if (ask('chat.send', openThread + String.fromCharCode(10) + text) !== 'ok') { say('Could not send that.', 'bad'); return; }
     field.value = '';
     render();
+    // Give the caret back. Sending is one message in a conversation, not the end of one, and having to click into
+    // the box again for every line is the whole reason this felt worse than WhatsDab - whose field is static markup
+    // the rebuild never touches. Asked for AFTER the render, which is the pass that re-paints the control.
+    field.focus();
   };
   field.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
   compose.appendChild(field);
@@ -543,12 +549,17 @@ function emptyState(iconName, title, line) {
 
 /* ---- render ---- */
 
+/* Which tabs exist right now.
+ *
+ * Outside a session there used to be no tab strip at all - the screen went straight to "No session running". But a
+ * message can arrive while nothing is running, and it does: the icon takes an unread badge and the phone raises a
+ * notification, both of which lead to a screen with no way through to what they are about. So the conversation stays
+ * reachable whenever there is one, or anyone to unmute. */
 function tabsFor(s) {
-  return [
-    { id: 'lobby', label: s.host ? 'Lobby' : 'Session', icon: 'lobby' },
-    { id: 'chat', label: 'Chat', icon: 'chat' },
-    { id: 'players', label: 'Players', icon: 'players' },
-  ];
+  const home = { id: 'lobby', label: s.host ? 'Lobby' : 'Session', icon: 'lobby' };
+  const chat = { id: 'chat', label: 'Chat', icon: 'chat' };
+  if (!s.inLobby) return s.hasChat ? [home, chat] : [home];
+  return [home, chat, { id: 'players', label: 'Players', icon: 'players' }];
 }
 
 function render() {
@@ -577,22 +588,27 @@ function render() {
     seatsEl.appendChild(el('div', null, '-'));
   }
 
-  if (!s.inLobby) {
-    body.appendChild(emptyState('lobby', 'No session running',
-      'Host or join a game from the Side Hustle menu. Host one and this is where you set seats and who can find you.'));
-    return;
-  }
+  const tabs = tabsFor(s);
+  // The session ending can take the tab the player was standing on with it.
+  if (!tabs.some((t) => t.id === tab)) tab = tabs[0].id;
 
-  for (const t of tabsFor(s)) {
-    const b = el('button', t.id === tab ? 'tab on' : 'tab');
-    b.appendChild(icon(t.icon));
-    b.appendChild(el('div', null, t.label));
-    if (t.id === 'chat' && s.unread > 0) b.appendChild(el('div', 'tab-badge', s.unread));
-    b.addEventListener('click', () => { if (tab !== t.id) { tab = t.id; s1.storage.set('tab', tab); render(); } });
-    tabsEl.appendChild(b);
+  // A strip with one tab is a strip that does nothing - the screen below it is already the only thing there is.
+  if (tabs.length > 1) {
+    for (const t of tabs) {
+      const b = el('button', t.id === tab ? 'tab on' : 'tab');
+      b.appendChild(icon(t.icon));
+      b.appendChild(el('div', null, t.label));
+      if (t.id === 'chat' && s.unread > 0) b.appendChild(el('div', 'tab-badge', s.unread));
+      b.addEventListener('click', () => { if (tab !== t.id) { tab = t.id; s1.storage.set('tab', tab); render(); } });
+      tabsEl.appendChild(b);
+    }
   }
 
   if (tab === 'chat') renderChat(body);
+  else if (!s.inLobby) {
+    body.appendChild(emptyState('lobby', 'No session running',
+      'Host or join a game from the Side Hustle menu. Host one and this is where you set seats and who can find you.'));
+  }
   else if (tab === 'players') renderPlayers(body);
   else if (s.host) renderLobby(body, s);
   else renderSession(body, s);

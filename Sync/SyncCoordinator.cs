@@ -302,9 +302,42 @@ namespace SideHustle.Sync
         /// Side Hustle session is kept alive on the web directory too.</summary>
         internal static void TickGate()
         {
-            if (_state != State.InSession || _isClient) return;
-            if (_enforce) SyncGate.Tick(LobbyCoordinator.CurrentLobbyId);
+            // The GATE's own armed flag decides whether to scan, not this coordinator's state. Enforcement can be
+            // switched mid-session from the phone app, and a lobby published with the in-game button is not a
+            // coordinator session at all - asking two flags is how the switch came to move the advertisement and
+            // leave the kicking exactly as it was.
+            if (!SyncGate.IsActive || _isClient) return;
+            if (!LobbyCoordinator.IsInLobby || !LobbyCoordinator.IsHost) return;
+            SyncGate.Tick(LobbyCoordinator.CurrentLobbyId);
         }
+
+        /// <summary>
+        /// Move the mod-set requirement of the session running right now - the kick with it.
+        /// </summary>
+        /// <remarks>
+        /// The host toggles this in the phone app, where it reads as one switch, so it has to be one. Turning it OFF
+        /// used to change the advertisement only: the gate kept scanning and kept removing people for a rule the host
+        /// had already dropped.
+        ///
+        /// <paramref name="expectedMHash"/> is the lobby's own published <c>sh_mhash</c>, which is exactly what a
+        /// synced client writes into its <c>sh_sync</c> member data - so this arms correctly for a live-published
+        /// lobby too, not just a session this coordinator started. Returns false when there is nothing to check
+        /// joiners against, and then arms nothing rather than kicking everybody.
+        /// </remarks>
+        internal static bool SetEnforce(bool enforce, string expectedMHash)
+        {
+            _enforce = enforce;
+            if (!enforce) { SyncGate.Disable(); return true; }
+            if (string.IsNullOrEmpty(expectedMHash)) { SyncGate.Disable(); return false; }
+            SyncGate.Enable(expectedMHash);
+            return true;
+        }
+
+        /// <summary>The menu scene unloaded, which happens for exactly one reason: a world is loading. What the next
+        /// menu needs to know is that a session happened in between.</summary>
+        private static bool _sawWorld;
+
+        internal static void OnLeftMenu() => _sawWorld = true;
 
         /// <summary>Menu scene (re)initialized: a live session ended via the vanilla save+quit flow - clean up.</summary>
         internal static void OnMenuScene()
@@ -315,10 +348,29 @@ namespace SideHustle.Sync
             // published, so it is safe to run on every menu return.
             LivePublish.Reset();
 
+            // Same reason, and now load-bearing: the gate can be armed on a lobby this coordinator never started
+            // (the phone app's switch), so an armed gate that survived into the menu would meet the NEXT session
+            // still scanning - and kick everyone out of a lobby whose host never asked for a mod requirement.
+            SyncGate.Disable();
+
+            // The conversations were about getting into the session that just ended, and the remembered join
+            // password belongs to the lobby that just closed. Showing either of them in the next one would be
+            // wrong as well as careless.
+            //
+            // Only after a world, never on a bare menu init. The menu initialises at boot and again while it
+            // settles, and by then a player may be halfway through asking a host whether they can get in - so
+            // "the menu came up" is the wrong trigger and "we came back from a session" is the right one.
+            if (_sawWorld)
+            {
+                _sawWorld = false;
+                Phone.ChatRelay.Clear();
+                Phone.LobbyControls.Reset();
+                Menu.ChatPanel.ForgetConversations();
+            }
+
             if (_state == State.Idle) return;
             if (_state == State.InSession) Core.Log?.Msg("[sync] vanilla session ended; cleaning up.");
             if (!_isClient) VanillaLobby.Untag();
-            SyncGate.Disable();
             PublicLobbyAccess.Disable();
             LobbyInviteAccess.Disable();
             PlayerAlias.Disable();

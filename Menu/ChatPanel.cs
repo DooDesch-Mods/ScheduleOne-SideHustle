@@ -156,6 +156,15 @@ namespace SideHustle.Menu
         /// asked; an unsolicited first line from a stranger must not be announced as one.</summary>
         private static readonly System.Collections.Generic.HashSet<ulong> _wroteTo = new System.Collections.Generic.HashSet<ulong>();
 
+        /// <summary>The conversations are gone (a session ended, and ChatRelay dropped its threads). Forget who was
+        /// written to as well, or the first line from a stranger in the NEXT session is announced as a reply to a
+        /// question nobody asked.</summary>
+        internal static void ForgetConversations()
+        {
+            _wroteTo.Clear();
+            Hide();
+        }
+
         /// <summary>
         /// Tell the player, in the menu, that the host they asked has answered.
         ///

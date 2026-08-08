@@ -62,6 +62,10 @@ namespace SideHustle.Phone
         internal static bool IsPublic => Read(LobbyCoordinator.KeyVisibility) != "priv";
         internal static bool Enforcing => Read(VanillaLobby.KeyEnforce) == "1";
 
+        /// <summary>Whether this lobby advertises a mod list at all. Without one there is nothing a mod-set
+        /// requirement could check a joiner against, so the switch that asks for one has to be able to say so.</summary>
+        internal static bool PublishesModList => !string.IsNullOrEmpty(Read(VanillaLobby.KeyMHash));
+
         /// <summary>Seats Steam is actually handing out right now, which is not necessarily what the host asked
         /// for - Steam can refuse a limit.</summary>
         internal static int MaxPlayers
@@ -105,11 +109,15 @@ namespace SideHustle.Phone
         {
             password = (password ?? "").Trim();
             bool has = password.Length > 0;
+            // Read the old flag BEFORE writing anything. The rollback below used to read it back off the lobby after
+            // the write it was undoing, so it faithfully restored the new value and the lobby was left claiming a
+            // password whose hash had never landed - every joiner refused, no way to get in.
+            string hadFlag = Read(LobbyCoordinator.KeyPassword);
             if (!Write(LobbyCoordinator.KeyPassword, has ? "1" : "0")) return false;
             // The hash is what a joiner compares against, so it has to land or the gate silently opens.
             if (!Write(LobbyCoordinator.KeyPwHash, has ? LobbyCoordinator.HashPassword(password) : ""))
             {
-                Write(LobbyCoordinator.KeyPassword, HasPassword ? "1" : "0");   // put the flag back
+                Write(LobbyCoordinator.KeyPassword, hadFlag);   // put the flag back as it was
                 return false;
             }
             _password = password;
@@ -148,15 +156,33 @@ namespace SideHustle.Phone
             return real;
         }
 
-        /// <summary>Advertise whether this host requires a matching mod set. The flag is what a joiner's browser
-        /// reads; the kicking half belongs to SyncGate and is only armed by a session that knows its own manifest
-        /// hash, which is why turning this ON here advertises the requirement without retroactively arming a gate
-        /// for a session that never had one.</summary>
+        /// <summary>
+        /// Require a matching mod set, or stop requiring it. Moves the advertisement and the kicking together.
+        /// </summary>
+        /// <remarks>
+        /// One switch in the app, so one switch here. Writing the key alone was the whole of this method, and the
+        /// half it left behind was the half that removes people: a host who turned the requirement off went on
+        /// kicking every unsynced joiner for the rest of the session, with the app showing "off".
+        ///
+        /// The gate checks joiners against the lobby's own published manifest hash, which is what a synced client
+        /// announces in its member data - so this arms a lobby published from the pause menu just as well as a
+        /// session Side Hustle started. A lobby with no published manifest has nothing to check against; then the
+        /// requirement is refused rather than advertised, because a rule that cannot be applied is a lie on a card
+        /// somebody else is reading.
+        /// </remarks>
         internal static bool SetEnforce(bool enforce)
         {
-            bool ok = Write(VanillaLobby.KeyEnforce, enforce ? "1" : "0");
-            if (ok) Core.Log?.Msg($"[lobby] mod-set requirement is now {(enforce ? "on" : "off")}.");
-            return ok;
+            string mhash = Read(VanillaLobby.KeyMHash);
+            if (enforce && string.IsNullOrEmpty(mhash))
+            {
+                Core.Log?.Warning("[lobby] this lobby publishes no mod list, so a mod-set requirement would have "
+                                  + "nothing to check joiners against - not switching it on.");
+                return false;
+            }
+            if (!Write(VanillaLobby.KeyEnforce, enforce ? "1" : "0")) return false;
+            SyncCoordinator.SetEnforce(enforce, mhash);
+            Core.Log?.Msg($"[lobby] mod-set requirement is now {(enforce ? "on" : "off")}.");
+            return true;
         }
 
         /// <summary>One person in the lobby, as the app lists them.</summary>

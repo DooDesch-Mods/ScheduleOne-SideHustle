@@ -74,6 +74,7 @@ namespace SideHustle.Debugging
             new[] { "shchatpeer", "shchatpeer <steamid> - Steam's own view of that P2P session" },
             new[] { "shopenlobby", "open a lobby mid-session, the way the pause menu's Invite does" },
             new[] { "shpublish", "flip live publishing - the same switch as the button and the app" },
+            new[] { "shenforce", "shenforce [on|off] - the mod-set requirement, advertisement and kicking together" },
             new[] { "shphone", "shphone [up|down] - raise the phone on its home screen, with no app open" },
             new[] { "shloadmod", "shloadmod <file.dll> - load a mod NOW, from Mods/_late (the mod-gate spike)" },
             new[] { "shmods", "which mods are registered, and which sit unloaded in Mods/_late" },
@@ -108,6 +109,7 @@ namespace SideHustle.Debugging
                     case "shchatpeer": PeerState(parts); break;
                     case "shopenlobby": OpenLobby(); break;
                     case "shpublish": Publish(); break;
+                    case "shenforce": Enforce(parts); break;
                     case "shphone": Phone(parts); break;
                     case "shloadmod": LoadModLate(parts); break;
                     case "shmods": ListMods(); break;
@@ -138,7 +140,26 @@ namespace SideHustle.Debugging
             // The one that explains a lobby nobody can enter: vanilla only starts a joiner's load once this is set.
             Core.Log?.Msg("  joinable=" + LobbyControls.JoinableNow
                 + " canPublish=" + Sync.LivePublish.CanPublish + " published=" + Sync.LivePublish.IsPublished);
+            // The advertised flag above and the gate below are one switch to a host, so seeing them apart is the
+            // point: they used to be able to disagree, and only the first one was visible anywhere.
+            Core.Log?.Msg("  gateArmed=" + Sync.SyncGate.IsActive + " modList=" + LobbyControls.PublishesModList);
             Core.Log?.Msg("  lobbyId=" + LobbyCoordinator.CurrentLobbyId + " me=" + LocalId());
+        }
+
+        /// <summary>Drive the mod-set requirement from the console, the same call the phone app's toggle makes -
+        /// so the advertisement, the gate and the app can be checked against each other in one place.</summary>
+        private static void Enforce(string[] parts)
+        {
+            if (parts.Length < 2)
+            {
+                Core.Log?.Msg("[dev] shenforce: enforce=" + LobbyControls.Enforcing
+                    + " gateArmed=" + Sync.SyncGate.IsActive + " modList=" + LobbyControls.PublishesModList);
+                return;
+            }
+            bool on = parts[1].Equals("on", StringComparison.OrdinalIgnoreCase) || parts[1] == "1";
+            bool ok = LobbyControls.SetEnforce(on);
+            Core.Log?.Msg("[dev] shenforce " + (on ? "on" : "off") + ": " + (ok ? "done" : "refused")
+                + " -> enforce=" + LobbyControls.Enforcing + " gateArmed=" + Sync.SyncGate.IsActive);
         }
 
         private static void RosterDump()

@@ -23,6 +23,11 @@ namespace SideHustle.Sync
         private static float _nextScan;
         private static readonly Dictionary<string, float> _firstSeen = new Dictionary<string, float>();
 
+        /// <summary>Whether the gate is armed right now. The single answer to "is this lobby enforcing", so the
+        /// advertised key and the kicking cannot drift apart - they used to be two flags, and turning the
+        /// requirement off in the phone app moved only the advertisement.</summary>
+        internal static bool IsActive => _active;
+
         internal static void Enable(string expectedMHash)
         {
             _active = true;

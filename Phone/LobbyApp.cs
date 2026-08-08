@@ -41,7 +41,7 @@ namespace SideHustle.Phone
                     .OnCall("lobby.setPassword", pw => LobbyControls.SetPassword(pw) ? "ok" : "error")
                     .OnCall("lobby.setVisibility", v => LobbyControls.SetPublic(v == "pub") ? "ok" : "error")
                     .OnCall("lobby.setMax", v => SetMax(v))
-                    .OnCall("lobby.setEnforce", v => LobbyControls.SetEnforce(v == "1") ? "ok" : "error")
+                    .OnCall("lobby.setEnforce", v => SetEnforce(v == "1"))
                     .OnCall("lobby.togglePublish", _ => TogglePublish())
                     .OnCall("lobby.players", _ => Players())
                     .OnCall("chat.threads", _ => Threads())
@@ -69,6 +69,15 @@ namespace SideHustle.Phone
             // Answer with what Steam accepted, not with "ok": the page has to show the real number, and clamping
             // silently would leave a slider claiming a seat count nobody can take.
             return LobbyControls.SetMaxPlayers(seats).ToString(CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>Answers "ok", or the reason the page needs to say something better than "could not". A lobby with
+        /// no published mod list has nothing to check joiners against, and a switch that fails without saying why is
+        /// how a host ends up flipping it four times.</summary>
+        private static string SetEnforce(bool on)
+        {
+            if (on && !LobbyControls.PublishesModList) return "nolist";
+            return LobbyControls.SetEnforce(on) ? "ok" : "error";
         }
 
         private static string TogglePublish()
@@ -166,6 +175,11 @@ namespace SideHustle.Phone
                 .Add("canPublish", Sync.LivePublish.CanPublish)
                 .Add("published", Sync.LivePublish.IsPublished)
                 .Add("unread", ChatRelay.UnreadCount)
+                // Whether the Chat tab has anything behind it. The page needs this outside a session, where it
+                // draws no tab strip at all: a message can land with no lobby running, and the badge and the
+                // notification both pointed at a screen with no way through to the conversation. Muted people
+                // count - the unmute lives on that tab and is the only way back from a misclick.
+                .Add("hasChat", ChatRelay.Peers().Count > 0 || ChatRelay.Muted().Count > 0)
                 .Add("accepting", Config.Preferences.AcceptStrangerMessages);
             return j.ToString();
         }

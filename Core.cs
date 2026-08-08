@@ -261,6 +261,7 @@ namespace SideHustle
             if (sceneName == "Menu")
             {
                 _inMenu = false;
+                Sync.SyncCoordinator.OnLeftMenu();   // a world is loading; the next menu is the one AFTER a session
                 _reopenHubFrames = 0;
                 // Clear the deferred-reopen payloads too: they are only consumed while the frame counter counts down,
                 // so zeroing the counter alone would strand a payload that a later menu entry then fires as a stale
