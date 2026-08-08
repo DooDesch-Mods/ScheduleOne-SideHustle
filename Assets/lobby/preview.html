@@ -2,155 +2,23 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Side Hustle Lobby - phone app preview</title>
-<style>
-  body { margin: 0; background: #1b1e22; color: #ccc; font: 13px/1.4 system-ui, sans-serif; padding: 20px; }
-  h1 { font-size: 13px; font-weight: 600; margin: 0 0 4px; letter-spacing: .4px; color: #8a8f9e; }
-  p.note { font-size: 12px; color: #6b7378; margin: 0 0 14px; max-width: 720px; }
-
-  .controls { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; max-width: 760px; }
-  .controls button {
-    background: #262b30; color: #ccc; border: 1px solid #363c42; padding: 5px 10px;
-    font: inherit; cursor: pointer; border-radius: 2px;
-  }
-  .controls button:hover { border-color: #5E6AD2; color: #fff; }
-  .controls button.on { border-color: #5E6AD2; color: #5E6AD2; }
-
-  .frame-label { font-size: 11px; color: #6b7378; margin: 0 0 6px; letter-spacing: .5px; }
-
-  /* The game does NOT render this page at 733x400 device pixels. The phone panel is about 1201x655 and the
-     renderer scales the whole viewport to fit, so one CSS pixel is 1.6375 device pixels. A browser showing
-     733x400 at 1:1 therefore draws the same page smaller and at a different density, which is most of what makes
-     the two look unalike. The 1:1 toggle is still the honest way to check whether something fits. */
-  #stage { width: 1200px; height: 655px; }
-  #viewport {
-    border: 1px solid #3a4148; background: #101218; width: 733px; height: 400px; overflow: hidden;
-    transform: scale(1.6375);
-    transform-origin: top left;
-  }
-  #stage.raw { width: 735px; height: 402px; }
-  #stage.raw #viewport { transform: none; }
-  #stage.portrait { width: 660px; height: 1205px; }
-  #stage.portrait #viewport { width: 400px; height: 733px; }
-
-  /* The renderer treats every element as a flex container defaulting to COLUMN, and border-box is always in
-     force. `:where` so this carries zero specificity and can never outrank a class in app.css. */
-  :where(#viewport, #viewport *) { display: flex; flex-direction: column; box-sizing: border-box; position: relative; }
-  :where(#viewport img) { display: block; }
-
-  /* The game's house typeface IS Open Sans (Sideload/Paint/TextSupport.cs), so game-ui maps straight to it. */
-  :where(#viewport, #viewport *) { font-family: "Open Sans", "Segoe UI", system-ui, sans-serif; }
-
-  /* Sideload has no align-content: wrapped lines stack tightly from the cross start. */
-  :where(#viewport, #viewport *) { align-content: flex-start; }
-</style>
+<link rel="stylesheet" href="sideload-preview.css">
 </head>
 <body>
+<script type="module">
+import { mount } from './sideload-preview.js';
+import { call, ready, scenarios } from './s1-mock.js';
 
-<h1>Side Hustle Lobby - browser preview</h1>
-<p class="note">
-  Runs the shipped app.js and app.css against a stand-in mod, so structure, copy, state and flow can be checked
-  without hosting a session. Close, not identical: Chrome has real CSS and the game implements a subset of it, and
-  the text is measured by a browser rather than by TextMeshPro. Judge structure, copy and state here; judge the
-  layout itself in game with F9 and Ctrl+F10.
-</p>
-
-<div class="controls" id="controls"></div>
-<div class="frame-label" id="framelabel">733 x 400 css, drawn at 1.64x - the density the game uses</div>
-<div id="stage"><div id="viewport"></div></div>
-
-<script src="s1-mock.js"></script>
-<script>
-const viewport = document.getElementById('viewport');
-
-// A document facade scoped to the viewport, so app.js reaches only its own page.
-const scoped = {
-  body: viewport,
-  getElementById: (id) => viewport.querySelector('#' + id),
-  querySelector: (sel) => viewport.querySelector(sel),
-  querySelectorAll: (sel) => viewport.querySelectorAll(sel),
-  createElement: (tag) => document.createElement(tag),
-  addEventListener: (type, fn) => viewport.addEventListener(type, fn),
-};
-
-// The SHIPPED index.html, not a copy pasted in here: a duplicate drifts silently, and the day it does the preview
-// is checking a page the game does not have. Its script tag is dropped because app.js is loaded below instead.
-// Everything bypasses the HTTP cache - a preview quietly showing the previous edit costs more time than no preview.
-const fresh = (url) => fetch(url, { cache: 'no-store' }).then((r) => r.text());
-const stamp = Date.now();
-
-Promise.all([fresh('index.html'), fresh('app.js')])
-  .then(([markup, src]) => {
-    viewport.innerHTML = markup
-      .replace(/<script\b[\s\S]*?<\/script>/gi, '')
-      .replace(/href="app\.css"/g, 'href="app.css?v=' + stamp + '"');
-    new Function('document', 's1', 'console', src)(scoped, s1, console);
-  })
-  .catch((e) => { document.body.innerHTML += '<pre style="color:#E4572E">' + e + '</pre>'; });
-
-const stage = document.getElementById('stage');
-const controls = document.getElementById('controls');
-
-function chip(label, onClick) {
-  const b = document.createElement('button');
-  b.textContent = label;
-  b.onclick = () => onClick(b);
-  controls.appendChild(b);
-  return b;
-}
-
-const zoom = chip('show at 1:1 instead', () => {
-  const raw = stage.classList.toggle('raw');
-  zoom.classList.toggle('on', raw);
-  zoom.textContent = raw ? 'show at game density (1.64x)' : 'show at 1:1 instead';
-  document.getElementById('framelabel').textContent = raw
-    ? '733 x 400 css at 1:1 - smaller and denser than the game draws it'
-    : '733 x 400 css, drawn at 1.64x - the density the game uses';
+mount({
+  title: 'Side Hustle Lobby',
+  appId: 'sidehustle',
+  background: '#101218',
+  accent: '#5E6AD2',
+  note: 'The chips are the states a host only reaches by playing: seats already filled, a password the mod knows exists but cannot show, and the view a client gets of a session it does not own.',
+  call,
+  ready,
+  scenarios,
 });
-
-// The app declares both orientations, so 400x733 is a shape it really has to survive.
-//
-// Chrome evaluates `@media (orientation: portrait)` against the BROWSER WINDOW, never against a 400x733 div,
-// so the portrait rules in app.css would silently never apply here - and the preview would show a
-// two-column layout the game does not draw. The engine derives orientation from the host rect instead.
-// So: lift that block out of the stylesheet and apply it as plain rules while the toggle is on. The
-// stylesheet stays untouched and carries no preview-only selector.
-let portraitStyle = null;
-const turn = chip('turn the phone', async () => {
-  const portrait = stage.classList.toggle('portrait');
-  turn.classList.toggle('on', portrait);
-  s1.orientation = portrait ? 'portrait' : 'landscape';
-
-  if (portrait && !portraitStyle) {
-    const css = await fresh('app.css');
-    const at = css.indexOf('@media (orientation: portrait)');
-    if (at < 0) console.warn('[preview] no portrait block in app.css');
-    else {
-      let depth = 0, start = -1, end = -1;
-      for (let i = css.indexOf('{', at); i < css.length; i++) {
-        if (css[i] === '{') { if (depth++ === 0) start = i + 1; }
-        else if (css[i] === '}') { if (--depth === 0) { end = i; break; } }
-      }
-      portraitStyle = document.createElement('style');
-      portraitStyle.textContent = css.slice(start, end);
-      // At the END of the document, not in <head>: app.css arrives via a <link> inside the viewport markup,
-      // and these rules carry the same specificity as the ones they override. Document order is the tie-break.
-      document.body.appendChild(portraitStyle);
-    }
-  } else if (!portrait && portraitStyle) {
-    portraitStyle.remove();
-    portraitStyle = null;
-  }
-
-  viewport.dispatchEvent(Object.assign(new Event('orientationchange'), { value: s1.orientation }));
-});
-
-for (const name of __mock.scenarios) {
-  const b = chip(name, () => {
-    __mock.pick(name);
-    for (const other of controls.children) if (other !== zoom && other !== turn) other.classList.toggle('on', other === b);
-  });
-}
 </script>
 </body>
 </html>

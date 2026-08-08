@@ -121,10 +121,11 @@
   </Target>
 
   <!-- The Lobby app's web bundle. The LogicalName prefix IS the bundlePrefix passed to Apps.Register; without it
-       MSBuild mangles the folder names and the app finds nothing. preview.html and s1-mock.js are the browser
-       harness and are deliberately not shipped. -->
+       MSBuild mangles the folder names and the app finds nothing. preview.html, s1-mock.js and the shared
+       preview shell (sideload-preview.*, dom-surface.js) are the browser harness and are deliberately not
+       shipped. -->
   <ItemGroup>
-    <EmbeddedResource Include="Assets/lobby/*" Exclude="Assets/lobby/preview.html;Assets/lobby/s1-mock.js">
+    <EmbeddedResource Include="Assets/lobby/*" Exclude="Assets/lobby/preview.html;Assets/lobby/s1-mock.js;Assets/lobby/sideload-preview.*;Assets/lobby/dom-surface.js">
       <LogicalName>SideHustle.Assets.lobby.%(Filename)%(Extension)</LogicalName>
     </EmbeddedResource>
     <!-- Its own entry, because the glob above does NOT reach into subfolders. Without this the app builds
