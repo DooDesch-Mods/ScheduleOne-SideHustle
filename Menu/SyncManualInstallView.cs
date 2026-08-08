@@ -61,13 +61,15 @@ namespace SideHustle.Menu
         /// offering one that goes nowhere.</summary>
         private static ulong _hostSteamId;
         private static string _hostName = "";
+        private static bool _hostAcceptsMessages;
 
         /// <summary>Name the host before building, so "Ask the host" appears. Separate from Build because the two
         /// callers know different amounts: the vanilla browser has the owner id, the gamemode path does not.</summary>
-        internal static void SetHost(ulong steamId, string name)
+        internal static void SetHost(ulong steamId, string name, bool acceptsMessages)
         {
             _hostSteamId = steamId;
             _hostName = name ?? "";
+            _hostAcceptsMessages = acceptsMessages;
         }
 
         internal static void Build(Transform formHost, SyncDiff diff, Action onContinue, Action onBack)
@@ -80,6 +82,11 @@ namespace SideHustle.Menu
             _lookupsSeen = NexusLookup.ResultsVersion;
             PrefetchLinks(diff);
             _active = true;
+
+            // The conversation, as a column down the right rather than a button that could only ever send. This is
+            // the screen where a mod nobody can download stops the whole thing, so the answer has to be readable
+            // here - not on a phone the player does not have in a menu.
+            if (ChatPanel.Possible(_hostSteamId, _hostAcceptsMessages)) ChatPanel.Show(_hostSteamId, _hostName);
 
             var footer = UIFactory.Panel("footer", formHost, Theme.Clear);
             var frt = footer.GetComponent<RectTransform>();
@@ -131,11 +138,20 @@ namespace SideHustle.Menu
                     rle.minHeight = 54f; rle.preferredHeight = 54f; rle.flexibleWidth = 1;
 
                     var title = UIFactory.Text("name", (done2 ? "✓ " : "") + Label(entry), row.transform, 16, TextAnchor.UpperLeft, FontStyle.Bold);
-                    Place(title, new Vector2(12, -RowPad), new Vector2(0.6f, 1f));
+                    // Truncate rather than wrap. A uGUI Text draws OUTSIDE its rect by default, anchored by its own
+                    // alignment - so a second line of the status (anchored LowerLeft) grows upward straight through
+                    // the mod's name, which is exactly what a long note used to do here. Both texts are clipped to
+                    // their half of the row instead, and the notes themselves were shortened to fit one line.
+                    title.horizontalOverflow = HorizontalWrapMode.Wrap;
+                    title.verticalOverflow = VerticalWrapMode.Truncate;
+                    Place(title, new Vector2(12, -RowPad), new Vector2(0.6f, 1f), bottom: 26f);
+
                     string statusText = done2 ? "ready" : entry.ManualNote ?? "waiting for the download...";
                     var status = UIFactory.Text("status", statusText, row.transform, 13, TextAnchor.LowerLeft);
                     status.color = done2 ? Theme.Success : entry.ManualNote != null ? Theme.WarningText : Theme.TextMuted;
-                    Place(status, new Vector2(12, 4), new Vector2(0.6f, 0.55f), bottom: RowPad);
+                    status.horizontalOverflow = HorizontalWrapMode.Wrap;
+                    status.verticalOverflow = VerticalWrapMode.Truncate;
+                    Place(status, new Vector2(12, 2), new Vector2(0.62f, 0.46f), bottom: RowPad);
 
                     if (!done2)
                     {
@@ -171,48 +187,14 @@ namespace SideHustle.Menu
             var (backGO, backBtn, _b) = UIFactory.ButtonWithLabel("Back", "Back", footer.transform, Theme.Button, 140, 40);
             Place2(backGO, left: true);
 
-            // The one thing this screen could never do: say something back. A mod the host built themselves is not
-            // on Nexus and never will be - the only way forward is to ask them. Goes straight to their SteamID over
-            // Steam P2P, so it needs no lobby seat and no friendship.
-            if (_hostSteamId != 0UL)
-            {
-                var (askGO, askBtn, _a) = UIFactory.ButtonWithLabel("AskHost", "Ask the host", footer.transform, Theme.Button, 170, 40);
-                var art2 = askGO.GetComponent<RectTransform>();
-                art2.anchorMin = art2.anchorMax = new Vector2(0, 0.5f);
-                art2.pivot = new Vector2(0, 0.5f);
-                art2.anchoredPosition = new Vector2(156f, 0f);
-                askBtn.onClick.AddListener((UnityEngine.Events.UnityAction)AskHost);
-            }
-            backBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => { _active = false; onBack?.Invoke(); }));
+            backBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => { _active = false; ChatPanel.Hide(); onBack?.Invoke(); }));
 
             var (contGO, cBtn, _c) = UIFactory.ButtonWithLabel("Continue", "Continue", footer.transform, Theme.Accent, 220, 40);
             Place2(contGO, left: false);
             continueBtn = cBtn;
-            cBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => { _active = false; onContinue?.Invoke(); }));
+            cBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => { _active = false; ChatPanel.Hide(); onContinue?.Invoke(); }));
 
             Render();
-        }
-
-        /// <summary>Ask the host about what is missing. One line, sent and forgotten - there is no inbox on this
-        /// screen, and building one for a menu that exists for thirty seconds would be the wrong shape. The answer
-        /// arrives in the host's phone; if they let you in, you see it because the lobby changes.</summary>
-        private static void AskHost()
-        {
-            var root = Hub.DialogRootStatic();
-            if (root == null) return;
-            string who = string.IsNullOrEmpty(_hostName) ? "the host" : _hostName;
-            Components.PromptDialog(root, "Ask " + who,
-                "They see this on their phone, in the Side Hustle app. Say which mod you cannot get - they are the "
-                + "only one who can send it to you or let you in without it.",
-                "for example: where do I get Sideload?", "Send",
-                text =>
-                {
-                    text = (text ?? "").Trim();
-                    if (text.Length == 0) return "Write something first.";
-                    if (!Phone.ChatRelay.Send(_hostSteamId, text)) return "Steam would not send that. Try again.";
-                    ShowToast("Sent to " + who + ".", Severity.Success);
-                    return null;
-                });
         }
 
         private static void OpenStaging()

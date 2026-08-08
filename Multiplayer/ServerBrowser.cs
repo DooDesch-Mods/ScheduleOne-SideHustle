@@ -28,6 +28,11 @@ namespace SideHustle.Multiplayer
         private static CallResult<LobbyMatchList_t> _vanillaCallResult;
         private static Action<List<Sync.VanillaLobbyRow>> _vanillaOnResults;
 
+        /// <summary>Every completed vanilla lobby query, for a watcher that wants the answer without asking for it.
+        /// Separate from the per-call callback on purpose: that one belongs to whoever started the query, this one
+        /// to whoever is displaying the result.</summary>
+        internal static Action<List<Sync.VanillaLobbyRow>> VanillaResultsTap;
+
         internal static bool IsQuerying => _querying;
 
         private static bool _warnedNoSteam;
@@ -153,6 +158,12 @@ namespace SideHustle.Multiplayer
             Core.Log?.Msg($"[sync] vanilla browser: {rows.Count} lobby(ies) found.");
             try { _vanillaOnResults?.Invoke(rows); }
             catch (Exception e) { Core.Log?.Warning("[sync] vanilla-browser callback threw: " + e.Message); }
+
+            // Every vanilla query, wherever it came from, also reaches anything merely WATCHING the lobby list.
+            // The menu's state column is the first: without this it polled on its own clock and read a stale count
+            // until its next turn came round, so opening the browser - which queries at once - made the number jump.
+            try { VanillaResultsTap?.Invoke(rows); }
+            catch (Exception e) { Core.Log?.Warning("[sync] vanilla-browser tap threw: " + e.Message); }
         }
 
         private static void OnLobbyList(LobbyMatchList_t result, bool ioFailure)

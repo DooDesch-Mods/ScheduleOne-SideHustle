@@ -39,6 +39,7 @@ namespace SideHustle.Config
         private static MelonPreferences_Entry<string> _lastSessionError;
         private static MelonPreferences_Entry<bool> _acceptStrangerMessages;
         private static MelonPreferences_Entry<bool> _menuPanel;
+        private static MelonPreferences_Entry<bool> _joinChatPanel;
 
         internal static void Initialize()
         {
@@ -68,6 +69,11 @@ namespace SideHustle.Config
                 "When ON, a column down the right of the main menu says which mod set the game booted with, how " +
                 "many published sessions are taking players right now, and whether anyone messaged you. Needs " +
                 "Sideload 1.13.0 or newer; older versions simply show nothing.");
+
+            _joinChatPanel = _category.CreateEntry("JoinChatPanel", true, "Show the ask-the-host column while joining",
+                "When ON, the screens you pass through while joining a session carry a chat column on the right, so " +
+                "you can ask the host about a mod you cannot download and read their answer without leaving. Only " +
+                "appears when that host allows messages. Needs Sideload 1.13.0 or newer.");
 
             _recent = _category.CreateEntry("RecentlyPlayed", "", "Recently played gamemodes",
                 "Internal: a list of recently launched gamemode ids so the hub can list them first. Managed automatically.");
@@ -121,6 +127,13 @@ namespace SideHustle.Config
         {
             get => _menuPanel?.Value ?? true;
             set { if (_menuPanel != null) { _menuPanel.Value = value; Save(); } }
+        }
+
+        /// <summary>Whether the join screens carry the ask-the-host chat column.</summary>
+        internal static bool JoinChatPanel
+        {
+            get => _joinChatPanel?.Value ?? true;
+            set { if (_joinChatPanel != null) { _joinChatPanel.Value = value; Save(); } }
         }
 
         /// <summary>Your chosen display name for a given gamemode ("" = use the real Steam persona name). Stored

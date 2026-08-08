@@ -47,27 +47,68 @@ namespace SideHustle.Menu
         private static bool _querying;
 
         /// <summary>
+        /// How long to wait before asking again, by attempt.
+        ///
+        /// Not one flat interval: the case that matters is a host who opens their session while the joiner is
+        /// already sitting in the menu, and a twenty-second clock makes that look like nothing is there. The first
+        /// few checks come quickly and then it settles down, so the number is right within a couple of seconds of
+        /// arriving and still costs one Steam query every twenty after that.
+        /// </summary>
+        private static readonly float[] Cadence = { 3f, 5f, 8f, 12f, 20f };
+        private static int _attempt;
+
+        /// <summary>How far up the ramp an EMPTY answer may settle. "Nobody is hosting" is the reading most likely
+        /// to be out of date and the one that costs the player the most to believe, so it keeps checking often;
+        /// once something is listed the column has nothing urgent left to learn and drops to the slow step.</summary>
+        private const int EmptyMaxStep = 2;
+
+        /// <summary>
         /// The menu scene is being rebuilt. The canvas is ours, so it does not go on its own - and leaving it would
         /// stack a second panel on top of the first every time the menu re-initialises, which it does more than once
         /// per load.
         /// </summary>
         internal static void Reset()
         {
+            try { ServerBrowser.VanillaResultsTap = null; } catch { }
             try { Surfaces.Unmount(SurfaceId); } catch { }
             try { if (_panel != null) UnityEngine.Object.Destroy(_panel); } catch { }
             _panel = null;
             _surface = null;
             _pushed = "";
             _sinceQuery = 999f;
+            _attempt = 0;
         }
 
         /// <summary>
         /// Put the panel up, or adopt the one already there. Called from the same retry loop that injects the menu
         /// button, so it inherits that loop's warmup - the menu's own navigation has finished initialising by then.
         /// </summary>
+        /// <summary>
+        /// Step aside while something else owns the right column.
+        ///
+        /// The two panels live in the same place by design - it is the one strip of the menu vanilla leaves free -
+        /// so they take turns instead of stacking. Suspended rather than switched off: the chat column belongs to
+        /// one screen, and when that screen closes this one comes back on the next inject.
+        /// </summary>
+        internal static bool Suspended { get; private set; }
+
+        internal static void Suspend()
+        {
+            if (Suspended) return;
+            Suspended = true;
+            Reset();
+        }
+
+        internal static void Resume()
+        {
+            if (!Suspended) return;
+            Suspended = false;
+            Ensure();
+        }
+
         internal static void Ensure()
         {
-            if (!Preferences.MenuPanel) return;
+            if (!Preferences.MenuPanel || Suspended) return;
             if (_panel != null && Surfaces.IsMounted(SurfaceId)) return;
 
             if (!Surfaces.Available)
@@ -112,6 +153,11 @@ namespace SideHustle.Menu
                 _surface = Surfaces.Mount(rect, SurfaceId, "SideHustle.Assets.menu")
                     .OnCall("menu.state", _ => State());
 
+                // Anything else that queries the lobby list - opening the browser, the hub's prewarm - updates this
+                // column too. Otherwise the two run on separate clocks and the panel reads stale next to a browser
+                // that just refreshed, which is exactly how it looked.
+                ServerBrowser.VanillaResultsTap = Adopt;
+
                 Core.Log?.Msg("[menu] state panel mounted.");
             }
             catch (Exception e)
@@ -128,9 +174,11 @@ namespace SideHustle.Menu
             if (_panel == null) return;
 
             _sinceQuery += dt;
-            if (_sinceQuery >= 20f && !_querying)
+            if (_sinceQuery >= Cadence[Math.Min(_attempt, Cadence.Length - 1)] && !_querying)
             {
                 _sinceQuery = 0f;
+                int ceiling = _lobbies == 0 ? EmptyMaxStep : Cadence.Length - 1;
+                if (_attempt < ceiling) _attempt++; else _attempt = ceiling;
                 Query();
             }
 
@@ -150,23 +198,31 @@ namespace SideHustle.Menu
         private static void Query()
         {
             _querying = true;
-            try
-            {
-                ServerBrowser.BeginQueryVanilla(rows =>
-                {
-                    _querying = false;
-                    if (rows == null) { _lobbies = 0; _joinable = 0; return; }
-                    int open = 0;
-                    foreach (var row in rows) if (Sync.VanillaLobby.AcceptsJoiners(row)) open++;
-                    _lobbies = rows.Count;
-                    _joinable = open;
-                });
-            }
+            try { ServerBrowser.BeginQueryVanilla(rows => { _querying = false; Adopt(rows); }); }
             catch (Exception e)
             {
                 _querying = false;
                 Core.Log?.Warning("[menu] lobby count failed: " + e.Message);
             }
+        }
+
+        /// <summary>Take a lobby list as the current truth, whoever asked for it. Resets the cadence so a result
+        /// that just landed is not immediately chased by another query.</summary>
+        private static void Adopt(System.Collections.Generic.List<Sync.VanillaLobbyRow> rows)
+        {
+            _sinceQuery = 0f;
+            int wasLobbies = _lobbies;
+            if (rows == null) { _lobbies = 0; _joinable = 0; }
+            else
+            {
+                int open = 0;
+                foreach (var row in rows) if (Sync.VanillaLobby.AcceptsJoiners(row)) open++;
+                _lobbies = rows.Count;
+                _joinable = open;
+            }
+            // Something moved, so something else may be about to - start the ramp over rather than waiting out the
+            // slow step next to a list that is visibly changing.
+            if (_lobbies != wasLobbies) _attempt = 0;
         }
 
         private static string State()

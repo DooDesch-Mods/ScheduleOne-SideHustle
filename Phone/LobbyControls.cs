@@ -252,6 +252,20 @@ namespace SideHustle.Phone
         internal static string Runtime => Read(LobbyCoordinator.KeyRuntime);
 
         /// <summary>
+        /// Take strangers' messages, or stop. Writes the preference AND the lobby key in one call.
+        ///
+        /// Both, because they answer different questions: the preference is what the relay checks when a packet
+        /// lands, the key is what a joiner reads to decide whether offering a Chat button is honest. Setting only
+        /// the first leaves a button in someone else's browser that opens onto a host who will drop every line.
+        /// </summary>
+        internal static void SetAccepting(bool accepting)
+        {
+            Config.Preferences.AcceptStrangerMessages = accepting;
+            if (IsHost) Write(VanillaLobby.KeyMessages, accepting ? "1" : "0");
+            Core.Log?.Msg("[lobby] messages from strangers are now " + (accepting ? "on" : "off") + ".");
+        }
+
+        /// <summary>
         /// Whether the game will actually let anyone in. Vanilla starts a joiner's load only when the lobby's own
         /// "ready" (or "host_loading") key says so, and a lobby opened after the host was already playing does not
         /// get one on its own - which is why a published session could look perfect and admit nobody. The host sees

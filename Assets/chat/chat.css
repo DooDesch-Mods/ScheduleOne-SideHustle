@@ -1,0 +1,122 @@
+/* Side Hustle - the ask-the-host column, shown beside a join screen.
+ *
+ * Same palette as the phone app (Assets/lobby/app.css), measured from the mod's logo. Mounted at device pixels:
+ * the menu around it is drawn at the screen's own scale, so a page that scaled itself would sit at a different
+ * size than every control next to it.
+ *
+ * Engine subset, not a browser: px and % only, every box is a column flex container unless told otherwise,
+ * border-box always, ONE border colour per box, no z-index, no grid.
+ */
+
+:root {
+  --bg:        #0E1318;
+  --panel:     #161B21;
+  --elevated:  #1D242C;
+  --input:     #0A0E12;
+  --hairline:  #262E37;
+
+  --text:      #ECEDF1;
+  --muted:     #96A0A6;
+
+  --accent:    #FDA33B;
+  --on-accent: #0E1318;
+  --live:      #47BFB0;
+}
+
+body { height: 100%; font-family: game-ui; font-size: 14px; color: var(--text); }
+
+/* Fully opaque, unlike the state column. That one is a note laid over the menu's art and may let it show; this is
+   a working surface with a text field in it, and at 94% the game's own HUD bled through the empty half and read as
+   a rendering fault. The left rule in the brand's mint is what says whose column this is. */
+.panel {
+  height: 100%;
+  padding: 16px 16px 18px;
+  gap: 10px;
+  background: var(--bg);
+  border-left: 2px solid var(--live);
+}
+
+.head { gap: 2px; }
+
+.who { font-size: 17px; font-weight: 700; }
+
+.hint { font-size: 12px; color: var(--muted); }
+
+/* flex:1 + min-height:0 is what lets the log take the leftover height and scroll instead of pushing the reply
+   row off the bottom. Without min-height the box never shrinks and the row below leaves the panel. */
+.log {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.bubble {
+  max-width: 88%;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--elevated);
+  border-bottom: 1px solid var(--hairline);
+}
+
+/* Theirs left, yours right. align-self is the cross axis of the column, which here is horizontal. */
+.bubble.mine {
+  align-self: flex-end;
+  background: var(--panel);
+  border-bottom: 1px solid var(--live);
+}
+
+.bubble-text { }
+
+.empty {
+  flex: 1;
+  min-height: 0;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+}
+
+.empty-title { font-weight: 700; }
+
+.empty-note { font-size: 12px; color: var(--muted); text-align: center; }
+
+/* Docked at the bottom because the log above it takes every leftover pixel. */
+.control { flex-direction: row; align-items: center; gap: 8px; }
+
+.field {
+  flex: 1;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: var(--input);
+  border: 1px solid var(--hairline);
+  color: var(--text);
+  /* align-items, not justify-content. A field's text is placed by the input itself, and this is the pair the
+     phone bundle already gets right - the other one leaves the caret line sitting a few pixels high. */
+  align-items: center;
+}
+
+.field:focus { border-color: var(--accent); }
+
+.btn {
+  width: 40px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--accent);
+  align-items: center;
+  justify-content: center;
+}
+
+.btn:hover  { background: #FEB94A; }
+.btn:active { background: #ED8E38; }
+
+/* The glyph is a flat white PNG; `color` tints it, which is why one file serves every state. */
+.glyph { width: 18px; height: 18px; color: var(--on-accent); }
+
+.said {
+  font-size: 12px;
+  color: var(--live);
+  text-align: center;
+}

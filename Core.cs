@@ -321,6 +321,7 @@ namespace SideHustle
             {
                 MenuInjector.TickRetry();
                 Menu.StatePanel.Tick(UnityEngine.Time.unscaledDeltaTime);   // the right-hand state column
+                Menu.ChatPanel.Tick();   // the ask-the-host column, while a join screen carries one
                 DooDesch.UI.SmoothScroll.Tick();   // smooth wheel glide for menu lists (host-config form, etc.)
                 DooDesch.UI.Toast.Tick();          // profile-manager toasts (removals, install results)
                 Hub.TickInput();   // right-click steps one view back (mod-check, host/join choice, browser, ...)

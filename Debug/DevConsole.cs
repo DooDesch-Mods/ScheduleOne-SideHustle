@@ -77,6 +77,8 @@ namespace SideHustle.Debugging
             new[] { "shphone", "shphone [up|down] - raise the phone on its home screen, with no app open" },
             new[] { "shloadmod", "shloadmod <file.dll> - load a mod NOW, from Mods/_late (the mod-gate spike)" },
             new[] { "shmods", "which mods are registered, and which sit unloaded in Mods/_late" },
+            new[] { "shmanual", "shmanual [steamid] - open the manual-install screen with sample rows" },
+            new[] { "shbrowser", "open the vanilla lobby LIST (the screen with Join and Chat)" },
         };
 
         private static bool Handle(string[] parts)
@@ -108,6 +110,8 @@ namespace SideHustle.Debugging
                     case "shphone": Phone(parts); break;
                     case "shloadmod": LoadModLate(parts); break;
                     case "shmods": ListMods(); break;
+                    case "shmanual": ManualDemo(parts); break;
+                    case "shbrowser": Menu.Hub.OpenVanillaListForTest(); break;
                 }
             }
             catch (Exception e) { Core.Log?.Warning("[dev] " + cmd + " failed: " + e); }
@@ -310,6 +314,43 @@ namespace SideHustle.Debugging
             string[] waiting = System.IO.Directory.GetFiles(dir, "*.dll");
             Core.Log?.Msg("  waiting in Mods/_late: " + waiting.Length);
             foreach (string f in waiting) Core.Log?.Msg("    " + System.IO.Path.GetFileName(f));
+        }
+
+        /// <summary>
+        /// Open the manual-install checklist with sample rows, from the menu, without a real sync.
+        ///
+        /// That screen only appears at the end of a join whose host publishes mods nobody can download, which is
+        /// expensive to stage and impossible to stage twice the same way. The rows below carry the LONGEST note the
+        /// resolver can produce, because the bug this exists to catch is a note running through the mod's name.
+        ///
+        /// Pass a Steam id to also get the ask-the-host column beside it.
+        /// </summary>
+        private static void ManualDemo(string[] parts)
+        {
+            ulong peer = 0UL;
+            if (parts.Length > 1) ulong.TryParse(parts[1], out peer);
+
+            var diff = new Sync.SyncDiff();
+            void Row(string file, string name, string version, string note)
+            {
+                diff.Entries.Add(new Sync.DiffEntry
+                {
+                    Mod = new Sync.ManifestMod { File = file, Name = name, Version = version, Source = "nx:https://example.invalid" },
+                    Status = Sync.DiffStatus.Manual,
+                    ManualNote = note,
+                });
+            }
+
+            Row("Sideload.dll", "Sideload", "1.13.1", "No download matches the host's build");
+            Row("WhatsDab.dll", "WhatsDab", "1.1.0", "No usable download link");
+            Row("SomeVeryLongModNameHere.dll", "A Mod With A Genuinely Long Display Name", "2.10.4",
+                "Host's build differs from Thunderstore 2.9.0");
+            Row("Trashville.dll", "Litterally", "1.0.0", null);   // the plain "waiting for the download..." row
+
+            Menu.SyncManualInstallView.SetHost(peer, peer == 0UL ? "" : SideHustle.Phone.ChatRelay.NameOf(peer), peer != 0UL);
+            Menu.Hub.OpenManualForTest(diff);
+            Core.Log?.Msg("[dev] shmanual: checklist open with " + diff.Entries.Count + " sample row(s)"
+                + (peer != 0UL ? ", chat column for " + peer : ""));
         }
 
         private static ulong LocalId()

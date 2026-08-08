@@ -52,6 +52,7 @@ namespace SideHustle.Menu
             _loggedStructure = false;
             _retries = 0;
             StatePanel.Reset();   // the panel's canvas died with the old scene; it remounts on the next inject
+            ChatPanel.Hide();     // ditto, and it belongs to one screen rather than to the menu
         }
 
         /// <summary>Called every frame while in the Menu scene until we inject or give up.</summary>

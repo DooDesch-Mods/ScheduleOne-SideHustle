@@ -115,6 +115,22 @@ namespace SideHustle.Menu
             _cloneScreen.Open();
         }
 
+#if DEBUG
+        /// <summary>Open the manual-install checklist on a made-up diff, so its layout can be looked at without
+        /// staging a whole sync join. Reached from the dev console (shmanual); compiled out of Release.</summary>
+        internal static void OpenManualForTest(Sync.SyncDiff diff)
+        {
+            EnsureInit();
+            EnsureClone();
+            if (_cloneScreen == null) { Core.Log?.Warning("[hub] gamemode screen unavailable."); return; }
+            ClearFormHost();
+            SetTmp(_clone.transform, "Title", "Manual installs");
+            var host = CreateFormHost("SH_ManualDemo", 560f);
+            SyncManualInstallView.Build(host, diff, onContinue: OpenScreen, onBack: OpenScreen);
+            _cloneScreen.Open();
+        }
+#endif
+
         /// <summary>Open the gamemode menu and jump straight to one gamemode's selection - identical to opening
         /// Side Hustle and picking it. Used by the direct main-menu entry shown while that gamemode's profile is
         /// running (so the player lands on the same Singleplayer / Host / Join choice).</summary>

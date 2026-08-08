@@ -130,7 +130,7 @@ namespace SideHustle.Menu
             ClearFormHost();
             SetTmp(_clone.transform, "Title", "Manual installs");
             var host = CreateFormHost("SH_ManualInstall", 560f);
-            SyncManualInstallView.SetHost(s.Row?.OwnerSteamId ?? 0UL, s.Row?.HostName);
+            SyncManualInstallView.SetHost(s.Row?.OwnerSteamId ?? 0UL, s.Row?.HostName, s.Row?.AcceptsMessages ?? false);
             SyncManualInstallView.Build(host, s.Diff, onContinue: ShowVanillaChoice, onBack: ShowVanillaChoice);
         }
 
@@ -142,6 +142,17 @@ namespace SideHustle.Menu
             if (_cloneScreen == null) return;
             if (!_cloneScreen.IsOpen) { ShowGamemodeList(); _cloneScreen.Open(); }
             ShowVanillaChoice();
+        }
+
+        /// <summary>Dev only: skip the choice screen and land on the lobby LIST - the screen that carries the Join
+        /// and Chat buttons, and therefore the one worth looking at.</summary>
+        internal static void OpenVanillaListForTest()
+        {
+            EnsureInit();
+            EnsureClone();
+            if (_cloneScreen == null) return;
+            if (!_cloneScreen.IsOpen) { ShowGamemodeList(); _cloneScreen.Open(); }
+            ShowVanillaBrowser();
         }
 
         /// <summary>Dev.SelfTest only: find the first published vanilla lobby, read its manifest, diff and run
@@ -495,6 +506,8 @@ namespace SideHustle.Menu
                 GamemodeName = "Vanilla Co-op",
                 Mode = extra,
                 Runtime = r.Runtime,
+                AcceptsMessages = r.AcceptsMessages,
+                OwnerSteamId = r.OwnerSteamId,
             };
         }
 
@@ -668,10 +681,16 @@ namespace SideHustle.Menu
             ClearFormHost();
             SetTmp(_clone.transform, "Title", string.IsNullOrEmpty(row.LobbyName) ? "Sync check" : row.LobbyName);
             var host = CreateFormHost("SH_SyncConsent", 560f);
+
+            // The question this screen raises - "can I actually get all of that?" - has one answer nobody here can
+            // give, and it belongs to the host. So the conversation is already open beside it rather than behind a
+            // button on the NEXT screen, which is where it used to live.
+            if (ChatPanel.Possible(row.OwnerSteamId, row.AcceptsMessages)) ChatPanel.Show(row.OwnerSteamId, row.HostName);
+
             SyncConsentView.Build(host, manifest, diff, row.Enforced, hasPrefs: !string.IsNullOrEmpty(hostPrefs),
                 onSyncJoin: () => StartSyncAndJoin(row, manifest, diff, mhash, hostPrefs),
-                onPlainJoin: () => { CloseHubScreen(); LobbyCoordinator.JoinLobby(row.LobbyId); },
-                onBack: ShowVanillaBrowser);
+                onPlainJoin: () => { ChatPanel.Hide(); CloseHubScreen(); LobbyCoordinator.JoinLobby(row.LobbyId); },
+                onBack: () => { ChatPanel.Hide(); ShowVanillaBrowser(); });
         }
 
         private static void ShowUnsyncableJoin(VanillaLobbyRow row, string why)
@@ -713,7 +732,7 @@ namespace SideHustle.Menu
                 var mh = CreateFormHost("SH_ManualInstall", 560f);
                 // The owner id the browser already read from the lobby - what turns "you cannot get this mod" into
                 // "ask the person who has it".
-                SyncManualInstallView.SetHost(row?.OwnerSteamId ?? 0UL, row?.HostName);
+                SyncManualInstallView.SetHost(row?.OwnerSteamId ?? 0UL, row?.HostName, row?.AcceptsMessages ?? false);
                 SyncManualInstallView.Build(mh,
                     diff,
                     onContinue: () => BuildAndRestart(row, diff, mhash, hostPrefs),
@@ -773,7 +792,7 @@ namespace SideHustle.Menu
                         ClearFormHost();
                         SetTmp(_clone.transform, "Title", "Still missing");
                         var mh = CreateFormHost("SH_SyncRetry", 560f);
-                        SyncManualInstallView.SetHost(row?.OwnerSteamId ?? 0UL, row?.HostName);
+                        SyncManualInstallView.SetHost(row?.OwnerSteamId ?? 0UL, row?.HostName, row?.AcceptsMessages ?? false);
                         SyncManualInstallView.Build(mh, diff,
                             onContinue: () => BuildAndRestart(row, diff, mhash, hostPrefs),
                             onBack: ShowVanillaBrowser);

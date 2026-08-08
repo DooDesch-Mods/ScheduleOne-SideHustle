@@ -25,6 +25,10 @@ namespace SideHustle.Sync
         /// <summary>Host SteamID from the game's own "owner" lobby key (readable without joining) - the trust key.</summary>
         public ulong OwnerSteamId;
         /// <summary>The game's own "ready" key: the host's world is up and clients are told to load on entry.</summary>
+        /// <summary>The host advertises that strangers may write to them. Absent on an older host, which reads as
+        /// false: offering to message someone whose build cannot receive it is the one wrong answer.</summary>
+        public bool AcceptsMessages;
+
         public bool HostReady;
         /// <summary>The game's own "host_loading" key: the host is still loading; a joiner waits on their screen.</summary>
         public bool HostLoading;
@@ -47,6 +51,11 @@ namespace SideHustle.Sync
         internal const string KeyModSummary = "sh_msum";
         internal const string KeyOrg = "sh_org";
         internal const string KeyEnforce = "sh_enf";
+
+        /// <summary>Whether this host takes messages from people who cannot join. A local preference on their side,
+        /// advertised here because the only person who needs it is the joiner deciding whether asking is even an
+        /// option - a Chat button that opens onto silence is worse than no button.</summary>
+        internal const string KeyMessages = "sh_msg";
         internal const string ManifestChunkPrefix = "sh_m";
         internal const string PrefsChunkPrefix = "sh_p";
 
@@ -100,6 +109,7 @@ namespace SideHustle.Sync
                 SteamMatchmaking.SetLobbyData(sid, KeyEnforce, enforce ? "1" : "0");
                 SteamMatchmaking.SetLobbyData(sid, KeyModSummary, modSummary ?? "");
                 SteamMatchmaking.SetLobbyData(sid, LobbyCoordinator.KeyRuntime, LobbyCoordinator.ThisRuntime);
+                SteamMatchmaking.SetLobbyData(sid, KeyMessages, Config.Preferences.AcceptStrangerMessages ? "1" : "0");
                 var mChunks = SyncCodec.Pack(manifestText);
                 var pChunks = SyncCodec.Pack(prefsText);
                 // Chunks first, then the chunk count is cleared if any of them was refused: a manifest that is
@@ -364,6 +374,7 @@ namespace SideHustle.Sync
                 row.HostReady = SteamMatchmaking.GetLobbyData(sid, "ready") == "true";               // ditto
                 row.HostLoading = SteamMatchmaking.GetLobbyData(sid, "host_loading") == "true";
                 row.Runtime = SteamMatchmaking.GetLobbyData(sid, LobbyCoordinator.KeyRuntime);
+                row.AcceptsMessages = SteamMatchmaking.GetLobbyData(sid, KeyMessages) == "1";
                 int.TryParse(SteamMatchmaking.GetLobbyData(sid, LobbyCoordinator.KeyMax), out row.MaxPlayers);
                 try { row.Members = SteamMatchmaking.GetNumLobbyMembers(sid); } catch { row.Members = 1; }
             }

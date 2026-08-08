@@ -50,7 +50,7 @@ namespace SideHustle.Phone
                     .OnCall("chat.mute", peer => { if (ulong.TryParse(peer, out ulong id)) ChatRelay.Mute(id); return "ok"; })
                     .OnCall("chat.accepting", v =>
                     {
-                        if (v == "1" || v == "0") Config.Preferences.AcceptStrangerMessages = v == "1";
+                        if (v == "1" || v == "0") LobbyControls.SetAccepting(v == "1");
                         return Config.Preferences.AcceptStrangerMessages ? "1" : "0";
                     });
 

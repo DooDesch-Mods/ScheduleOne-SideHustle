@@ -179,7 +179,7 @@ namespace SideHustle.Sync
                         // case where the checklist genuinely cannot be worked through - the host is running something
                         // they built themselves, which exists nowhere to download - looked exactly like a mod still
                         // waiting to be fetched. The player then hunts a file that was never published.
-                        Downgrade(e, "the host runs a build that was never published - no download can match it");
+                        Downgrade(e, "No download matches the host's build");
                         allOk = false;
                     }
                     continue;
@@ -190,13 +190,13 @@ namespace SideHustle.Sync
                 // would silently vanish from the profile inputs while the checklist (which lists manual/dropped rows)
                 // never shows it. Demote it to what it actually is - a mod the player has to fetch by hand.
                 if (!TsIndex.SplitDependency(e.Mod.Source.Substring(3), out var fullName, out var version))
-                { Downgrade(e, "the host's download reference is unreadable"); allOk = false; continue; }
+                { Downgrade(e, "No usable download link"); allOk = false; continue; }
                 string dir = await ThunderstoreClient.EnsurePackageAsync(ProfileEngine.GameRoot, index, fullName, version, progress, ct).ConfigureAwait(false);
                 if (dir == null)
                 {
                     Core.Log?.Warning($"[sync] '{e.Mod.File}': {fullName} {version} could not be downloaded; falling back to the manual link.");
                     diff.Unresolved.Add($"{fullName} {version} - could not be downloaded");
-                    Downgrade(e, "Thunderstore didn't hand it over - grab it here instead");
+                    Downgrade(e, "Thunderstore would not hand it over");
                     allOk = false; continue;
                 }
                 string src = PackageCache.FindExtractedFile(dir, e.Mod.File);
@@ -213,7 +213,7 @@ namespace SideHustle.Sync
                     // "host runs their own build with a released version number" case, so SAY that - otherwise the
                     // player is told "Thunderstore" on the consent screen and then handed a manual checklist.
                     Core.Log?.Warning($"[sync] '{e.Mod.File}': downloaded {fullName} {version} does not match the host's hash; skipping.");
-                    Downgrade(e, $"the host runs a different build than Thunderstore's {version} - ask them for their file");
+                    Downgrade(e, $"Host's build differs from Thunderstore {version}");
                     allOk = false;
                 }
             }

@@ -16,9 +16,13 @@ All notable changes to Side Hustle are documented here. This project adheres to
   session. Host only, and every change applies to the next person who joins rather than to anyone already
   in. The password says outright that it is only checked in the Side Hustle browser and that a Steam invite
   goes around it.
-- Someone who finds your session but cannot get in can now send you a line, and it lands in the Lobby app on
-  your phone. It goes straight between the two of you over Steam, so it costs none of your seats and needs no
-  friendship. Mute one person, or switch strangers off entirely under `AcceptStrangerMessages`.
+- You can talk to a host before you commit to joining them. Lobby cards get a Chat button next to Join, and the
+  screens you pass through while joining carry the conversation down the right-hand side, so a mod you cannot
+  download turns into a question instead of a dead end. It goes straight between the two of you over Steam, so it
+  costs the host none of their seats and needs no friend request.
+  - Their side of it is the Lobby app on their phone. The Chat button only shows for hosts who take messages;
+    switch yours off under `AcceptStrangerMessages`, or mute one person from the app. The column itself can be
+    turned off with `JoinChatPanel`.
 - Lobby cards say which branch the host plays on, IL2CPP in green or Mono in red. The two cannot play
   together, and nothing on the card used to tell you that before you tried.
 - The Rejoining screen gets a Cancel button after eight seconds. It leaves the host's lobby so you stop
@@ -34,8 +38,9 @@ All notable changes to Side Hustle are documented here. This project adheres to
   first. Finding that out used to cost a full mod download and a game restart.
 - When a join is never going to start, Side Hustle stops after 15 seconds and puts the reason on screen.
   It used to leave "Rejoining" up for two minutes.
-- The manual install list says why a mod cannot be downloaded. A mod the host built themselves, which you
-  cannot download anywhere, looked exactly like one that was still on its way.
+- The manual install list says why a mod cannot be downloaded, in one short line. A mod the host built
+  themselves looked exactly like one that was still on its way, and once the reason did appear it was a
+  sentence long enough to run straight through the mod's own name.
 
 ## [2.2.9] - 2026-08-07
 

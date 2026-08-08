@@ -125,6 +125,23 @@ namespace SideHustle.Menu
             LobbyRow captured = row;
             joinBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => onJoin?.Invoke(captured)));
 
+            // Ask before committing. Shown only when this host advertises that they take messages (sh_msg) - a
+            // button onto someone who drops every line would be worse than none - and it opens the same column the
+            // sync screens carry, so the conversation survives walking into the join.
+            if (ChatPanel.Possible(row.OwnerSteamId, row.AcceptsMessages))
+            {
+                var (chatGO, chatBtn, _ch) = UIFactory.ButtonWithLabel("Chat", "Chat", card.transform, Theme.Button, 84, 40);
+                var crt = chatGO.GetComponent<RectTransform>();
+                crt.anchorMin = new Vector2(1, 0.5f); crt.anchorMax = new Vector2(1, 0.5f); crt.pivot = new Vector2(1, 0.5f);
+                crt.anchoredPosition = new Vector2(-116, 0); crt.sizeDelta = new Vector2(84, 40);
+                chatBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() =>
+                    ChatPanel.Show(captured.OwnerSteamId, captured.HostName)));
+
+                // The two texts must stop before the extra button, or a long lobby name draws straight through it.
+                nrt.offsetMax = new Vector2(branch == null ? -208 : -280, -4);
+                srt.offsetMax = new Vector2(-208, 0);
+            }
+
             Interactions.PolishButtons(card.transform);
         }
 
