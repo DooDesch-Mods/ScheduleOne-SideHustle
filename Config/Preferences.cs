@@ -37,6 +37,9 @@ namespace SideHustle.Config
         private static MelonPreferences_Entry<string> _pendingGamemodeJoin;
         private static MelonPreferences_Entry<string> _aliases;
         private static MelonPreferences_Entry<string> _lastSessionError;
+        private static MelonPreferences_Entry<bool> _acceptStrangerMessages;
+        private static MelonPreferences_Entry<bool> _menuPanel;
+        private static MelonPreferences_Entry<bool> _joinChatPanel;
 
         internal static void Initialize()
         {
@@ -49,12 +52,27 @@ namespace SideHustle.Config
                 "Turn OFF to hide it without uninstalling. Requires returning to the main menu to take effect.");
 
             _showUninstalled = _category.CreateEntry("ShowUninstalledGamemodes", true, "Show gamemodes you don't have",
-                "When ON, the Side Hustle menu also lists gamemodes you have NOT installed that currently have live " +
+                "When ON, the Side Hustle menu also lists gamemodes you do not have that currently have live " +
                 "public lobbies, so you can discover them (with a Download link). Turn OFF to show only installed gamemodes.");
 
             _askHostOnContinue = _category.CreateEntry("AskHostOnContinue", true, "Ask to host publicly on Continue",
                 "When ON, clicking Continue or a save slot asks whether to open it as a public Side Hustle lobby. " +
                 "Turn OFF to always just play the save.");
+
+            _acceptStrangerMessages = _category.CreateEntry("AcceptStrangerMessages", true,
+                "Let strangers message you",
+                "When ON, anyone looking at your published lobby can send you a short message, and it appears in " +
+                "the Lobby app on your phone. Turn OFF to refuse them silently.");
+
+            _menuPanel = _category.CreateEntry("MenuStatePanel", true, "Show the info column in the main menu",
+                "When ON, a column down the right of the main menu says which mod set the game booted with, how " +
+                "many published sessions are taking players right now, and whether anyone messaged you. Needs " +
+                "Sideload 1.13.0 or newer; older versions simply show nothing.");
+
+            _joinChatPanel = _category.CreateEntry("JoinChatPanel", true, "Show the chat column while joining",
+                "When ON, the screens you pass through while joining a session carry a chat column on the right, so " +
+                "you can ask the host about a mod you cannot download and read their answer. Only " +
+                "appears when that host allows messages. Needs Sideload 1.13.0 or newer.");
 
             _recent = _category.CreateEntry("RecentlyPlayed", "", "Recently played gamemodes",
                 "Internal: a list of recently launched gamemode ids so the hub can list them first. Managed automatically.");
@@ -91,6 +109,27 @@ namespace SideHustle.Config
 
         /// <summary>Whether clicking Continue / a save slot prompts to host it as a public Side Hustle lobby.</summary>
         internal static bool AskHostOnContinue => _askHostOnContinue?.Value ?? true;
+
+        /// <summary>Whether a stranger who cannot join this host's lobby may send them a short message. The one
+        /// switch that turns the whole relay off - a host who does not want to be reached should not have to mute
+        /// people one at a time.</summary>
+        internal static bool AcceptStrangerMessages
+        {
+            get => _acceptStrangerMessages?.Value ?? true;
+            set { if (_acceptStrangerMessages != null) { _acceptStrangerMessages.Value = value; Save(); } }
+        }
+
+        /// <summary>Whether the main menu carries the Side Hustle state column. Read-only on purpose: this is the
+        /// player's answer, and the one thing that used to write it - an older Sideload - is a condition that can
+        /// change under a config value that cannot.</summary>
+        internal static bool MenuPanel => _menuPanel?.Value ?? true;
+
+        /// <summary>Whether the join screens carry the ask-the-host chat column.</summary>
+        internal static bool JoinChatPanel
+        {
+            get => _joinChatPanel?.Value ?? true;
+            set { if (_joinChatPanel != null) { _joinChatPanel.Value = value; Save(); } }
+        }
 
         /// <summary>Your chosen display name for a given gamemode ("" = use the real Steam persona name). Stored
         /// per-gamemode so you can appear under a different name in each. Applied to the in-game player name for the

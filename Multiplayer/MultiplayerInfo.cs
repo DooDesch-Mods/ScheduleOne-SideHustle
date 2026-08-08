@@ -42,6 +42,10 @@ namespace SideHustle.Multiplayer
         /// does not have it installed can open its download page. May be empty.</summary>
         public string DownloadUrl { get; internal set; }
 
+        /// <summary>Which game branch the host plays on (lobby key <c>sh_rt</c>): "il2cpp", "mono", or empty when the
+        /// host runs a Side Hustle that predates the key. The two branches cannot play together.</summary>
+        public string Runtime { get; internal set; }
+
         /// <summary>Salted hash of the join password (lobby key <c>sh_pwhash</c>); used by the client-side join gate.</summary>
         internal string PwHash { get; set; }
 

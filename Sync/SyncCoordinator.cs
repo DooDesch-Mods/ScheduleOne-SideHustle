@@ -31,6 +31,13 @@ namespace SideHustle.Sync
         private static Callback<LobbyDataUpdate_t> _dataCallback;   // static-held: a GC'd Callback dies silently
         private static bool _dataArrived;
         private static float _lobbyRetry;   // paces the re-request/re-discover while waiting for the lobby data
+        private static bool _loadStarted;   // the game has begun going somewhere since we entered the lobby
+
+        /// <summary>How long a joined-but-idle client waits before calling it. Deliberately short: this is the state
+        /// where the game will never start loading at all (see <see cref="Multiplayer.WorldBoot.LoadStarted"/>), so
+        /// waiting longer only wastes the player's evening. The two-minute ceiling below still covers a load that has
+        /// actually begun and is merely slow.</summary>
+        private const float NeverStartedSeconds = 15f;
 
         internal static bool IsBusy => _state != State.Idle;
         internal static bool IsInSession => _state == State.InSession;
@@ -97,8 +104,10 @@ namespace SideHustle.Sync
 
             Core.Log?.Msg($"[sync] rejoining lobby {_joinLobbyId} after the mod-sync restart...");
             Menu.RejoinNotice.Show("Looking for the lobby and checking its mod list has not changed...");
+            Menu.RejoinNotice.SetCancel(CancelRejoin);
             _timer = 0f;
             _lobbyRetry = 0f;
+            _loadStarted = false;
             // Prime lobby discovery: a fresh (just-restarted) client must re-learn the host's lobby exists before
             // RequestLobbyData will resolve it. A vanilla lobby-list query repopulates that registry.
             try { Multiplayer.ServerBrowser.BeginQueryVanilla(_ => { }); }
@@ -121,6 +130,8 @@ namespace SideHustle.Sync
             PlayerAlias.Enable(Config.Preferences.GetAlias("vanilla"));
             LobbyCoordinator.JoinLobby(lobbyId);
             _timer = 0f;
+            _loadStarted = false;
+            Menu.RejoinNotice.SetCancel(CancelRejoin);   // no notice up on this path yet, but the step owns the way out
             _state = State.ClientJoining;   // waits for the world, sets sh_sync, then InSession
             Core.Log?.Msg($"[sync] in-place synced join to lobby {lobbyId}.");
         }
@@ -138,19 +149,48 @@ namespace SideHustle.Sync
         private static void RejoinFailed(string reason)
         {
             Core.Log?.Warning("[sync] rejoin failed: " + reason);
+            AbandonJoin();
+            // Tell the player why, instead of a silent bounce back to the menu - their mods are already restored.
+            Toast("Couldn't join: " + reason + ". Your mods are restored - try again.", DooDesch.UI.Severity.Warning);
+        }
+
+        /// <summary>The player took the way out of the rejoin notice. Same teardown as a failure, different story:
+        /// nothing went wrong, they simply stopped waiting.</summary>
+        private static void CancelRejoin()
+        {
+            Core.Log?.Msg("[sync] rejoin cancelled; leaving the lobby.");
+            AbandonJoin();
+            Toast("Stopped looking for that lobby. Your mods are still set up for it - use \"Restore my mods\" when you're done.",
+                  DooDesch.UI.Severity.Info);
+        }
+
+        /// <summary>
+        /// Give up on a join in progress and hand the player back a working menu.
+        ///
+        /// Leaving the Steam lobby is the part that is easy to forget and rude to skip: entering it took a seat, and a
+        /// membership that outlives the attempt keeps the host counting a player who never arrived - in a four-seat
+        /// lobby that is a quarter of their session spent on a ghost.
+        /// </summary>
+        private static void AbandonJoin()
+        {
             Menu.RejoinNotice.Hide();
+            LobbyCoordinator.LeaveCurrentLobby();
             LobbyInviteAccess.Disable();
             PlayerAlias.Disable();   // OnMenuScene early-returns once Idle, so the alias must be cleared here too
             _state = State.Idle;
             _isClient = false;
+            _loadStarted = false;
             _joinLobbyId = 0;
             _joinMHash = null;
             Menu.Hub.OpenScreen();   // land the player on the hub (with "Restore my mods") instead of a dead menu
-            // Tell the player why, instead of a silent bounce back to the menu - their mods are already restored.
+        }
+
+        private static void Toast(string line, DooDesch.UI.Severity severity)
+        {
             try
             {
                 DooDesch.UI.Toast.Init(Menu.Hub.DialogRootStatic());
-                DooDesch.UI.Toast.Show("Couldn't join: " + reason + ". Your mods are restored - try again.", DooDesch.UI.Severity.Warning);
+                DooDesch.UI.Toast.Show(line, severity);
             }
             catch { /* purely cosmetic */ }
         }
@@ -178,6 +218,7 @@ namespace SideHustle.Sync
                         Menu.RejoinNotice.Update("Lobby verified - loading the world...");
                         LobbyCoordinator.JoinLobby(_joinLobbyId);
                         _timer = 0f;
+                        _loadStarted = false;
                         _state = State.ClientJoining;
                     }
                     else if (_timer > 20f) RejoinFailed("the lobby could not be reached (host may have left, or a network issue)");
@@ -209,8 +250,21 @@ namespace SideHustle.Sync
                         catch { /* member data is best-effort */ }
                         _state = State.InSession;
                         Core.Log?.Msg($"[sync] SYNCED JOIN complete: lobby {_joinLobbyId}, {LobbyCoordinator.MemberCount} player(s).");
+                        break;
                     }
-                    else if (_timer > 120f) RejoinFailed($"world never arrived (scene={WorldBoot.CurrentScene}, status={WorldBoot.LoadStatus})");
+                    // Two different waits, and they must not share a deadline. Once the game is going somewhere it may
+                    // legitimately take minutes; until then it is not slow, it is never going to start - vanilla only
+                    // kicks a client's load off from the host's lobby keys on entry, so a lobby that admits us without
+                    // any of them set leaves us in the menu for as long as we are willing to sit there.
+                    if (WorldBoot.LoadStarted) _loadStarted = true;
+                    if (!_loadStarted)
+                    {
+                        if (_timer > NeverStartedSeconds)
+                            RejoinFailed("the host let us in but their lobby never started the game - it is not marked "
+                                         + "ready for players. Ask them to unpublish and publish again");
+                    }
+                    else if (_timer > 120f)
+                        RejoinFailed($"world never arrived (scene={WorldBoot.CurrentScene}, status={WorldBoot.LoadStatus})");
                     break;
 
                 case State.HostCreatingLobby:
@@ -248,9 +302,42 @@ namespace SideHustle.Sync
         /// Side Hustle session is kept alive on the web directory too.</summary>
         internal static void TickGate()
         {
-            if (_state != State.InSession || _isClient) return;
-            if (_enforce) SyncGate.Tick(LobbyCoordinator.CurrentLobbyId);
+            // The GATE's own armed flag decides whether to scan, not this coordinator's state. Enforcement can be
+            // switched mid-session from the phone app, and a lobby published with the in-game button is not a
+            // coordinator session at all - asking two flags is how the switch came to move the advertisement and
+            // leave the kicking exactly as it was.
+            if (!SyncGate.IsActive || _isClient) return;
+            if (!LobbyCoordinator.IsInLobby || !LobbyCoordinator.IsHost) return;
+            SyncGate.Tick(LobbyCoordinator.CurrentLobbyId);
         }
+
+        /// <summary>
+        /// Move the mod-set requirement of the session running right now - the kick with it.
+        /// </summary>
+        /// <remarks>
+        /// The host toggles this in the phone app, where it reads as one switch, so it has to be one. Turning it OFF
+        /// used to change the advertisement only: the gate kept scanning and kept removing people for a rule the host
+        /// had already dropped.
+        ///
+        /// <paramref name="expectedMHash"/> is the lobby's own published <c>sh_mhash</c>, which is exactly what a
+        /// synced client writes into its <c>sh_sync</c> member data - so this arms correctly for a live-published
+        /// lobby too, not just a session this coordinator started. Returns false when there is nothing to check
+        /// joiners against, and then arms nothing rather than kicking everybody.
+        /// </remarks>
+        internal static bool SetEnforce(bool enforce, string expectedMHash)
+        {
+            _enforce = enforce;
+            if (!enforce) { SyncGate.Disable(); return true; }
+            if (string.IsNullOrEmpty(expectedMHash)) { SyncGate.Disable(); return false; }
+            SyncGate.Enable(expectedMHash);
+            return true;
+        }
+
+        /// <summary>The menu scene unloaded, which happens for exactly one reason: a world is loading. What the next
+        /// menu needs to know is that a session happened in between.</summary>
+        private static bool _sawWorld;
+
+        internal static void OnLeftMenu() => _sawWorld = true;
 
         /// <summary>Menu scene (re)initialized: a live session ended via the vanilla save+quit flow - clean up.</summary>
         internal static void OnMenuScene()
@@ -261,10 +348,29 @@ namespace SideHustle.Sync
             // published, so it is safe to run on every menu return.
             LivePublish.Reset();
 
+            // Same reason, and now load-bearing: the gate can be armed on a lobby this coordinator never started
+            // (the phone app's switch), so an armed gate that survived into the menu would meet the NEXT session
+            // still scanning - and kick everyone out of a lobby whose host never asked for a mod requirement.
+            SyncGate.Disable();
+
+            // The conversations were about getting into the session that just ended, and the remembered join
+            // password belongs to the lobby that just closed. Showing either of them in the next one would be
+            // wrong as well as careless.
+            //
+            // Only after a world, never on a bare menu init. The menu initialises at boot and again while it
+            // settles, and by then a player may be halfway through asking a host whether they can get in - so
+            // "the menu came up" is the wrong trigger and "we came back from a session" is the right one.
+            if (_sawWorld)
+            {
+                _sawWorld = false;
+                Phone.ChatRelay.Clear();
+                Phone.LobbyControls.Reset();
+                Menu.ChatPanel.ForgetConversations();
+            }
+
             if (_state == State.Idle) return;
             if (_state == State.InSession) Core.Log?.Msg("[sync] vanilla session ended; cleaning up.");
             if (!_isClient) VanillaLobby.Untag();
-            SyncGate.Disable();
             PublicLobbyAccess.Disable();
             LobbyInviteAccess.Disable();
             PlayerAlias.Disable();

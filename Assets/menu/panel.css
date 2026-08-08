@@ -1,0 +1,78 @@
+/* Side Hustle - the main-menu state column.
+ *
+ * Same palette as the phone app (Assets/lobby/app.css), measured from the mod's logo, and the same two-lit-colour
+ * rule: orange means "this does something", mint means "this is running". Nothing here is clickable, so orange
+ * appears only where a number needs weight and never as a surface.
+ *
+ * Mounted at device pixels, not the phone's 400px short side: the panel is 340 device px wide and the menu around
+ * it is drawn at the screen's own scale, so a page that scaled itself would sit at a different size than every
+ * vanilla control next to it.
+ *
+ * Engine subset, not a browser: px and % only, every box is a column flex container unless told otherwise,
+ * border-box always, ONE border colour per box, no z-index, no grid.
+ */
+
+:root {
+  --bg:        #0E1318;
+  --panel:     #161B21;
+  --hairline:  #262E37;
+
+  --text:      #ECEDF1;
+  --muted:     #96A0A6;
+
+  --accent:    #FDA33B;
+  --live:      #47BFB0;
+  --danger:    #F1707A;
+}
+
+body { height: 100%; font-family: game-ui; font-size: 13px; color: var(--text); }
+
+/* No background on the panel itself. The menu behind it is art, and a full-height opaque slab would read as a
+   second window rather than as a note in the corner - each card carries its own surface instead. */
+.panel { height: 100%; padding: 0; gap: 8px; justify-content: flex-end; }
+
+/* Nearly opaque, not the flat --panel the phone uses: behind this sits the menu's 3D scene, and #161B21 over dark
+   asphalt is a card nobody can see the edges of. The left rule is what says whose panel this is - and it is the
+   box's ONE border, because the engine paints a single border colour per box. */
+.card {
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: rgba(14, 19, 24, 0.94);
+  border-left: 2px solid var(--hairline);
+  gap: 6px;
+}
+
+.card.running  { border-left: 2px solid var(--live); }
+.card.messages { border-left: 2px solid var(--accent); }
+
+.label {
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--muted);
+}
+
+/* One box, one line, centred on BOTH axes: in a column box the vertical axis is justify-content, and setting only
+   align-items is the classic way to end up with text that sits a few pixels high. */
+.value { font-size: 18px; font-weight: 700; }
+
+.note { color: var(--muted); }
+
+.row { flex-direction: row; align-items: center; gap: 8px; }
+
+.dot { width: 8px; height: 8px; border-radius: 4px; background: var(--muted); }
+.dot.live { background: var(--live); }
+.dot.warn { background: var(--accent); }
+.dot.bad  { background: var(--danger); }
+
+.count { color: var(--accent); font-weight: 700; }
+.count.live { color: var(--live); }
+
+.card.alert { border-left: 2px solid var(--danger); }
+.alert .value { color: var(--danger); font-size: 13px; font-weight: 400; }
+
+.foot {
+  padding: 6px 12px 0;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: right;
+}

@@ -26,7 +26,23 @@ namespace SideHustle.Multiplayer
         private static Action<List<LobbyRow>> _advOnResults;
 
         private static CallResult<LobbyMatchList_t> _vanillaCallResult;
-        private static Action<List<Sync.VanillaLobbyRow>> _vanillaOnResults;
+
+        /// <summary>
+        /// Everyone waiting on a vanilla lobby list, not just the last caller.
+        /// </summary>
+        /// <remarks>
+        /// Three places start this query - the browser, the menu's state column, and the post-restart rejoin - and
+        /// they overlap by design. With a single callback field the second caller silently took the first one's
+        /// place, so the first was never answered: the state column's "a query is running" latch stayed up and the
+        /// column stopped refreshing for the rest of the session. One query serves everybody waiting on it.
+        /// </remarks>
+        private static readonly List<Action<List<Sync.VanillaLobbyRow>>> _vanillaWaiting =
+            new List<Action<List<Sync.VanillaLobbyRow>>>();
+
+        /// <summary>Every completed vanilla lobby query, for a watcher that wants the answer without asking for it.
+        /// Separate from the per-call callback on purpose: that one belongs to whoever started the query, this one
+        /// to whoever is displaying the result.</summary>
+        internal static Action<List<Sync.VanillaLobbyRow>> VanillaResultsTap;
 
         internal static bool IsQuerying => _querying;
 
@@ -111,8 +127,8 @@ namespace SideHustle.Multiplayer
         /// CallResult, same rules as the others (static-held, GetLobbyByIndex iteration).</summary>
         internal static void BeginQueryVanilla(Action<List<Sync.VanillaLobbyRow>> onResults)
         {
-            _vanillaOnResults = onResults;
-            if (!SteamReady()) { onResults?.Invoke(new List<Sync.VanillaLobbyRow>()); return; }
+            if (onResults != null) _vanillaWaiting.Add(onResults);
+            if (!SteamReady()) { DeliverVanilla(new List<Sync.VanillaLobbyRow>()); return; }
             try
             {
                 if (_vanillaCallResult == null)
@@ -130,8 +146,28 @@ namespace SideHustle.Multiplayer
             catch (Exception e)
             {
                 Core.Log?.Warning("[sync] vanilla-lobby query failed: " + e.Message);
-                onResults?.Invoke(new List<Sync.VanillaLobbyRow>());
+                DeliverVanilla(new List<Sync.VanillaLobbyRow>());
             }
+        }
+
+        /// <summary>Hand one lobby list to every waiter and to the watcher tap. Callbacks are taken off the list
+        /// BEFORE any of them runs: several of them start the next query from inside, and a waiter added by that
+        /// query belongs to it, not to the result being delivered now.</summary>
+        private static void DeliverVanilla(List<Sync.VanillaLobbyRow> rows)
+        {
+            Action<List<Sync.VanillaLobbyRow>>[] waiting = _vanillaWaiting.ToArray();
+            _vanillaWaiting.Clear();
+            foreach (var cb in waiting)
+            {
+                try { cb(rows); }
+                catch (Exception e) { Core.Log?.Warning("[sync] vanilla-browser callback threw: " + e.Message); }
+            }
+
+            // Every vanilla query, wherever it came from, also reaches anything merely WATCHING the lobby list.
+            // The menu's state column is the first: without this it polled on its own clock and read a stale count
+            // until its next turn came round, so opening the browser - which queries at once - made the number jump.
+            try { VanillaResultsTap?.Invoke(rows); }
+            catch (Exception e) { Core.Log?.Warning("[sync] vanilla-browser tap threw: " + e.Message); }
         }
 
         private static void OnVanillaLobbyList(LobbyMatchList_t result, bool ioFailure)
@@ -151,8 +187,7 @@ namespace SideHustle.Multiplayer
             }
             catch (Exception e) { Core.Log?.Warning("[sync] vanilla-lobby parse error: " + e.Message); }
             Core.Log?.Msg($"[sync] vanilla browser: {rows.Count} lobby(ies) found.");
-            try { _vanillaOnResults?.Invoke(rows); }
-            catch (Exception e) { Core.Log?.Warning("[sync] vanilla-browser callback threw: " + e.Message); }
+            DeliverVanilla(rows);
         }
 
         private static void OnLobbyList(LobbyMatchList_t result, bool ioFailure)
@@ -256,7 +291,13 @@ namespace SideHustle.Multiplayer
                         PwHash = info.PwHash,
                         BuildId = info.BuildId,
                         GamemodeId = info.GamemodeId,
-                        DownloadUrl = info.DownloadUrl
+                        DownloadUrl = info.DownloadUrl,
+                        Runtime = info.Runtime,
+                        // Read straight off the lobby rather than through MultiplayerInfo: that type is the public
+                        // payload a gamemode receives, and browser-only state does not belong on it. "owner" is the
+                        // game's own key, written in vanilla's OnLobbyCreated.
+                        AcceptsMessages = SteamMatchmaking.GetLobbyData(id, Sync.VanillaLobby.KeyMessages) == "1",
+                        OwnerSteamId = ulong.TryParse(SteamMatchmaking.GetLobbyData(id, "owner"), out ulong owner) ? owner : 0UL,
                     });
                 }
             }

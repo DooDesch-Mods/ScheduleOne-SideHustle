@@ -103,6 +103,7 @@ namespace SideHustle.Menu
             {
                 LobbyId = 1234567, LobbyName = "Sam's modded run", HostName = "Sam", Org = "Kings of Cul-de-Sac",
                 Enforced = true, MHash = "1a2b3c4d5e6f7a8b", Members = 2, MaxPlayers = 4, OwnerSteamId = 76561190000000000UL,
+                HostReady = true, Runtime = LobbyCoordinator.ThisRuntime,   // a healthy lobby, so the self-test exercises the join itself
             };
             return (row, manifest, diff, "1a2b3c4d5e6f7a8b", "[SomeMod_01_Main]\nDifficulty = \"hard\"\nSpawnRate = 2.5\n");
         }
@@ -129,7 +130,9 @@ namespace SideHustle.Menu
             ClearFormHost();
             SetTmp(_clone.transform, "Title", "Manual installs");
             var host = CreateFormHost("SH_ManualInstall", 560f);
-            SyncManualInstallView.Build(host, s.Diff, onContinue: ShowVanillaChoice, onBack: ShowVanillaChoice);
+            SyncManualInstallView.Build(host, s.Diff,
+                s.Row?.OwnerSteamId ?? 0UL, s.Row?.HostName, s.Row?.AcceptsMessages ?? false,
+                onContinue: ShowVanillaChoice, onBack: ShowVanillaChoice);
         }
 
         /// <summary>Dev.SelfTest only: open the hub straight on the vanilla lobby browser for a screenshot.</summary>
@@ -140,6 +143,17 @@ namespace SideHustle.Menu
             if (_cloneScreen == null) return;
             if (!_cloneScreen.IsOpen) { ShowGamemodeList(); _cloneScreen.Open(); }
             ShowVanillaChoice();
+        }
+
+        /// <summary>Dev only: skip the choice screen and land on the lobby LIST - the screen that carries the Join
+        /// and Chat buttons, and therefore the one worth looking at.</summary>
+        internal static void OpenVanillaListForTest()
+        {
+            EnsureInit();
+            EnsureClone();
+            if (_cloneScreen == null) return;
+            if (!_cloneScreen.IsOpen) { ShowGamemodeList(); _cloneScreen.Open(); }
+            ShowVanillaBrowser();
         }
 
         /// <summary>Dev.SelfTest only: find the first published vanilla lobby, read its manifest, diff and run
@@ -254,6 +268,7 @@ namespace SideHustle.Menu
 
         private static void ShowVanillaChoice()
         {
+            InvalidateJoinChecks();   // whatever join was being prepared, the player is somewhere else now
             _mpDesc = null;
             _back = ShowGamemodeList;
             var rows = new List<Row>
@@ -447,6 +462,7 @@ namespace SideHustle.Menu
         private static void ShowVanillaBrowser()
         {
             if (_clone == null) return;
+            InvalidateJoinChecks();   // back on the list: the lobby being read is no longer the one being joined
             _back = ShowVanillaChoice;
             ClearFormHost();
             SetTmp(_clone.transform, "Title", "Join a vanilla lobby");
@@ -475,11 +491,13 @@ namespace SideHustle.Menu
         // enforce flag ride in the card's secondary line (LobbyRow.Mode, shown after "Vanilla Co-op").
         private static LobbyRow MapVanillaRow(VanillaLobbyRow r)
         {
-            // Keep the card's secondary line short (it already leads with "Vanilla Co-op" + the player count, and
-            // BuildCard appends a "Locked" flag): just the save name plus a compact synced-only marker. The full
-            // published mod breakdown is shown on the sync-consent screen after the player picks the lobby.
+            // Keep the card's secondary line short (it already leads with the player count, and BuildCard appends a
+            // "Locked" flag): just the save name plus a compact synced-only marker. The full published mod breakdown
+            // is shown on the sync-consent screen after the player picks the lobby. No "Vanilla Co-op" label - the
+            // screen title above every card already says "Join a vanilla lobby".
             string extra = $"save '{r.Org}'";
             if (r.Enforced) extra += "  ·  synced-only";
+            if (!VanillaLobby.AcceptsJoiners(r)) extra += "  ·  not accepting joiners";
             return new LobbyRow
             {
                 LobbyId = r.LobbyId,
@@ -489,14 +507,60 @@ namespace SideHustle.Menu
                 MaxPlayers = r.MaxPlayers,
                 HasPassword = r.HasPassword,
                 PwHash = r.PwHash,
-                GamemodeName = "Vanilla Co-op",
                 Mode = extra,
+                Runtime = r.Runtime,
+                AcceptsMessages = r.AcceptsMessages,
+                OwnerSteamId = r.OwnerSteamId,
             };
         }
 
+        /// <summary>
+        /// Whether the attempt that started at <paramref name="gen"/> is still the one the player is waiting on.
+        /// </summary>
+        /// <remarks>
+        /// The manifest read retries itself for five seconds through background delays, and the compare that follows
+        /// hashes every installed mod on a worker. Both come back by posting to the main thread, and the only thing
+        /// they used to check was whether SOME hub screen was open - which it is after a back press, because the
+        /// player is looking at the lobby list again. So an abandoned attempt kept running and, seconds later, threw
+        /// the consent screen for the lobby they had walked away from over whatever they had chosen instead.
+        ///
+        /// The counter is the gamemode join's <c>_joinGen</c>, shared on purpose: both flows mean the same thing by
+        /// "the player moved on", and one number cannot get out of step with the other.
+        /// </remarks>
+        private static bool JoinStale(int gen) => gen != _joinGen || _cloneScreen == null || !_cloneScreen.IsOpen;
+
         private static void StartVanillaJoin(VanillaLobbyRow row)
         {
+            InvalidateJoinChecks();    // this lobby is the attempt now; anything still running belongs to the last one
             _vanillaRetried = false;   // a newly picked lobby gets its own "show me what is missing" pass
+
+            // Before anything else, including a password prompt: will entering this lobby get us into a game at all?
+            // A host whose lobby never got the game's own "ready" key admits members and then leaves them standing in
+            // the menu - and finding that out costs a full mod sync plus a game restart first. Say it here instead.
+            //
+            // Offered rather than refused, because the key can lag: a host who finished loading a second ago has it
+            // set locally before our cached copy of their lobby data shows it.
+            if (!VanillaLobby.AcceptsJoiners(row))
+            {
+                var gate = DialogRoot();
+                if (gate != null)
+                {
+                    DooDesch.UI.Components.ConfirmDialog(gate, "Not accepting joiners",
+                        $"{(string.IsNullOrEmpty(row.HostName) ? "This host" : row.HostName)}'s lobby is listed, but it never told the game it is ready for players - "
+                        + "that happens when a lobby is opened after the host was already playing, on a build older than Side Hustle 2.3.0. "
+                        + "Joining would install their mods, restart your game and then leave you in the menu.\n\n"
+                        + "Ask them to unpublish and publish again, or try anyway if they only just finished loading.",
+                        "Try anyway", () => StartVanillaJoinChecked(row));
+                    return;
+                }
+            }
+
+            StartVanillaJoinChecked(row);
+        }
+
+        /// <summary>The join proper, past the "can this lobby be entered at all" gate.</summary>
+        private static void StartVanillaJoinChecked(VanillaLobbyRow row)
+        {
             // Password gate first (client-side hash compare, the casual gate the gamemode browser also uses).
             if (row.HasPassword && !string.IsNullOrEmpty(row.PwHash))
             {
@@ -534,53 +598,55 @@ namespace SideHustle.Menu
             {
                 new Row { Name = "Reading the host's mod list...", Subtitle = "Fetching the details from Steam.", Disabled = true }
             });
+            ChatPanel.Keep(row.OwnerSteamId, row.HostName, row.AcceptsMessages);
             try { Il2CppSteamworks.SteamMatchmaking.RequestLobbyData(new Il2CppSteamworks.CSteamID(row.LobbyId)); } catch { }
-            WaitForManifest(row, 0);
+            WaitForManifest(row, 0, _joinGen);
         }
 
         // Retry reading the host's chunked manifest (re-requesting lobby data each attempt) until it validates or the
         // ~3s window elapses. The read + UI run on the main thread; only the delay rides a background task.
-        private static void WaitForManifest(VanillaLobbyRow row, int attempt)
+        private static void WaitForManifest(VanillaLobbyRow row, int attempt, int gen)
         {
-            if (_cloneScreen == null || !_cloneScreen.IsOpen) return;
+            if (JoinStale(gen)) return;
             if (VanillaLobby.TryReadPayloads(row.LobbyId, out var manifest, out var hostPrefs, out var mhash))
             {
-                BeginSyncCompare(row, manifest, hostPrefs, mhash);
+                BeginSyncCompare(row, manifest, hostPrefs, mhash, gen);
                 return;
             }
             if (attempt >= 7)   // ~5s of Steam (the primary path) before falling back to the backend directory
             {
-                TryDirectoryFallback(row);
+                TryDirectoryFallback(row, gen);
                 return;
             }
             try { Il2CppSteamworks.SteamMatchmaking.RequestLobbyData(new Il2CppSteamworks.CSteamID(row.LobbyId)); } catch { }
             System.Threading.Tasks.Task.Run(async () =>
             {
                 await System.Threading.Tasks.Task.Delay(700);
-                MainThread.Post(() => WaitForManifest(row, attempt + 1));
+                MainThread.Post(() => WaitForManifest(row, attempt + 1, gen));
             });
         }
 
         // Steam couldn't produce the manifest (likely too large to propagate) - fall back to the backend directory.
         // The backend is untrusted, so its manifest is only accepted when it hashes to the mhash the host wrote to the
         // real Steam lobby (see VanillaLobby.TryReadFromDirectoryAsync).
-        private static void TryDirectoryFallback(VanillaLobbyRow row)
+        private static void TryDirectoryFallback(VanillaLobbyRow row, int gen)
         {
             Core.Log?.Msg("[sync] Steam manifest unavailable; trying the backend fallback...");
             ShowRows("Reading the host's mods...", new List<Row>
             {
                 new Row { Name = "Reading the host's mod list (backend)...", Subtitle = "Steam couldn't share it - using the fallback.", Disabled = true }
             });
+            ChatPanel.Keep(row.OwnerSteamId, row.HostName, row.AcceptsMessages);
             System.Threading.Tasks.Task.Run(async () =>
             {
                 var res = await VanillaLobby.TryReadFromDirectoryAsync(row.LobbyId);
                 MainThread.Post(() =>
                 {
-                    if (_cloneScreen == null || !_cloneScreen.IsOpen) return;
+                    if (JoinStale(gen)) return;
                     if (res != null)
                     {
                         Core.Log?.Msg("[sync] backend fallback provided the manifest.");
-                        BeginSyncCompare(row, res.Manifest, res.Prefs, res.Mhash);
+                        BeginSyncCompare(row, res.Manifest, res.Prefs, res.Mhash, gen);
                     }
                     else
                     {
@@ -591,12 +657,13 @@ namespace SideHustle.Menu
             });
         }
 
-        private static void BeginSyncCompare(VanillaLobbyRow row, SyncManifest manifest, string hostPrefs, string mhash)
+        private static void BeginSyncCompare(VanillaLobbyRow row, SyncManifest manifest, string hostPrefs, string mhash, int gen)
         {
             ShowRows("Comparing mods...", new List<Row>
             {
                 new Row { Name = "Comparing the host's mods with yours...", Subtitle = "Hashing your installed mods.", Disabled = true }
             });
+            ChatPanel.Keep(row.OwnerSteamId, row.HostName, row.AcceptsMessages);
 
             System.Threading.Tasks.Task.Run(() =>
             {
@@ -605,7 +672,7 @@ namespace SideHustle.Menu
                 catch (Exception e) { Core.Log?.Warning("[sync] diff failed: " + e.Message); }
                 MainThread.Post(() =>
                 {
-                    if (_cloneScreen == null || !_cloneScreen.IsOpen) return;
+                    if (JoinStale(gen)) return;
                     if (diff == null) { ShowUnsyncableJoin(row, "Comparing failed (see log)."); return; }
 
                     bool nothingToFetch = diff.Count(DiffStatus.Download) == 0 && diff.Count(DiffStatus.Manual) == 0;
@@ -636,10 +703,17 @@ namespace SideHustle.Menu
             ClearFormHost();
             SetTmp(_clone.transform, "Title", string.IsNullOrEmpty(row.LobbyName) ? "Sync check" : row.LobbyName);
             var host = CreateFormHost("SH_SyncConsent", 560f);
+
+            // The question this screen raises - "can I actually get all of that?" - has one answer nobody here can
+            // give, and it belongs to the host. So the conversation is already open beside it rather than behind a
+            // button on the NEXT screen, which is where it used to live.
+            if (ChatPanel.Possible(row.OwnerSteamId, row.AcceptsMessages)) ChatPanel.Show(row.OwnerSteamId, row.HostName);
+
             SyncConsentView.Build(host, manifest, diff, row.Enforced, hasPrefs: !string.IsNullOrEmpty(hostPrefs),
+                row.OwnerSteamId, row.HostName, row.AcceptsMessages,
                 onSyncJoin: () => StartSyncAndJoin(row, manifest, diff, mhash, hostPrefs),
-                onPlainJoin: () => { CloseHubScreen(); LobbyCoordinator.JoinLobby(row.LobbyId); },
-                onBack: ShowVanillaBrowser);
+                onPlainJoin: () => { ChatPanel.Hide(); CloseHubScreen(); LobbyCoordinator.JoinLobby(row.LobbyId); },
+                onBack: () => { ChatPanel.Hide(); ShowVanillaBrowser(); });
         }
 
         private static void ShowUnsyncableJoin(VanillaLobbyRow row, string why)
@@ -679,8 +753,10 @@ namespace SideHustle.Menu
                 ClearFormHost();
                 SetTmp(_clone.transform, "Title", "Manual installs");
                 var mh = CreateFormHost("SH_ManualInstall", 560f);
-                SyncManualInstallView.Build(mh,
-                    diff,
+                // The owner id the browser already read from the lobby - what turns "you cannot get this mod" into
+                // "ask the person who has it".
+                SyncManualInstallView.Build(mh, diff,
+                    row?.OwnerSteamId ?? 0UL, row?.HostName, row?.AcceptsMessages ?? false,
                     onContinue: () => BuildAndRestart(row, diff, mhash, hostPrefs),
                     onBack: () => ShowVanillaConsent(row, manifest, diff, mhash, hostPrefs));
                 return;
@@ -739,6 +815,7 @@ namespace SideHustle.Menu
                         SetTmp(_clone.transform, "Title", "Still missing");
                         var mh = CreateFormHost("SH_SyncRetry", 560f);
                         SyncManualInstallView.Build(mh, diff,
+                            row?.OwnerSteamId ?? 0UL, row?.HostName, row?.AcceptsMessages ?? false,
                             onContinue: () => BuildAndRestart(row, diff, mhash, hostPrefs),
                             onBack: ShowVanillaBrowser);
                         return;

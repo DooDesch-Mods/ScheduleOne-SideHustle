@@ -3,6 +3,36 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [2.3.0] - 2026-08-08
+
+### Added
+
+- The main menu shows a column on the right: sessions listed, how many take players, the mod profile you
+  booted into, and whether anyone messaged you. Switch it off with `MenuStatePanel`.
+- A Lobby app on your phone changes what used to need a new session: name, join password, public or friends
+  only, seats, mod requirement, publishing. Host only, and it applies to the next person who joins.
+- Lobby cards get a Chat button next to Join, and the join screens carry that conversation down the right,
+  so a mod you cannot download becomes a question instead of a dead end.
+  - It only shows for hosts who take messages. Switch yours off with `AcceptStrangerMessages`, mute one
+    person from the app, or hide the column with `JoinChatPanel`.
+- Lobby cards say which branch the host plays on, IL2CPP in green or Mono in red. The two cannot play
+  together, and nothing on the card used to tell you before you tried.
+- The Rejoining screen gets a Cancel button after eight seconds. It leaves the host's lobby so you stop
+  holding a seat, and your synced mods stay set up.
+
+### Fixed
+
+- Joining a lobby published from the pause menu works. It was never marked ready for players, so you
+  installed the host's mods, restarted, and landed on your own main menu.
+- A join that cannot work stops early: lobbies taking no players are marked in the browser, and a join that
+  never starts gives up after 15 seconds with the reason on screen.
+- The manual install list says in one short line why a mod cannot be downloaded. A mod the host built
+  themselves looked exactly like one still on its way.
+- Backing out of a lobby you were checking leaves it behind. Its mod list kept loading and threw that
+  lobby's sync screen over whatever you picked next, seconds later.
+- The Publish button stays out of gamemode rounds. Pressing it while hosting one rewrote the round's own
+  lobby details, and unpublishing then made the lobby impossible to join.
+
 ## [2.2.9] - 2026-08-07
 
 ### Fixed

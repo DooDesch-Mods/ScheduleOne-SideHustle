@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="sideload-preview.css">
+</head>
+<body>
+<script type="module">
+import { mount } from './sideload-preview.js';
+import { call, ready, scenarios } from './s1-mock.js';
+
+mount({
+  title: 'Side Hustle Lobby',
+  appId: 'sidehustle',
+  background: '#101218',
+  accent: '#5E6AD2',
+  note: 'The chips are the states a host only reaches by playing: seats already filled, a password the mod knows exists but cannot show, and the view a client gets of a session it does not own.',
+  call,
+  ready,
+  scenarios,
+});
+</script>
+</body>
+</html>

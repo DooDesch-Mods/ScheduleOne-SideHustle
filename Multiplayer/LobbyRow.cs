@@ -15,5 +15,15 @@ namespace SideHustle.Multiplayer
         public string BuildId;  // host's gamemode build fingerprint (sh_build) - the browser flags a version mismatch
         public string GamemodeId;   // stable gamemode id (sh_gamemode) - matches a lobby to an installed gamemode
         public string DownloadUrl;  // where to get the mod (sh_url) - shown as "Download Mod" for uninstalled gamemodes
+        public string Runtime;      // host's game branch (sh_rt): "il2cpp", "mono", or empty from an older host
+
+        /// <summary>The host takes messages from people who cannot join (sh_msg). Drives the Chat button next to
+        /// Join - offered only when the answer is yes, because a button onto a host who drops every line is worse
+        /// than none at all.</summary>
+        public bool AcceptsMessages;
+
+        /// <summary>Whose game this is, so a message has somewhere to go. Zero when the lobby never published an
+        /// owner, which also hides the Chat button.</summary>
+        public ulong OwnerSteamId;
     }
 }

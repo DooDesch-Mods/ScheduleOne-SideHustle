@@ -59,15 +59,18 @@
     <RootNamespace>SideHustle</RootNamespace>
     <AssemblyName>SideHustle</AssemblyName>
     <NeutralLanguage>en-US</NeutralLanguage>
-    <Version>2.2.9</Version>
-    <AssemblyVersion>2.2.9.0</AssemblyVersion>
-    <FileVersion>2.2.9.0</FileVersion>
+    <Version>2.3.0</Version>
+    <AssemblyVersion>2.3.0.0</AssemblyVersion>
+    <FileVersion>2.3.0.0</FileVersion>
     <!-- Suppress MSB3277/MSB3245 noise from il2cpp interop transitive refs -->
     <NoWarn>$(NoWarn);MSB3277;MSB3245</NoWarn>
 
     <!-- Workspace lib roots (mirrors Inkorporated ../Workspace/lib) -->
     <WorkspaceLibPath Condition="'$(WorkspaceLibPath)' == ''">$(MSBuildThisFileDirectory)../Workspace/lib</WorkspaceLibPath>
-    <ModsDirectory Condition="'$(ModsDirectory)' == ''">D:\Launcher\SteamLibrary\steamapps\common\Schedule I\Mods</ModsDirectory>
+    <!-- Dev deploy target: the _MPTest copy, never the real install by default - same rule the boot plugin already
+         states, and relative so it holds on any checkout. The MCP build tool overrides it with the active test slot;
+         a real install is only ever written by passing -p:ModsDirectory explicitly. -->
+    <ModsDirectory Condition="'$(ModsDirectory)' == ''">$(MSBuildThisFileDirectory)../_MPTest/Schedule I/Mods</ModsDirectory>
   </PropertyGroup>
 
   <!-- Backend selection derived from the active TargetFramework (il2cpp only for now) -->
@@ -95,6 +98,53 @@
        consumers exist) from the compile entirely, so the released library build stays clean. -->
   <ItemGroup Condition="'$(Configuration)' == 'Release'">
     <Compile Remove="Dev/**" />
+  </ItemGroup>
+
+  <!-- The Sideload.Api shim as SOURCE - one file, no second DLL, and no reference to Sideload itself: the shim
+       finds the host by reflection and every call is a no-op when it is absent. Sideload is already a transitive
+       requirement here (this mod requires WhatsDab, which requires Sideload), so the phone app costs no new
+       dependency.
+
+       Two locations for the same file, exactly as WhatsDab resolves it. In the development monorepo the
+       Sideload.Api project is a sibling and is the single source of truth; a standalone checkout of this repo (and
+       therefore CI) has no sibling and falls back to the copy in the private build-libs repo. MUST come after the
+       Workspace Remove above, or CI strips the file it just included. -->
+  <PropertyGroup>
+    <SideloadShimPath Condition="Exists('$(MSBuildThisFileDirectory)../Sideload/Sideload.Api/Sideload.cs')">$(MSBuildThisFileDirectory)../Sideload/Sideload.Api/Sideload.cs</SideloadShimPath>
+    <SideloadShimPath Condition="'$(SideloadShimPath)' == '' And Exists('$(WorkspaceLibPath)/sideload-api/Sideload.cs')">$(WorkspaceLibPath)/sideload-api/Sideload.cs</SideloadShimPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Condition="'$(SideloadShimPath)' != ''" Include="$(SideloadShimPath)" Link="Sideload.Api.cs" />
+  </ItemGroup>
+  <Target Name="WarnWithoutSideloadShim" BeforeTargets="CoreCompile" Condition="'$(SideloadShimPath)' == ''">
+    <Error Text="Sideload.Api/Sideload.cs was not found next to this repo or under $(WorkspaceLibPath)/sideload-api/. The Lobby phone app cannot compile without it." />
+  </Target>
+
+  <!-- The Lobby app's web bundle. The LogicalName prefix IS the bundlePrefix passed to Apps.Register; without it
+       MSBuild mangles the folder names and the app finds nothing. preview.html, s1-mock.js and the shared
+       preview shell (sideload-preview.*, dom-surface.js) are the browser harness and are deliberately not
+       shipped. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Assets/lobby/*" Exclude="Assets/lobby/preview.html;Assets/lobby/s1-mock.js;Assets/lobby/sideload-preview.*;Assets/lobby/dom-surface.js">
+      <LogicalName>SideHustle.Assets.lobby.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+    <!-- Its own entry, because the glob above does NOT reach into subfolders. Without this the app builds
+         cleanly, ships, and draws every icon as a blank box - a failure with no build error in front of it.
+         The dotted logical name is what an <img src="icons/x.png"> resolves to. -->
+    <EmbeddedResource Include="Assets/lobby/icons/*.png">
+      <LogicalName>SideHustle.Assets.lobby.icons.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+    <!-- The ask-the-host column beside a join screen (Sideload surface, not a phone app - so no icon.png). -->
+    <EmbeddedResource Include="Assets/chat/*" Exclude="Assets/chat/preview.html;Assets/chat/s1-mock.js">
+      <LogicalName>SideHustle.Assets.chat.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Assets/chat/icons/*.png">
+      <LogicalName>SideHustle.Assets.chat.icons.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+    <!-- The main-menu state column (Sideload surface, not a phone app - so no icon.png). -->
+    <EmbeddedResource Include="Assets/menu/*" Exclude="Assets/menu/preview.html;Assets/menu/s1-mock.js">
+      <LogicalName>SideHustle.Assets.menu.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
   <!-- Mod loader references -->

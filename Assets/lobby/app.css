@@ -1,0 +1,485 @@
+/* Side Hustle - the phone app.
+ *
+ * Palette taken from the mod's own logo (SideHustle/thunderstore/icon.png), measured rather than guessed, and
+ * matching the family style guide in Workspace/icons/README.md ("dusty orange / amber primary, teal-blue
+ * accents"). The arcade cabinet in that logo also decides how the colours stack: dark cabinet, glowing screen,
+ * dark shapes ON the glow. So every label on an orange fill is dark - white on #FDA33B measures 2.00:1 and
+ * fails, near-black measures 9.31:1.
+ *
+ * Two lit colours, kept strictly apart: orange means "this does something", mint means "this is running".
+ * Two glowing colours that both look clickable would be one colour too many.
+ *
+ * Written against the engine's CSS subset, not a browser's: px and % only, every box is a column flex container
+ * unless told otherwise, border-box is always on, ONE border colour per box, no z-index, no grid.
+ */
+
+:root {
+  --bg:        #0E1318;   /* cabinet black, from the logo */
+  --panel:     #161B21;
+  --elevated:  #1D242C;
+  --input:     #0A0E12;
+  --hairline:  #262E37;
+
+  --text:      #ECEDF1;
+  --muted:     #96A0A6;   /* 6.49:1 on panel - body text, not decoration */
+
+  --accent:    #FDA33B;   /* the sun. Action. */
+  --accent-hi: #FEB94A;
+  --accent-lo: #ED8E38;
+  --on-accent: #0E1318;   /* the dark label on every orange surface. Never white. */
+
+  --live:      #47BFB0;   /* the arcade screen. State: running, listed, connected. */
+  --live-hi:   #7AF0DA;
+
+  --danger:    #F1707A;
+  --warn:      #E6B450;
+}
+
+/* Required: percentage heights below need a definite basis and the root is auto-height. */
+body { height: 100%; font-family: game-ui; font-size: 15px; color: var(--text); }
+
+/* No horizontal padding on the screen itself - each section carries its own. That is what lets the tab bar's
+   rule run the full width of the phone while its labels stay inset with everything else; a rule that stops
+   short of both edges reads as a box someone forgot to finish rather than as a bar.
+   Little padding, least at the bottom: the phone casing is the frame, the app should not draw a second one. */
+.screen { height: 100%; padding: 10px 0 0; gap: 8px; background: var(--bg); }
+.gut { padding: 0 12px; }
+
+/* ---- header ---- */
+
+.bar { flex: none; flex-direction: row; align-items: center; justify-content: space-between; padding: 0 12px; }
+.titles { gap: 1px; min-width: 0; }
+.title { font-size: 19px; font-weight: 700; }
+.sub { font-size: 11px; color: var(--muted); }
+
+.seats {
+  flex: none;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 13px;
+  background: var(--elevated);
+  font-size: 13px;
+  font-weight: 700;
+}
+.seats.full { border-color: var(--warn); color: var(--warn); }
+.seats .ico { width: 13px; height: 13px; color: var(--muted); }
+.seats.full .ico { color: var(--warn); }
+
+/* ---- tabs ---- */
+
+/* Full bleed: the element spans the screen, so its bottom rule does too. The padding insets the tabs, not
+   the bar. */
+.tabs { flex: none; flex-direction: row; gap: 4px; padding: 0 12px; border-bottom: 1px solid var(--hairline); }
+.tab {
+  flex: none;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  /* Explicit, not inherited: an unstyled box has no border in the engine but a real <button> in a browser
+     does, and the preview would show a frame the game never draws. */
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+}
+.tab:hover { color: var(--text); }
+/* The active tab is MINT, not orange: it reports where you are, it does not do anything. */
+.tab.on { color: var(--live-hi); border-bottom: 2px solid var(--live); }
+.tab .ico { width: 15px; height: 15px; color: var(--muted); }
+.tab:hover .ico { color: var(--text); }
+.tab.on .ico { color: var(--live-hi); }
+
+.tab-badge {
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+  justify-content: center;
+  align-items: center;
+}
+
+/* ---- the diagnosis strip: the one line most openings of this app ever see ---- */
+
+.diag {
+  flex: none;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.diag.blocked { border-color: var(--accent); }
+.diag .ico { flex: none; width: 18px; height: 18px; color: var(--live); }
+.diag.blocked .ico { color: var(--accent); }
+.diag-text { flex: 1; min-width: 0; gap: 1px; }
+.diag-line { font-size: 14px; font-weight: 600; }
+.diag-more { font-size: 11px; color: var(--muted); }
+
+/* ---- body ---- */
+
+/* The body is always a COLUMN: on the Lobby tab it stacks the diagnosis strip above the settings, and on the
+   other tabs it holds a single scrolling list. The two-column split lives one level down. */
+.body { flex: 1; min-height: 0; gap: 8px; padding: 0 12px; }
+
+/* Landscape is 733 x 400: wide and short, so the settings sit in two columns. ONE scroll area, on the pair -
+   never one per column. Two independent scrollers put the same page in two different places at once and make
+   the wheel's effect depend on which half the pointer happens to be over.
+   align-items: flex-start so each column takes its CONTENT height; stretched to the viewport they would each
+   be exactly as tall as the window and nothing would ever scroll. */
+/* padding-bottom, nicht am .screen: der Abstand gehoert INNEN in den Scrollbereich, und er ist Absicht. Er
+   gibt der letzten Karte Luft unter sich UND macht einen kurzen Scrollweg - so sieht man, dass der Bereich
+   scrollbar ist, statt dass eine Karte unvermittelt an der Kante abgeschnitten auftaucht. */
+.cols { flex: 1; min-height: 0; flex-direction: row; align-items: flex-start; overflow: auto; gap: 8px; padding-bottom: 10px; }
+.col { flex: 1; min-width: 0; gap: 6px; }
+.one { flex: 1; min-height: 0; overflow: auto; gap: 8px; }
+
+.row {
+  flex: none;
+  padding: 7px 10px;
+  gap: 4px;
+  background: var(--panel);
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+}
+.row-head { flex-direction: row; align-items: center; gap: 6px; }
+.row-head .ico { flex: none; width: 14px; height: 14px; color: var(--muted); }
+.label { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; }
+.tail { flex: none; font-size: 11px; color: var(--muted); }
+.hint { font-size: 11px; color: var(--muted); }
+.hint.warn { color: var(--warn); }
+
+.control { flex-direction: row; align-items: center; gap: 8px; }
+
+.field {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: var(--input);
+  border: 1px solid var(--hairline);
+  color: var(--text);
+  align-items: center;
+}
+.field:focus { border-color: var(--accent); }
+
+.btn {
+  flex: none;
+  flex-direction: row;
+  align-items: center;       /* cross axis: vertical is justify-content, this row is horizontal */
+  justify-content: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 16px;           /* hugs its label instead of sitting in a fixed slab */
+  border-radius: 8px;
+  /* Eine gehobene Fuellung, damit ein Knopf als Knopf liest - die Kante darf wieder die normale Haarlinie
+     sein, seit Sideload Rahmenbreiten auf ganze Geraetepixel snappt (Paint/Painter.SnapBorder). */
+  border: 1px solid var(--hairline);
+  background: var(--elevated);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  text-align: center;
+  transition: background-color 140ms, border-color 140ms, color 140ms;
+}
+/* A button that is a DIRECT child of a card sits in a column, where align-items defaults to stretch - so it
+   would run the full width of the card and read as a banner. Inside .control it is a row item and keeps the
+   row's own alignment. */
+.row > .btn { align-self: flex-start; }
+.btn:hover  { border-color: var(--muted); background: #262E38; }
+.btn:active { background: #171D24; }
+.btn .ico { width: 15px; height: 15px; color: var(--muted); }
+.btn:hover .ico { color: var(--text); }
+
+/* THE primary action, and there is at most one on screen at a time - it lives in the diagnosis strip.
+   A second orange slab would make neither of them the answer. The gradient is two stops, which is all the
+   engine supports, and it is what stops a flat fill reading as a coloured rectangle. */
+.btn.go {
+  border-color: var(--accent-lo);
+  background: linear-gradient(180deg, var(--accent-hi), var(--accent));
+  color: var(--on-accent);
+  font-weight: 700;
+}
+.btn.go:hover  { background: linear-gradient(180deg, #FFC661, var(--accent-hi)); border-color: var(--accent-hi); }
+.btn.go:active { background: linear-gradient(180deg, var(--accent), var(--accent-lo)); }
+.btn.go .ico   { color: var(--on-accent); }
+.btn.go:hover .ico { color: var(--on-accent); }
+
+/* Destructive: the FILL reads as danger once the pointer is on it. The glyph cannot follow - a state
+   pseudo-class is only honoured on a selector's LAST compound, so `.btn.bad:hover .ico` painted red at all times,
+   which is what it had been doing to the password row's X since it was written. */
+.btn.bad:hover  { border-color: var(--danger); background: #241318; color: var(--danger); }
+
+
+.btn.icon-only { width: 34px; padding: 0; }
+.btn.wide { padding: 0 22px; }
+
+/* Off: a muted fill AND no click target, never grey text on its own - that measures 2.6:1 and reads broken. */
+.btn.off { background: #12171D; border-color: #1E252D; color: #4E5860; }
+.btn.off .ico { color: #4E5860; }
+.btn.off:hover { background: #12171D; border-color: #1E252D; }
+
+/* The seat stepper is ONE control, not two buttons with a number between them: a single frame, a shared
+   hairline, and the value in the middle of it. */
+.stepper {
+  flex: none;
+  flex-direction: row;
+  align-items: center;
+  height: 34px;
+  border: 1px solid var(--hairline);
+  border-radius: 9px;
+  background: var(--input);
+}
+.step {
+  flex: none;
+  width: 36px;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  justify-content: center;
+  align-items: center;
+  transition: background-color 140ms;
+}
+.step:hover { background: #1C232B; }
+.step .ico { width: 14px; height: 14px; color: var(--muted); }
+.step:hover .ico { color: var(--text); }
+.step.off .ico { color: #3C444C; }
+.step.off:hover { background: transparent; }
+
+/* A two-state switch drawn as two halves. A button that says its own state reads as a command ("Public"),
+   so both states are always on screen and the filled one is the truth. */
+.toggle {
+  flex-direction: row;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--hairline);
+  border-radius: 9px;
+  background: var(--input);
+}
+.half {
+  flex: 1;
+  height: 30px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+  /* Vertical centring in a COLUMN box is justify-content. align-items is the horizontal axis here, and
+     setting only that is what left these labels sitting 5.5px too high - measured, not guessed. */
+  justify-content: center;
+  align-items: center;
+  border-radius: 7px;
+  transition: background-color 140ms, color 140ms;
+}
+.half:hover { color: var(--text); }
+/* MINT, not orange. The filled half reports which state is current; it does not perform anything. Orange is
+   reserved for the controls that actually do something, and two lit colours only work if that line holds. */
+.half.on { background: var(--live); color: var(--on-accent); font-weight: 700; }
+
+.seatline { flex-direction: row; align-items: center; gap: 10px; margin: 1px 0 0; }
+.seatnum {
+  flex: none;
+  width: 54px;
+  height: 100%;
+  font-size: 19px;
+  font-weight: 700;
+  font-family: monospace;   /* tabular: 4 and 12 must not move the buttons beside them */
+  text-align: center;
+  justify-content: center;
+  align-items: center;
+  color: var(--text);
+}
+
+.state { flex-direction: row; align-items: center; gap: 6px; }
+.dot { width: 8px; height: 8px; border-radius: 4px; background: #3A424A; }
+.dot.live { background: var(--live); }
+.state-text { font-size: 11px; color: var(--muted); }
+.state-text.live { color: var(--live); }
+
+/* ---- players ---- */
+
+.person {
+  flex: none;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  background: var(--panel);
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+}
+.person.me { border-color: var(--live); }
+.person-name { flex: 1; min-width: 0; font-size: 14px; }
+.tag {
+  flex: none;
+  padding: 2px 7px;
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  justify-content: center;
+  align-items: center;
+  color: var(--muted);
+}
+.tag.host { border-color: var(--accent); color: var(--accent); }
+.tag.friend { border-color: var(--live); color: var(--live); }
+
+/* ---- read-only facts (a client's session tab) ---- */
+
+.facts { flex: none; padding: 10px; gap: 8px; background: var(--panel); border: 1px solid var(--hairline); border-radius: 10px; }
+.fact { flex-direction: row; align-items: center; gap: 8px; }
+.fact .ico { flex: none; width: 14px; height: 14px; color: var(--muted); }
+.fact-key { flex: 1; min-width: 0; font-size: 12px; color: var(--muted); }
+.fact-val { flex: none; font-size: 13px; font-weight: 600; }
+.fact-val.live { color: var(--live); }
+.fact-val.warn { color: var(--warn); }
+
+/* ---- notes and empty states ---- */
+
+/* Nimmt keinen Platz, solange sie nichts sagt. Ohne das kostet die leere Zeile ihre Zeilenhoehe UND die
+   Luecke davor - unten am Bildschirm, wo es am meisten auffaellt. */
+/* Toasts, in der Kopfzeile.
+ *
+ * NICHT position: fixed ueber dem Inhalt. Auf 733x400 ist jeder Pixel vergeben - ein schwebender Toast deckt
+ * genau das Bedienelement zu, das gerade geklickt wurde, und eine fixierte Box schluckt dort ausserdem die
+ * Klicks, solange sie steht. Zwischen Titel und Sitz-Anzeige stehen dagegen 400 px leer, immer im Blick und
+ * ueber nichts drueber.
+ *
+ * Rein und raus ueber opacity und transform: die zwei Eigenschaften, die ohne Neuaufbau der Seite neu
+ * gezeichnet werden. Immer nur EINER - die neue Antwort ersetzt die alte, ein Stapel waere ein Protokoll. */
+.toasts { flex: 1; min-width: 0; align-items: center; justify-content: center; }
+
+.toast {
+  flex: none;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: var(--elevated);
+  border: 1px solid #39434F;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity 160ms, transform 160ms;
+}
+.toast.in { opacity: 1; transform: translateY(0); }
+.toast .ico { flex: none; width: 14px; height: 14px; color: var(--muted); }
+.toast-text { min-width: 0; font-size: 12px; color: var(--text); }
+
+.toast.ok  { border-color: var(--live); }
+.toast.ok .ico { color: var(--live); }
+.toast.bad { border-color: var(--danger); }
+.toast.bad .ico { color: var(--danger); }
+.toast.bad .toast-text { color: var(--danger); }
+.note.said { color: var(--live); }
+.note.bad { color: var(--danger); }
+
+.empty { flex: 1; justify-content: center; align-items: center; gap: 6px; padding: 0 40px; }
+.empty .ico { width: 26px; height: 26px; color: #3A424A; }
+.empty-title { font-size: 15px; font-weight: 600; color: var(--text); }
+/* --muted, never a disabled grey: this is body text and has to be readable. */
+.empty-line { font-size: 12px; color: var(--muted); text-align: center; }
+
+/* 400 x 733: narrow and tall. One column, the page scrolls, the tab bar stays put. */
+@media (orientation: portrait) {
+  .screen { padding: 10px 0 0; }
+  .cols { flex-direction: column; align-items: stretch; gap: 10px; }
+  .col { flex: none; gap: 6px; }
+  .tab { padding: 0 9px; }
+  .btn.wide { width: 128px; }
+  .seatnum { width: 44px; }
+}
+
+/* Der Chat braucht die volle Hoehe, nicht die Inhaltshoehe: nur so hat `flex: 1` am Verlauf etwas zu fuellen
+   und die Antwortzeile klebt unten. Die Einstellungen wollen das Gegenteil (flex-start, damit ihr Scrollbereich
+   ueberhaupt scrollt), deshalb eine eigene Klasse statt eines Umbaus dort. */
+.cols.tall { align-items: stretch; }
+.cols.tall .col { min-height: 0; }
+
+/* ---- chat ----
+ *
+ * Threads on the left, the open one on the right. A conversation about getting into a session is a handful of
+ * lines, so nothing here is built for scale - twenty messages per thread is the whole model. */
+/* The list scrolls, so it needs a column of its own to be the fixed-width one - a scroller cannot also be the
+   thing that sets the width. ChatRelay keeps one thread per stranger for the whole run with no cap, and past
+   about four the rest was simply unreachable. min-height: 0 is what lets it shrink and therefore scroll. */
+.threadcol { flex: none; width: 210px; gap: 6px; }
+.threadlist { flex: 1; min-height: 0; overflow-y: auto; gap: 6px; }
+
+.thread {
+  flex: none;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 9px;
+  background: var(--panel);
+}
+.thread:hover { border-color: var(--muted); }
+.thread.on { border-color: var(--live); }
+.thread-main { flex: 1; min-width: 0; gap: 1px; }
+.thread-name { font-size: 13px; font-weight: 600; }
+/* No text-overflow: the painter returns for a text leaf before it would clip, so a long preview WRAPS to eight
+   lines and swells its row to half the list. The mod clamps the string instead - and with three full stops, not
+   U+2026, which the game's font atlas draws as an empty box. */
+.thread-last { font-size: 11px; color: var(--muted); }
+
+/* Muted people, under the thread list. Quiet on purpose - it is a record, not a place to look - but present in
+   both states, because muting your only thread leaves nothing else to reach the undo from. */
+.mutedbox { flex: none; gap: 4px; padding: 8px 0 0; border-top: 1px solid var(--hairline); }
+.mutedhead { font-size: 11px; letter-spacing: 1px; color: var(--muted); }
+.mutedrow { flex-direction: row; align-items: center; justify-content: space-between; gap: 8px; }
+.mutedname { flex: 1; min-width: 0; font-size: 12px; color: var(--muted); }
+.btn.small { flex: none; height: 24px; padding: 0 10px; font-size: 11px; }
+
+/* min-height: 0 next to overflow, or the log grows the pane instead of scrolling. */
+/* Kopfzeile, Verlauf, Eingabe - der Verlauf nimmt den Rest, damit die Antwortzeile unten klebt statt mit dem
+   Verlauf nach oben zu wandern. Dieselbe Form wie WhatsDab. */
+.chathead { flex: none; flex-direction: row; align-items: center; gap: 8px; padding: 0 2px 6px; }
+.chathead-name { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; }
+.chatlog { flex: 1; min-height: 0; overflow: auto; gap: 5px; padding-bottom: 6px; }
+
+.bubble {
+  flex: none;
+  align-self: flex-start;
+  max-width: 88%;
+  padding: 6px 10px;
+  border-radius: 9px;
+  background: var(--panel);
+  border: 1px solid var(--hairline);
+}
+/* Mine sits on the other side and carries the state colour, so a glance says who spoke without reading. */
+.bubble.mine { align-self: flex-end; background: #14262A; border-color: var(--live); }
+.bubble-text { font-size: 12px; color: var(--text); }
+
+/* A hover tooltip: fixed, so it floats over the page and pushes nothing. Needs both halves of the engine work -
+   mouseenter/mouseleave to know when, and el.rect() to know where. The script sets left/top/width inline. */
+.tip {
+  position: fixed;
+  padding: 4px 9px;
+  border-radius: 7px;
+  background: var(--elevated);
+  border: 1px solid var(--hairline);
+  font-size: 11px;
+  color: var(--text);
+  text-align: center;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px #00000080;
+}

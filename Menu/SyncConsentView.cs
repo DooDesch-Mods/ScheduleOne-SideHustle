@@ -19,6 +19,7 @@ namespace SideHustle.Menu
         /// host's sync gate; the gamemode-install flow overrides it, where the reason is simply that the player does
         /// not have the gamemode yet.</param>
         internal static void Build(Transform formHost, SyncManifest manifest, SyncDiff diff, bool enforced, bool hasPrefs,
+            ulong hostSteamId, string hostName, bool hostAcceptsMessages,
             Action onSyncJoin, Action onPlainJoin, Action onBack, string enforcedNote = null)
         {
             const float Pad = 30f;
@@ -55,6 +56,22 @@ namespace SideHustle.Menu
 
             int reuse = diff.Entries.Count(x => x.OwnCopyReuse);
 
+            if (manual > 0)
+            {
+                Components.SectionHeader(content, "Only via download link");
+                foreach (var e in diff.Entries.Where(x => x.Status == DiffStatus.Manual))
+                    Note(content, $"~  {Label(e)}", Theme.WarningText);
+                Note(content, "Download these in your browser on the next step - Side Hustle installs them for you.", Theme.TextMuted);
+            }
+
+            if (dropped > 0)
+            {
+                Components.SectionHeader(content, "Only on Nexus (link on the next step)");
+                foreach (var e in diff.Entries.Where(x => x.Status == DiffStatus.Dropped))
+                    Note(content, $"~  {Label(e)}", Theme.WarningText);
+                Note(content, "If you can't find one, the session just runs without it.", Theme.TextMuted);
+            }
+
             Components.SectionHeader(content, "What syncing sets up");
             bool allExact = diff.Entries.Where(x => x.Status == DiffStatus.Present).All(x => !x.HashWarn && !x.OwnCopyReuse);
             if (download == 0 && present > 0 && allExact)
@@ -71,22 +88,6 @@ namespace SideHustle.Menu
                 foreach (var e in diff.Entries.Where(x => x.OwnCopyReuse))
                     Note(content, $"=  {Label(e)} - using your own installed copy"
                                   + (e.VersionWarn ? "  (version differs / unverified)" : ""), Theme.TextPrimary);
-            }
-
-            if (manual > 0)
-            {
-                Components.SectionHeader(content, "Only via download link (picked up automatically)");
-                foreach (var e in diff.Entries.Where(x => x.Status == DiffStatus.Manual))
-                    Note(content, $"~  {Label(e)}", Theme.WarningText);
-                Note(content, "The next step opens each link - download in your browser and SideHustle spots the file in your Downloads folder and installs it on its own.", Theme.TextMuted);
-            }
-
-            if (dropped > 0)
-            {
-                Components.SectionHeader(content, "Only on Nexus (link on the next step)");
-                foreach (var e in diff.Entries.Where(x => x.Status == DiffStatus.Dropped))
-                    Note(content, $"~  {Label(e)}", Theme.WarningText);
-                Note(content, "Not on Thunderstore - the next step opens each one on Nexus: its own page when the name identifies it, a search otherwise (downloads are picked up automatically). If you can't find one, the session just runs without it.", Theme.TextMuted);
             }
 
             if (diff.LocalOnly.Count > 0)
@@ -108,6 +109,16 @@ namespace SideHustle.Menu
             var (backGO, backBtn, _b) = UIFactory.ButtonWithLabel("Back", "Back", footer.transform, Theme.Button, 140, 40);
             Place(backGO, left: true, xOffset: 0);
             backBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => onBack?.Invoke()));
+
+            // The way back to a column the player closed. Without it the X in its header is a one-way door: the
+            // lobby card that opened it is two screens behind, and this is the screen where the question occurs to
+            // them. Toggles, exactly like the card's button, so the same control both opens and puts it away.
+            if (ChatPanel.Possible(hostSteamId, hostAcceptsMessages))
+            {
+                var (chGO, chBtn, _c) = UIFactory.ButtonWithLabel("Chat", "Chat", footer.transform, Theme.Button, 120, 40);
+                Place(chGO, left: true, xOffset: 148);
+                chBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => ChatPanel.Toggle(hostSteamId, hostName)));
+            }
 
             var (syncGO, syncBtn, _s) = UIFactory.ButtonWithLabel("Sync", "Sync and join (restart)", footer.transform, Theme.Accent, 220, 40);
             Place(syncGO, left: false, xOffset: 0);

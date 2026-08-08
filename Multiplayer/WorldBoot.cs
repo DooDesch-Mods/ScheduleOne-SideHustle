@@ -57,6 +57,31 @@ namespace SideHustle.Multiplayer
             get { var lm = LoadOrNull(); try { return lm != null ? lm.LoadStatus.ToString() : "?"; } catch { return "?"; } }
         }
 
+        /// <summary>
+        /// Whether the game has begun going somewhere at all - any load status, any scene but the menu, or an
+        /// already-loaded world.
+        ///
+        /// The distinction this draws is the one a join watchdog needs. Vanilla only starts a client's load when the
+        /// host's lobby says so on entry ("ready" / "host_loading" / "load_tutorial"); with none of them set the
+        /// client simply stays in the menu and nothing ever happens - no error, no screen, no progress. That is not a
+        /// slow load, it is a load that will never begin, and it must not be given the same patience: a real world
+        /// load can take minutes on a slow disk, while this state is already final after seconds.
+        /// </summary>
+        internal static bool LoadStarted
+        {
+            get
+            {
+                var lm = LoadOrNull();
+                try
+                {
+                    if (SceneManager.GetActiveScene().name != "Menu") return true;
+                    if (lm == null) return false;
+                    return lm.IsGameLoaded || lm.IsLoading || lm.LoadStatus != LoadManager.ELoadStatus.None;
+                }
+                catch { return true; }   // unreadable: assume it is moving, so a watchdog never cuts a live load short
+            }
+        }
+
         /// <summary>True while the game is inside Unity's LoadSceneAsync. This phase is opaque - it publishes no
         /// progress at all until the scene is swapped in - so a watchdog has to treat it differently from the
         /// phases that do report movement.</summary>

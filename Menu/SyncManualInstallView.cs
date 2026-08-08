@@ -56,7 +56,15 @@ namespace SideHustle.Menu
             if (resolved.Count > 0 || rowsChanged) _refresh?.Invoke();
         }
 
-        internal static void Build(Transform formHost, SyncDiff diff, Action onContinue, Action onBack)
+        /// <summary>
+        /// Who this checklist belongs to, and whether they take messages. Parameters rather than a static that a
+        /// caller sets first: the static version was only ever written and never cleared, and the two gamemode
+        /// call sites never wrote it at all - so a player who opened a vanilla host's checklist, went back, and
+        /// then joined a gamemode session got a column headed with the earlier host's name and sent their question
+        /// to a stranger. On the signature the compiler asks every caller.
+        /// </summary>
+        internal static void Build(Transform formHost, SyncDiff diff, ulong hostSteamId, string hostName,
+                                   bool hostAcceptsMessages, Action onContinue, Action onBack)
         {
             const float Pad = 30f;
             _pending.Clear();
@@ -66,6 +74,13 @@ namespace SideHustle.Menu
             _lookupsSeen = NexusLookup.ResultsVersion;
             PrefetchLinks(diff);
             _active = true;
+
+            // The conversation, as a column down the right rather than a button that could only ever send. This is
+            // the screen where a mod nobody can download stops the whole thing, so the answer has to be readable
+            // here - not on a phone the player does not have in a menu.
+            // The else is what stops a column mounted by an earlier screen riding along under a new host's name.
+            if (ChatPanel.Possible(hostSteamId, hostAcceptsMessages)) ChatPanel.Show(hostSteamId, hostName);
+            else ChatPanel.Hide();
 
             var footer = UIFactory.Panel("footer", formHost, Theme.Clear);
             var frt = footer.GetComponent<RectTransform>();
@@ -88,8 +103,8 @@ namespace SideHustle.Menu
                 int total = _pending.Count;
                 int done = _pending.Count(e => !Pending(e));
                 Components.SectionHeader(content, total > 0 ? $"Install these manually - {done} of {total} ready" : "Install these manually");
-                Note(content, "Open a link and download it - SideHustle finds the file in " + ManualInstall.WatchedFoldersLabel()
-                              + " and installs it. Or skip these.");
+                Note(content, "Open a link and download it - Side Hustle finds the file in " + ManualInstall.WatchedFoldersLabel()
+                              + " and installs it.");
 
                 if (_pending.Any(Pending))
                 {
@@ -106,6 +121,15 @@ namespace SideHustle.Menu
                     art.anchorMin = new Vector2(0, 0.5f); art.anchorMax = new Vector2(0, 0.5f); art.pivot = new Vector2(0, 0.5f);
                     art.anchoredPosition = new Vector2(194f, 0f);
                     allBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(OpenAll));
+
+                    // One folder button for the screen, not one per row: OpenStaging takes no argument, so all four
+                    // opened the same folder while eating the width the mod's version needed. 190f, because the
+                    // label needs about 152 and a button's own Text wraps and truncates - which is this exact bug.
+                    var (fGO, fBtn, _f) = UIFactory.ButtonWithLabel("folder", "Open the drop folder", allRow.transform, Theme.Button, 190f, 36f);
+                    var frt = fGO.GetComponent<RectTransform>();
+                    frt.anchorMin = new Vector2(0, 0.5f); frt.anchorMax = new Vector2(0, 0.5f); frt.pivot = new Vector2(0, 0.5f);
+                    frt.anchoredPosition = new Vector2(402f, 0f);
+                    fBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(OpenStaging));
                 }
 
                 foreach (var e in _pending)
@@ -117,11 +141,20 @@ namespace SideHustle.Menu
                     rle.minHeight = 54f; rle.preferredHeight = 54f; rle.flexibleWidth = 1;
 
                     var title = UIFactory.Text("name", (done2 ? "✓ " : "") + Label(entry), row.transform, 16, TextAnchor.UpperLeft, FontStyle.Bold);
-                    Place(title, new Vector2(12, -RowPad), new Vector2(0.6f, 1f));
+                    // Truncate rather than wrap. A uGUI Text draws OUTSIDE its rect by default, anchored by its own
+                    // alignment - so a second line of the status (anchored LowerLeft) grows upward straight through
+                    // the mod's name, which is exactly what a long note used to do here. Both texts are clipped to
+                    // their half of the row instead, and the notes themselves were shortened to fit one line.
+                    title.horizontalOverflow = HorizontalWrapMode.Wrap;
+                    title.verticalOverflow = VerticalWrapMode.Truncate;
+                    Place(title, new Vector2(12, -RowPad), new Vector2(0.8f, 1f), bottom: 26f);
+
                     string statusText = done2 ? "ready" : entry.ManualNote ?? "waiting for the download...";
                     var status = UIFactory.Text("status", statusText, row.transform, 13, TextAnchor.LowerLeft);
                     status.color = done2 ? Theme.Success : entry.ManualNote != null ? Theme.WarningText : Theme.TextMuted;
-                    Place(status, new Vector2(12, 4), new Vector2(0.6f, 0.55f), bottom: RowPad);
+                    status.horizontalOverflow = HorizontalWrapMode.Wrap;
+                    status.verticalOverflow = VerticalWrapMode.Truncate;
+                    Place(status, new Vector2(12, 2), new Vector2(0.8f, 0.46f), bottom: RowPad);
 
                     if (!done2)
                     {
@@ -133,14 +166,8 @@ namespace SideHustle.Menu
                         var (linkGO, linkBtn, _) = UIFactory.ButtonWithLabel("link", label, row.transform, Theme.Button, 110f, 34f);
                         var lrt2 = linkGO.GetComponent<RectTransform>();
                         lrt2.anchorMin = new Vector2(1, 0.5f); lrt2.anchorMax = new Vector2(1, 0.5f); lrt2.pivot = new Vector2(1, 0.5f);
-                        lrt2.anchoredPosition = new Vector2(-134f, 0f);
+                        lrt2.anchoredPosition = new Vector2(-8f, 0f);
                         linkBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => OpenFor(entry)));
-
-                        var (folderGO, folderBtn, _2) = UIFactory.ButtonWithLabel("folder", "Open folder", row.transform, Theme.Button, 120f, 34f);
-                        var frt2 = folderGO.GetComponent<RectTransform>();
-                        frt2.anchorMin = new Vector2(1, 0.5f); frt2.anchorMax = new Vector2(1, 0.5f); frt2.pivot = new Vector2(1, 0.5f);
-                        frt2.anchoredPosition = new Vector2(-8f, 0f);
-                        folderBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(OpenStaging));
                     }
                 }
 
@@ -149,6 +176,11 @@ namespace SideHustle.Menu
                 {
                     var lbl = continueBtn.GetComponentInChildren<Text>();
                     if (lbl != null) lbl.text = anyPending ? "Skip missing & continue" : "Continue";
+
+                    // While anything is still missing, giving up is not the primary action - "Open next link" is.
+                    // Rewritten each Render rather than once, which also stops PolishButtons stacking its lighten.
+                    var img = (continueBtn.targetGraphic as Image) ?? continueBtn.GetComponent<Image>();
+                    if (img != null) img.color = anyPending ? Theme.Button : Theme.Accent;
                 }
                 Interactions.PolishButtons(formHost);
             }
@@ -156,12 +188,25 @@ namespace SideHustle.Menu
 
             var (backGO, backBtn, _b) = UIFactory.ButtonWithLabel("Back", "Back", footer.transform, Theme.Button, 140, 40);
             Place2(backGO, left: true);
+
             backBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => { _active = false; onBack?.Invoke(); }));
+
+            // The way back to a column the player closed - this is the screen where the host is the only remaining
+            // move, so a one-way X here would be the worst place to have one. Toggles, like the card's button.
+            if (ChatPanel.Possible(hostSteamId, hostAcceptsMessages))
+            {
+                var (chGO, chBtn, _chLbl) = UIFactory.ButtonWithLabel("Chat", "Chat", footer.transform, Theme.Button, 120, 40);
+                var chrt = chGO.GetComponent<RectTransform>();
+                chrt.anchorMin = chrt.anchorMax = new Vector2(0, 0.5f);
+                chrt.pivot = new Vector2(0, 0.5f);
+                chrt.anchoredPosition = new Vector2(148f, 0f);
+                chBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => ChatPanel.Toggle(hostSteamId, hostName)));
+            }
 
             var (contGO, cBtn, _c) = UIFactory.ButtonWithLabel("Continue", "Continue", footer.transform, Theme.Accent, 220, 40);
             Place2(contGO, left: false);
             continueBtn = cBtn;
-            cBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => { _active = false; onContinue?.Invoke(); }));
+            cBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => { _active = false; ChatPanel.Hide(); onContinue?.Invoke(); }));
 
             Render();
         }
