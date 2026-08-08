@@ -315,6 +315,41 @@ namespace SideHustle.Menu
                     OnClick = () => OnSelectGamemode(desc)
                 });
             }
+
+            // Gamemodes the boot gate held back. They have not run, so there is no descriptor to read - the row
+            // carries what the file itself says and loading it on click fills in the rest. Without this the list
+            // is empty on a machine with four gamemodes installed, which is the whole reason the gate needs it.
+            foreach (var candidate in Mods.GamemodeProbe.Waiting())
+            {
+                var waiting = candidate;
+                string by = string.IsNullOrWhiteSpace(waiting.Author) ? "" : "by " + waiting.Author.Trim() + "   ";
+                rows.Add(new Row
+                {
+                    Name = waiting.Name,
+                    Subtitle = "Click to start.",
+                    Corner = by + (string.IsNullOrWhiteSpace(waiting.Version) ? "Ready" : waiting.Version),
+                    OnClick = () =>
+                    {
+                        // One click, not two. Loading the mod is a step the player did not ask for and should not
+                        // have to notice - it takes under a second and ends with the gamemode's own descriptor
+                        // registered, which is what they clicked for. Whatever is new in the registry afterwards
+                        // is it; matching by identity beats matching by name, which a mod is free to differ on.
+                        var before = new HashSet<string>(API.Registered.Select(d => d.Id));
+                        if (!Mods.GamemodeProbe.Load(waiting))
+                        {
+                            ShowRows("Choose a gamemode", new List<Row>
+                            {
+                                new Row { Name = waiting.Name + " could not be started", Subtitle = "The log says why.", Disabled = true },
+                                new Row { Name = "Back", Subtitle = "Back to the gamemode list.", OnClick = ShowGamemodeList }
+                            });
+                            return;
+                        }
+                        var fresh = API.Registered.FirstOrDefault(d => !before.Contains(d.Id));
+                        if (fresh != null) OnSelectGamemode(fresh);
+                        else ShowGamemodeList();   // loaded but registered nothing: show what there is
+                    }
+                });
+            }
             return rows;
         }
 

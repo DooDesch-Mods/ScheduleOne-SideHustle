@@ -61,6 +61,11 @@ namespace SideHustle.Sync
             _enforce = enforce;
             try { _org = save.OrganisationName; } catch { _org = ""; }
 
+            // The session is what the mods are for, so this is where they load. On a normal boot the gate never
+            // armed and this returns before touching anything. Before the lobby, not after: a mod that hooks the
+            // lobby has to exist by the time one is created.
+            Mods.LateLoader.LoadAll("hosting a session");
+
             NetworkTuning.EnsureIceEnabled();   // non-friend clients need all ICE candidate types
             PublicLobbyAccess.Enable();         // stop the vanilla host from kicking non-friends
             LobbyInviteAccess.Enable();         // every member may invite from the pause panel
@@ -89,6 +94,10 @@ namespace SideHustle.Sync
                 return;
             }
             map.TryGetValue("mhash", out _joinMHash);
+
+            // This process was relaunched into the host's mod set; the gate held it back on the way up, so load it
+            // before the lobby rather than arriving in their session with nothing but the hub running.
+            Mods.LateLoader.LoadAll("rejoining a session");
 
             NetworkTuning.EnsureIceEnabled();
             LobbyInviteAccess.Enable();
@@ -127,6 +136,9 @@ namespace SideHustle.Sync
         {
             if (_state != State.Idle) { Core.Log?.Warning("[sync] a session is already active; ignoring in-place join."); return; }
             if (lobbyId == 0) return;
+            // The one path where the gate pays off immediately: our mods already match the host's, so loading them
+            // here and joining is the whole join - no profile, no relaunch.
+            Mods.LateLoader.LoadAll("joining a session");
             _isClient = true;
             _joinLobbyId = lobbyId;
             _joinMHash = mhash ?? "";

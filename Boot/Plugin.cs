@@ -21,6 +21,22 @@ namespace SideHustle.Boot
             catch (Exception e) { LoggerInstance.Error("[boot] picker failed; booting the full mod set: " + e); }
         }
 
+        /// <summary>The last hook before MelonLoader scans Mods. See <see cref="ModGate"/>.</summary>
+        public override void OnPreModsLoaded()
+        {
+            try { ModGate.Arm(LoggerInstance); }
+            catch (Exception e) { LoggerInstance.Error("[gate] arming failed; loading your mods normally: " + e); }
+        }
+
+        /// <summary>The scan is done. The gate comes off here so a mod loaded later is loaded by an unpatched
+        /// MelonLoader - the same call every other late load makes. OnInitializeMelon rides
+        /// MelonEvents.OnApplicationStart, which fires immediately after LoadMelons(ScanType.Mods) returns.</summary>
+        public override void OnInitializeMelon()
+        {
+            try { ModGate.Disarm(LoggerInstance); }
+            catch (Exception e) { LoggerInstance.Error("[gate] disarming failed: " + e); }
+        }
+
         private void Run()
         {
             string gameRoot = GameRootFromProcess();

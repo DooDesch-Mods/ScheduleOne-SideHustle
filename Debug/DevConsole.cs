@@ -78,8 +78,11 @@ namespace SideHustle.Debugging
             new[] { "shphone", "shphone [up|down] - raise the phone on its home screen, with no app open" },
             new[] { "shloadmod", "shloadmod <file.dll> - load a mod NOW, from Mods/_late (the mod-gate spike)" },
             new[] { "shmods", "which mods are registered, and which sit unloaded in Mods/_late" },
+            new[] { "shgate", "shgate [load] - what the boot gate held back, and load it now" },
+            new[] { "shpickgm", "shpickgm <name> - what clicking an unloaded gamemode row does" },
             new[] { "shmanual", "shmanual [steamid] - open the manual-install screen with sample rows" },
             new[] { "shbrowser", "open the vanilla lobby LIST (the screen with Join and Chat)" },
+            new[] { "shhub", "open the Side Hustle gamemode list (what the menu entry does)" },
             new[] { "shtyping", "is a text field holding the keyboard - which is what blocks Escape" },
         };
 
@@ -113,8 +116,11 @@ namespace SideHustle.Debugging
                     case "shphone": Phone(parts); break;
                     case "shloadmod": LoadModLate(parts); break;
                     case "shmods": ListMods(); break;
+                    case "shgate": Gate(parts); break;
+                    case "shpickgm": PickGamemode(parts); break;
                     case "shmanual": ManualDemo(parts); break;
                     case "shbrowser": Menu.Hub.OpenVanillaListForTest(); break;
+                    case "shhub": Menu.Hub.OpenScreen(); break;
                     case "shtyping": Typing(); break;
                 }
             }
@@ -324,6 +330,45 @@ namespace SideHustle.Debugging
                 }
                 Core.Log?.Msg("[dev] melons now " + MelonLoader.MelonMod.RegisteredMelons.Count);
             }
+        }
+
+        /// <summary>What the boot gate held back, and the way to load it without a lobby. The whole point of the
+        /// gate is that nothing patched the game yet, so this is also how you find out whether a given mod
+        /// survives being loaded late - run it from the menu and watch what the mod says about itself.</summary>
+        private static void Gate(string[] parts)
+        {
+            var waiting = Mods.LateLoader.PendingFiles;
+            Core.Log?.Msg($"[dev] shgate: {waiting.Count} held back, {MelonLoader.MelonMod.RegisteredMelons.Count} running");
+            foreach (string f in waiting) Core.Log?.Msg("  " + System.IO.Path.GetFileName(f));
+            if (parts.Length < 2 || !parts[1].Equals("load", StringComparison.OrdinalIgnoreCase))
+            {
+                if (waiting.Count > 0) Core.Log?.Msg("[dev] 'shgate load' loads them now.");
+                return;
+            }
+            Mods.LateLoader.LoadAll("shgate");
+        }
+
+        /// <summary>Exactly what the menu row does when the player picks a gamemode that is installed but not
+        /// loaded. A row is a uGUI button and cannot be clicked from a script, so this is the only way to run that
+        /// path without a pair of hands on the machine.</summary>
+        private static void PickGamemode(string[] parts)
+        {
+            var waiting = Mods.GamemodeProbe.Waiting();
+            if (parts.Length < 2)
+            {
+                Core.Log?.Msg("[dev] shpickgm <name>. Waiting: " + (waiting.Count == 0 ? "(none)" : ""));
+                foreach (var c in waiting) Core.Log?.Msg("  " + c.Name + " " + c.Version);
+                return;
+            }
+            foreach (var candidate in waiting)
+            {
+                if (!candidate.Name.Equals(parts[1], StringComparison.OrdinalIgnoreCase)) continue;
+                bool ok = Mods.GamemodeProbe.Load(candidate);
+                Core.Log?.Msg($"[dev] shpickgm {candidate.Name}: {(ok ? "loaded" : "FAILED")}, "
+                    + API.Registered.Count + " gamemode(s) registered now.");
+                return;
+            }
+            Core.Log?.Warning("[dev] shpickgm: no waiting gamemode called '" + parts[1] + "'.");
         }
 
         private static void ListMods()

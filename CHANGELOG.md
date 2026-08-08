@@ -3,6 +3,16 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Your mods can wait for a lobby instead of loading at startup, so joining somebody's session stops meaning quit first. Switch it on with `DeferModsUntilLobby`.
+  - `AlwaysLoadMods` names what has to be there before a lobby exists: a bridge, an overlay, a profiler.
+- Joining a synced lobby skips the restart. The host's mods load out of the package cache while you stay on the screen you were on.
+  - A mod already running at a different version than the session wants still costs one. The log names the mod and both versions.
+- The gamemode list shows installed gamemodes that have not loaded yet, with the name, version and author their own file declares. One click loads and starts it.
+
 ## [2.3.1] - 2026-08-08
 
 ### Added
