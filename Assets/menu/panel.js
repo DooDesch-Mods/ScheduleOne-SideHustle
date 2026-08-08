@@ -16,14 +16,6 @@ function card(cls) {
   return box;
 }
 
-/** A card with a small caption and one strong line under it. */
-function stat(label, value, valueCls) {
-  const box = card();
-  box.appendChild(el('div', 'label', label));
-  box.appendChild(el('div', valueCls ? 'value ' + valueCls : 'value', value));
-  return box;
-}
-
 function read() {
   const raw = s1.call('menu.state', '');
   if (!raw) return null;
@@ -57,11 +49,13 @@ function render() {
     box.appendChild(el('div', 'label', 'PUBLISHED SESSIONS'));
     const row = el('div', 'row');
     row.appendChild(el('div', s.joinable > 0 ? 'dot live' : 'dot'));
-    row.appendChild(el('div', s.joinable > 0 ? 'value count live' : 'value count', String(s.lobbies)));
+    row.appendChild(el('div',
+      s.lobbies === 0 ? 'value' : s.joinable > 0 ? 'value count live' : 'value count', String(s.lobbies)));
     row.appendChild(el('div', 'note', s.lobbies === 1 ? 'session listed' : 'sessions listed'));
     box.appendChild(row);
     box.appendChild(el('div', 'note',
       s.lobbies === 0 ? 'Nobody is hosting right now.'
+        : s.lobbies === 1 ? (s.joinable === 1 ? 'Taking players.' : 'Not taking players.')
         : s.joinable === 0 ? 'None of them is taking players.'
         : s.joinable + ' of them ' + (s.joinable === 1 ? 'is' : 'are') + ' taking players.'));
     panel.appendChild(box);
@@ -73,9 +67,9 @@ function render() {
     const row = el('div', 'row');
     row.appendChild(el('div', 'dot warn'));
     row.appendChild(el('div', 'value count', String(s.unread)));
-    row.appendChild(el('div', 'note', s.unread === 1 ? 'unread' : 'unread'));
+    row.appendChild(el('div', 'note', 'unread'));
     box.appendChild(row);
-    box.appendChild(el('div', 'note', 'In the Lobby app on your phone once you are in a session.'));
+    box.appendChild(el('div', 'note', 'Open Side Hustle and press Chat on that host in the lobby list.'));
     panel.appendChild(box);
   }
 

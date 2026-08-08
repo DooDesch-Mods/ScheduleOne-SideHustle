@@ -30,6 +30,12 @@ namespace SideHustle.Menu
         // The clone of the vanilla New Game screen + its screen component.
         private static GameObject _clone;
         private static MenuScreen _cloneScreen;
+
+        /// <summary>Whether a Side Hustle screen is what the player is looking at. The right-hand columns key off
+        /// this: the state column answers a question about the MAIN menu, the chat column belongs to a hub screen,
+        /// and only the frame pump sees the exits that matter - Esc is native and right-click goes through
+        /// <see cref="TickInput"/>, so neither ever reaches a button handler.</summary>
+        internal static bool ScreenOpen => _cloneScreen != null && _cloneScreen.IsOpen;
         private static GameObject _formHost;   // the Host-config form overlay (shown instead of the native row list)
         private static GameObject _aliasHeader;   // the "Your name" strip inserted as the first native Container child on a choice screen
         private static bool _fontWarmed;   // the Arial dynamic-font atlas is built once per session; prewarm it so the first text field doesn't hitch
@@ -118,7 +124,7 @@ namespace SideHustle.Menu
 #if DEBUG
         /// <summary>Open the manual-install checklist on a made-up diff, so its layout can be looked at without
         /// staging a whole sync join. Reached from the dev console (shmanual); compiled out of Release.</summary>
-        internal static void OpenManualForTest(Sync.SyncDiff diff)
+        internal static void OpenManualForTest(Sync.SyncDiff diff, ulong hostSteamId, string hostName, bool hostAcceptsMessages)
         {
             EnsureInit();
             EnsureClone();
@@ -126,7 +132,8 @@ namespace SideHustle.Menu
             ClearFormHost();
             SetTmp(_clone.transform, "Title", "Manual installs");
             var host = CreateFormHost("SH_ManualDemo", 560f);
-            SyncManualInstallView.Build(host, diff, onContinue: OpenScreen, onBack: OpenScreen);
+            SyncManualInstallView.Build(host, diff, hostSteamId, hostName, hostAcceptsMessages,
+                onContinue: OpenScreen, onBack: OpenScreen);
             _cloneScreen.Open();
         }
 #endif
@@ -508,6 +515,11 @@ namespace SideHustle.Menu
         // Destroy the Host-config form overlay (if any) and re-show the native row container before a row view renders.
         private static void ClearFormHost()
         {
+            // Every screen change funnels through here, so this is the one place that can tell the chat column its
+            // screen is gone. Marked rather than hidden: the next screen may re-show the SAME host in this frame
+            // (checklist -> Back -> consent), and taking the page down would throw away a half-typed reply.
+            ChatPanel.MarkStale();
+
             if (_formHost != null) { try { UnityEngine.Object.Destroy(_formHost); } catch { /* ignore */ } _formHost = null; }
 
             // Remove the choice-screen alias strip. Detach BEFORE Destroy (Destroy is deferred to end of frame) so a

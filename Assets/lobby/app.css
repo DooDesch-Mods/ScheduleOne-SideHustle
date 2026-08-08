@@ -218,10 +218,11 @@ body { height: 100%; font-family: game-ui; font-size: 15px; color: var(--text); 
 .btn.go .ico   { color: var(--on-accent); }
 .btn.go:hover .ico { color: var(--on-accent); }
 
-/* Destructive: reads as danger only once the pointer is on it. A row that is always shouting is a row
-   nobody reads. */
+/* Destructive: the FILL reads as danger once the pointer is on it. The glyph cannot follow - a state
+   pseudo-class is only honoured on a selector's LAST compound, so `.btn.bad:hover .ico` painted red at all times,
+   which is what it had been doing to the password row's X since it was written. */
 .btn.bad:hover  { border-color: var(--danger); background: #241318; color: var(--danger); }
-.btn.bad:hover .ico { color: var(--danger); }
+
 
 .btn.icon-only { width: 34px; padding: 0; }
 .btn.wide { padding: 0 22px; }
@@ -414,7 +415,11 @@ body { height: 100%; font-family: game-ui; font-size: 15px; color: var(--text); 
  *
  * Threads on the left, the open one on the right. A conversation about getting into a session is a handful of
  * lines, so nothing here is built for scale - twenty messages per thread is the whole model. */
-.threadlist { flex: none; width: 210px; }
+/* The list scrolls, so it needs a column of its own to be the fixed-width one - a scroller cannot also be the
+   thing that sets the width. ChatRelay keeps one thread per stranger for the whole run with no cap, and past
+   about four the rest was simply unreachable. min-height: 0 is what lets it shrink and therefore scroll. */
+.threadcol { flex: none; width: 210px; gap: 6px; }
+.threadlist { flex: 1; min-height: 0; overflow-y: auto; gap: 6px; }
 
 .thread {
   flex: none;
@@ -430,7 +435,10 @@ body { height: 100%; font-family: game-ui; font-size: 15px; color: var(--text); 
 .thread.on { border-color: var(--live); }
 .thread-main { flex: 1; min-width: 0; gap: 1px; }
 .thread-name { font-size: 13px; font-weight: 600; }
-.thread-last { font-size: 11px; color: var(--muted); text-overflow: ellipsis; }
+/* No text-overflow: the painter returns for a text leaf before it would clip, so a long preview WRAPS to eight
+   lines and swells its row to half the list. The mod clamps the string instead - and with three full stops, not
+   U+2026, which the game's font atlas draws as an empty box. */
+.thread-last { font-size: 11px; color: var(--muted); }
 
 /* min-height: 0 next to overflow, or the log grows the pane instead of scrolling. */
 /* Kopfzeile, Verlauf, Eingabe - der Verlauf nimmt den Rest, damit die Antwortzeile unten klebt statt mit dem

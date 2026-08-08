@@ -48,6 +48,12 @@ namespace SideHustle.Phone
         private static readonly Dictionary<ulong, List<Message>> _threads = new Dictionary<ulong, List<Message>>();
         private static readonly Dictionary<ulong, string> _names = new Dictionary<ulong, string>();
         private static readonly Dictionary<ulong, DateTime> _lastHeard = new Dictionary<ulong, DateTime>();
+
+        /// <summary>When we last wrote to each peer. The receiving side already refuses a second line inside
+        /// MinGap and says nothing - and the sender had by then posted its own bubble, so "hey" and "can I join?"
+        /// at normal typing speed both looked delivered while the host saw one. Refused here instead, where the
+        /// page can say so.</summary>
+        private static readonly Dictionary<ulong, DateTime> _lastWritten = new Dictionary<ulong, DateTime>();
         private static readonly HashSet<ulong> _muted = new HashSet<ulong>();
         private static readonly HashSet<ulong> _unread = new HashSet<ulong>();
 
@@ -241,6 +247,9 @@ namespace SideHustle.Phone
             if (text.Length == 0) return false;
             if (text.Length > MaxTextLength) text = text.Substring(0, MaxTextLength);
 
+            DateTime now = DateTime.UtcNow;
+            if (_lastWritten.TryGetValue(to, out DateTime wrote) && now - wrote < MinGap) return false;
+
             string me = "";
             try { me = SteamFriends.GetPersonaName() ?? ""; } catch { }
             byte[] bytes = Encoding.UTF8.GetBytes(Magic + "|" + me + "|" + text);
@@ -255,7 +264,7 @@ namespace SideHustle.Phone
                 for (int i = 0; i < bytes.Length; i++) payload[i] = bytes[i];
                 bool ok = SteamNetworking.SendP2PPacket(new CSteamID(to), payload, (uint)bytes.Length,
                     EP2PSend.k_EP2PSendReliable, Channel);
-                if (ok) { PacketsSent++; Add(to, new Message { Mine = true, Text = text, At = DateTime.UtcNow }); }
+                if (ok) { PacketsSent++; _lastWritten[to] = now; Add(to, new Message { Mine = true, Text = text, At = now }); }
                 else Core.Log?.Warning("[chat] Steam refused the message to " + to);
                 return ok;
             }
@@ -290,6 +299,10 @@ namespace SideHustle.Phone
             _threads.TryGetValue(peer, out List<Message> l) ? l : (IReadOnlyList<Message>)Array.Empty<Message>();
 
         internal static bool IsUnread(ulong peer) => _unread.Contains(peer);
+
+        /// <summary>Who has a message waiting to be announced, without consuming it. Two things want the same
+        /// arrival - the phone app's notification and the menu's toast - and only one of them should get it.</summary>
+        internal static ulong PeekArrival() => _arrived;
 
         /// <summary>The peer whose message arrived since the last call, or 0. Consumed by reading it.</summary>
         internal static ulong TakeArrival()
@@ -341,6 +354,7 @@ namespace SideHustle.Phone
             _threads.Clear();
             _unread.Clear();
             _lastHeard.Clear();
+            _lastWritten.Clear();
             _arrived = 0UL;
             Revision++;
         }

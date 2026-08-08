@@ -21,6 +21,7 @@
   --accent:    #FDA33B;
   --on-accent: #0E1318;
   --live:      #47BFB0;
+  --danger:    #F1707A;
 }
 
 body { height: 100%; font-family: game-ui; font-size: 14px; color: var(--text); }
@@ -38,7 +39,9 @@ body { height: 100%; font-family: game-ui; font-size: 14px; color: var(--text); 
 
 .head { gap: 2px; }
 
-.head-row { flex-direction: row; align-items: center; justify-content: space-between; }
+/* gap + flex:none on the button: neither header child is pinned, so a 32-character persona name otherwise
+   squeezes the close button below its 28px and ends flush against it. */
+.head-row { flex-direction: row; align-items: center; justify-content: space-between; gap: 10px; }
 
 /* The close button must not compete with Send for attention - it undoes an action rather than doing one. */
 .btn.ghost { width: 28px; height: 28px; background: var(--elevated); }
@@ -51,42 +54,33 @@ body { height: 100%; font-family: game-ui; font-size: 14px; color: var(--text); 
 .hint { font-size: 12px; color: var(--muted); }
 
 /* flex:1 + min-height:0 is what lets the log take the leftover height and scroll instead of pushing the reply
-   row off the bottom. Without min-height the box never shrinks and the row below leaves the panel. */
+   row off the bottom. justify-content is the vertical axis here, so flex-end grows the thread UP from the field -
+   which is where a conversation actually appears, and where the invitation to start one belongs. */
 .log {
   flex: 1;
   min-height: 0;
   overflow: auto;
+  justify-content: flex-end;
   gap: 6px;
   padding: 4px 0;
 }
 
+/* Theirs left, yours right - align-self is the cross axis of a column, which here is horizontal. Without it a
+   bubble stretches, so "yes" and a 240-character answer are the same slab.
+   A FULL border, not just the bottom one: the painter takes its rounded-ring path only when all four widths
+   match, so a bottom-only border on a rounded box was drawn as a flat strip and stuck out past both corners. */
 .bubble {
+  align-self: flex-start;
   max-width: 88%;
   padding: 7px 10px;
   border-radius: 8px;
-  background: var(--elevated);
-  border-bottom: 1px solid var(--hairline);
-}
-
-/* Theirs left, yours right. align-self is the cross axis of the column, which here is horizontal. */
-.bubble.mine {
-  align-self: flex-end;
   background: var(--panel);
-  border-bottom: 1px solid var(--live);
+  border: 1px solid var(--hairline);
 }
 
-.bubble-text { }
+.bubble.mine { align-self: flex-end; background: #14262A; border-color: var(--live); }
 
-.empty {
-  flex: 1;
-  min-height: 0;
-  justify-content: center;
-  align-items: center;
-  gap: 6px;
-  padding: 0 8px;
-}
-
-.empty-title { font-weight: 700; }
+.empty { align-items: center; gap: 6px; padding: 0 8px; }
 
 .empty-note { font-size: 12px; color: var(--muted); text-align: center; }
 
@@ -109,6 +103,7 @@ body { height: 100%; font-family: game-ui; font-size: 14px; color: var(--text); 
 .field:focus { border-color: var(--accent); }
 
 .btn {
+  flex: none;
   width: 40px;
   height: 36px;
   border-radius: 8px;
@@ -123,8 +118,10 @@ body { height: 100%; font-family: game-ui; font-size: 14px; color: var(--text); 
 /* The glyph is a flat white PNG; `color` tints it, which is why one file serves every state. */
 .glyph { width: 18px; height: 18px; color: var(--on-accent); }
 
+/* The one line the column says about itself. Danger, because the only thing it ever reports is a send the mod
+   refused - and the player is holding a message they think went out. */
 .said {
   font-size: 12px;
-  color: var(--live);
+  color: var(--danger);
   text-align: center;
 }

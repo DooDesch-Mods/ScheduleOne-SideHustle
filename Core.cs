@@ -314,12 +314,21 @@ namespace SideHustle
             Menu.SessionNotice.Tick();   // why the last session ended - NOT gated on the menu flag, see SessionNotice
             Menu.RejoinNotice.Tick(UnityEngine.Time.unscaledDeltaTime);   // offers the way out, yields to vanilla popups
             Phone.ChatRelay.Tick();  // liest eingegangene P2P-Nachrichten
+            Menu.ChatPanel.AnnounceReply();   // in the menu there is no phone to notify on - see the method
             Phone.LobbyApp.Tick();   // pushes one event to the Lobby app when the session state actually moved
             Multiplayer.ClientExitGuard.TickWatchdog();   // recover a kicked/dropped client stranded on a loading screen
 
             if (_inMenu)
             {
                 MenuInjector.TickRetry();
+
+                // One column at a time, and ONE owner. The state column answers a question about the main menu, so
+                // it only belongs up while the main menu is what is on screen; the chat column belongs to a hub
+                // screen and goes with it. Decided here rather than in either panel because the exits that matter
+                // never touch a button - Esc is native, and right-click goes through Hub.TickInput.
+                if (Hub.ScreenOpen) Menu.StatePanel.Suspend();
+                else { Menu.ChatPanel.Hide(); Menu.StatePanel.Resume(); }
+
                 Menu.StatePanel.Tick(UnityEngine.Time.unscaledDeltaTime);   // the right-hand state column
                 Menu.ChatPanel.Tick();   // the ask-the-host column, while a join screen carries one
                 DooDesch.UI.SmoothScroll.Tick();   // smooth wheel glide for menu lists (host-config form, etc.)

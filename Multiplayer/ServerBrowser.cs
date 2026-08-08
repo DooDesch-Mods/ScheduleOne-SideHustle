@@ -268,7 +268,12 @@ namespace SideHustle.Multiplayer
                         BuildId = info.BuildId,
                         GamemodeId = info.GamemodeId,
                         DownloadUrl = info.DownloadUrl,
-                        Runtime = info.Runtime
+                        Runtime = info.Runtime,
+                        // Read straight off the lobby rather than through MultiplayerInfo: that type is the public
+                        // payload a gamemode receives, and browser-only state does not belong on it. "owner" is the
+                        // game's own key, written in vanilla's OnLobbyCreated.
+                        AcceptsMessages = SteamMatchmaking.GetLobbyData(id, Sync.VanillaLobby.KeyMessages) == "1",
+                        OwnerSteamId = ulong.TryParse(SteamMatchmaking.GetLobbyData(id, "owner"), out ulong owner) ? owner : 0UL,
                     });
                 }
             }

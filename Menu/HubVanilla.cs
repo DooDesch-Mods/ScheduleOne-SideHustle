@@ -130,8 +130,9 @@ namespace SideHustle.Menu
             ClearFormHost();
             SetTmp(_clone.transform, "Title", "Manual installs");
             var host = CreateFormHost("SH_ManualInstall", 560f);
-            SyncManualInstallView.SetHost(s.Row?.OwnerSteamId ?? 0UL, s.Row?.HostName, s.Row?.AcceptsMessages ?? false);
-            SyncManualInstallView.Build(host, s.Diff, onContinue: ShowVanillaChoice, onBack: ShowVanillaChoice);
+            SyncManualInstallView.Build(host, s.Diff,
+                s.Row?.OwnerSteamId ?? 0UL, s.Row?.HostName, s.Row?.AcceptsMessages ?? false,
+                onContinue: ShowVanillaChoice, onBack: ShowVanillaChoice);
         }
 
         /// <summary>Dev.SelfTest only: open the hub straight on the vanilla lobby browser for a screenshot.</summary>
@@ -488,9 +489,10 @@ namespace SideHustle.Menu
         // enforce flag ride in the card's secondary line (LobbyRow.Mode, shown after "Vanilla Co-op").
         private static LobbyRow MapVanillaRow(VanillaLobbyRow r)
         {
-            // Keep the card's secondary line short (it already leads with "Vanilla Co-op" + the player count, and
-            // BuildCard appends a "Locked" flag): just the save name plus a compact synced-only marker. The full
-            // published mod breakdown is shown on the sync-consent screen after the player picks the lobby.
+            // Keep the card's secondary line short (it already leads with the player count, and BuildCard appends a
+            // "Locked" flag): just the save name plus a compact synced-only marker. The full published mod breakdown
+            // is shown on the sync-consent screen after the player picks the lobby. No "Vanilla Co-op" label - the
+            // screen title above every card already says "Join a vanilla lobby".
             string extra = $"save '{r.Org}'";
             if (r.Enforced) extra += "  ·  synced-only";
             if (!VanillaLobby.AcceptsJoiners(r)) extra += "  ·  not accepting joiners";
@@ -503,7 +505,6 @@ namespace SideHustle.Menu
                 MaxPlayers = r.MaxPlayers,
                 HasPassword = r.HasPassword,
                 PwHash = r.PwHash,
-                GamemodeName = "Vanilla Co-op",
                 Mode = extra,
                 Runtime = r.Runtime,
                 AcceptsMessages = r.AcceptsMessages,
@@ -579,6 +580,7 @@ namespace SideHustle.Menu
             {
                 new Row { Name = "Reading the host's mod list...", Subtitle = "Fetching the details from Steam.", Disabled = true }
             });
+            ChatPanel.Keep(row.OwnerSteamId, row.HostName, row.AcceptsMessages);
             try { Il2CppSteamworks.SteamMatchmaking.RequestLobbyData(new Il2CppSteamworks.CSteamID(row.LobbyId)); } catch { }
             WaitForManifest(row, 0);
         }
@@ -616,6 +618,7 @@ namespace SideHustle.Menu
             {
                 new Row { Name = "Reading the host's mod list (backend)...", Subtitle = "Steam couldn't share it - using the fallback.", Disabled = true }
             });
+            ChatPanel.Keep(row.OwnerSteamId, row.HostName, row.AcceptsMessages);
             System.Threading.Tasks.Task.Run(async () =>
             {
                 var res = await VanillaLobby.TryReadFromDirectoryAsync(row.LobbyId);
@@ -642,6 +645,7 @@ namespace SideHustle.Menu
             {
                 new Row { Name = "Comparing the host's mods with yours...", Subtitle = "Hashing your installed mods.", Disabled = true }
             });
+            ChatPanel.Keep(row.OwnerSteamId, row.HostName, row.AcceptsMessages);
 
             System.Threading.Tasks.Task.Run(() =>
             {
@@ -732,9 +736,8 @@ namespace SideHustle.Menu
                 var mh = CreateFormHost("SH_ManualInstall", 560f);
                 // The owner id the browser already read from the lobby - what turns "you cannot get this mod" into
                 // "ask the person who has it".
-                SyncManualInstallView.SetHost(row?.OwnerSteamId ?? 0UL, row?.HostName, row?.AcceptsMessages ?? false);
-                SyncManualInstallView.Build(mh,
-                    diff,
+                SyncManualInstallView.Build(mh, diff,
+                    row?.OwnerSteamId ?? 0UL, row?.HostName, row?.AcceptsMessages ?? false,
                     onContinue: () => BuildAndRestart(row, diff, mhash, hostPrefs),
                     onBack: () => ShowVanillaConsent(row, manifest, diff, mhash, hostPrefs));
                 return;
@@ -792,8 +795,8 @@ namespace SideHustle.Menu
                         ClearFormHost();
                         SetTmp(_clone.transform, "Title", "Still missing");
                         var mh = CreateFormHost("SH_SyncRetry", 560f);
-                        SyncManualInstallView.SetHost(row?.OwnerSteamId ?? 0UL, row?.HostName, row?.AcceptsMessages ?? false);
                         SyncManualInstallView.Build(mh, diff,
+                            row?.OwnerSteamId ?? 0UL, row?.HostName, row?.AcceptsMessages ?? false,
                             onContinue: () => BuildAndRestart(row, diff, mhash, hostPrefs),
                             onBack: ShowVanillaBrowser);
                         return;

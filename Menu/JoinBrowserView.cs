@@ -96,17 +96,26 @@ namespace SideHustle.Menu
             // runs on, red for the one it does not, nothing at all for a host too old to say (never a guess).
             string branch = BranchLabel(row.Runtime);
             var name = UIFactory.Text("name", title, card.transform, Theme.Body, TextAnchor.LowerLeft, FontStyle.Bold);
-            name.color = Theme.TextPrimary; name.raycastTarget = false; name.horizontalOverflow = HorizontalWrapMode.Overflow;
+            name.color = Theme.TextPrimary; name.raycastTarget = false;
+            // Clip, do not overflow. A uGUI Text in Overflow mode ignores its rect entirely, so the offsets below
+            // constrained nothing and a 40-character lobby name printed straight across the badge and both buttons.
+            // One cut line beats a name drawn over Join.
+            name.horizontalOverflow = HorizontalWrapMode.Wrap;
+            name.verticalOverflow = VerticalWrapMode.Truncate;
             var nrt = name.rectTransform; nrt.anchorMin = new Vector2(0, 0.5f); nrt.anchorMax = new Vector2(1, 1); nrt.offsetMin = new Vector2(16, 0);
             nrt.offsetMax = new Vector2(branch == null ? -124 : -196, -4);
 
+            // Held outside the block so the Chat button below can move it. Without that it sat at [-190, -128],
+            // entirely inside the Chat button's [-200, -116], and the button - built later, with an opaque fill -
+            // painted the red MONO warning out on exactly the cards that offer Chat.
+            RectTransform brt = null;
             if (branch != null)
             {
                 bool joinable = string.Equals(row.Runtime, LobbyCoordinator.ThisRuntime, StringComparison.OrdinalIgnoreCase);
                 var badge = UIFactory.Text("branch", branch, card.transform, Theme.Caption, TextAnchor.LowerRight, FontStyle.Bold);
                 badge.color = joinable ? Theme.Success : Theme.DangerText;
                 badge.raycastTarget = false; badge.horizontalOverflow = HorizontalWrapMode.Overflow;
-                var brt = badge.rectTransform;
+                brt = badge.rectTransform;
                 brt.anchorMin = new Vector2(1, 0.5f); brt.anchorMax = new Vector2(1, 1);
                 brt.offsetMin = new Vector2(-190, 0); brt.offsetMax = new Vector2(-128, -4);
             }
@@ -137,9 +146,12 @@ namespace SideHustle.Menu
                 chatBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() =>
                     ChatPanel.Toggle(captured.OwnerSteamId, captured.HostName)));
 
-                // The two texts must stop before the extra button, or a long lobby name draws straight through it.
+                // Everything to the left of the two buttons moves with them: the two texts so a long lobby name
+                // does not draw through, and the branch badge so the warning that decides whether Join can work
+                // at all is not painted over by the button next to it.
                 nrt.offsetMax = new Vector2(branch == null ? -208 : -280, -4);
                 srt.offsetMax = new Vector2(-208, 0);
+                if (brt != null) { brt.offsetMin = new Vector2(-274, 0); brt.offsetMax = new Vector2(-212, -4); }
             }
 
             Interactions.PolishButtons(card.transform);

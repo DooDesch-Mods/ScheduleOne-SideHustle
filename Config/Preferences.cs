@@ -52,7 +52,7 @@ namespace SideHustle.Config
                 "Turn OFF to hide it without uninstalling. Requires returning to the main menu to take effect.");
 
             _showUninstalled = _category.CreateEntry("ShowUninstalledGamemodes", true, "Show gamemodes you don't have",
-                "When ON, the Side Hustle menu also lists gamemodes you have NOT installed that currently have live " +
+                "When ON, the Side Hustle menu also lists gamemodes you do not have that currently have live " +
                 "public lobbies, so you can discover them (with a Download link). Turn OFF to show only installed gamemodes.");
 
             _askHostOnContinue = _category.CreateEntry("AskHostOnContinue", true, "Ask to host publicly on Continue",
@@ -60,19 +60,18 @@ namespace SideHustle.Config
                 "Turn OFF to always just play the save.");
 
             _acceptStrangerMessages = _category.CreateEntry("AcceptStrangerMessages", true,
-                "Let people who cannot join message you",
-                "When ON, someone who found your published lobby but cannot get in - a mod they cannot download, a " +
-                "full session - can send you a short message, and it appears in the Lobby app on your phone. " +
-                "Turn OFF to refuse them silently. Only ever from people looking at YOUR published lobby.");
+                "Let strangers message you",
+                "When ON, anyone looking at your published lobby can send you a short message, and it appears in " +
+                "the Lobby app on your phone. Turn OFF to refuse them silently.");
 
-            _menuPanel = _category.CreateEntry("MenuStatePanel", true, "Show the state panel in the main menu",
+            _menuPanel = _category.CreateEntry("MenuStatePanel", true, "Show the info column in the main menu",
                 "When ON, a column down the right of the main menu says which mod set the game booted with, how " +
                 "many published sessions are taking players right now, and whether anyone messaged you. Needs " +
                 "Sideload 1.13.0 or newer; older versions simply show nothing.");
 
-            _joinChatPanel = _category.CreateEntry("JoinChatPanel", true, "Show the ask-the-host column while joining",
+            _joinChatPanel = _category.CreateEntry("JoinChatPanel", true, "Show the chat column while joining",
                 "When ON, the screens you pass through while joining a session carry a chat column on the right, so " +
-                "you can ask the host about a mod you cannot download and read their answer without leaving. Only " +
+                "you can ask the host about a mod you cannot download and read their answer. Only " +
                 "appears when that host allows messages. Needs Sideload 1.13.0 or newer.");
 
             _recent = _category.CreateEntry("RecentlyPlayed", "", "Recently played gamemodes",
@@ -120,14 +119,10 @@ namespace SideHustle.Config
             set { if (_acceptStrangerMessages != null) { _acceptStrangerMessages.Value = value; Save(); } }
         }
 
-        /// <summary>Whether the main menu carries the Side Hustle state column. Settable, because the panel turns
-        /// itself off once when the installed Sideload is too old to render outside the phone - asking that question
-        /// again on every menu load would be a log line per load and the same answer every time.</summary>
-        internal static bool MenuPanel
-        {
-            get => _menuPanel?.Value ?? true;
-            set { if (_menuPanel != null) { _menuPanel.Value = value; Save(); } }
-        }
+        /// <summary>Whether the main menu carries the Side Hustle state column. Read-only on purpose: this is the
+        /// player's answer, and the one thing that used to write it - an older Sideload - is a condition that can
+        /// change under a config value that cannot.</summary>
+        internal static bool MenuPanel => _menuPanel?.Value ?? true;
 
         /// <summary>Whether the join screens carry the ask-the-host chat column.</summary>
         internal static bool JoinChatPanel

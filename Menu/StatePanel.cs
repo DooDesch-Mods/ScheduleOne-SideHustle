@@ -24,8 +24,9 @@ namespace SideHustle.Menu
     {
         internal const string SurfaceId = "sidehustle-menu";
 
-        /// <summary>Device pixels. Wide enough for a sentence at 13px, narrow enough to leave the menu's own art
-        /// alone on a 16:9 screen.</summary>
+        /// <summary>Reference pixels against the menu's own 1920x1080 basis, so the column keeps its proportion to
+        /// the controls beside it on every screen. Wide enough for a sentence at 13px, narrow enough to leave the
+        /// menu's art alone on 16:9.</summary>
         private const float Width = 340f;
 
         private const float Margin = 24f;
@@ -40,6 +41,7 @@ namespace SideHustle.Menu
 
         /// <summary>What the page last rendered, so the push happens when something moved and not every frame.</summary>
         private static string _pushed = "";
+        private static bool _warnedNoSurfaces;
 
         /// <summary>Lobby counts, refreshed on a timer rather than per frame: each refresh is a Steam query.</summary>
         private static int _lobbies = -1, _joinable = -1;
@@ -84,11 +86,12 @@ namespace SideHustle.Menu
         /// button, so it inherits that loop's warmup - the menu's own navigation has finished initialising by then.
         /// </summary>
         /// <summary>
-        /// Step aside while something else owns the right column.
+        /// Step aside while a Side Hustle screen is up.
         ///
-        /// The two panels live in the same place by design - it is the one strip of the menu vanilla leaves free -
-        /// so they take turns instead of stacking. Suspended rather than switched off: the chat column belongs to
-        /// one screen, and when that screen closes this one comes back on the next inject.
+        /// The two right-hand columns live in the same strip by design - it is the one part of the menu vanilla
+        /// leaves free - so they take turns instead of stacking. A plain latch with exactly one caller
+        /// (Core's menu pump), because two callers is how it drifted: nothing took this column down on a subscreen
+        /// and nothing brought it back after the chat column closed.
         /// </summary>
         internal static bool Suspended { get; private set; }
 
@@ -113,8 +116,14 @@ namespace SideHustle.Menu
 
             if (!Surfaces.Available)
             {
-                Core.Log?.Msg("[menu] the installed Sideload cannot render outside the phone - no state panel.");
-                Preferences.MenuPanel = false;   // asked once per install, not once per menu load
+                // Once per session, NOT written to the config. Writing it there outlived its cause: the player
+                // installed a newer Sideload, the column never came back, and the settings row read OFF for a
+                // switch they had never touched.
+                if (!_warnedNoSurfaces)
+                {
+                    _warnedNoSurfaces = true;
+                    Core.Log?.Msg("[menu] the installed Sideload cannot render outside the phone - no state panel.");
+                }
                 return;
             }
 
@@ -135,6 +144,15 @@ namespace SideHustle.Menu
                 // Above the menu, far below OverlayNotice's 32000 - a rejoin notice has to cover this, not the
                 // other way round.
                 canvas.sortingOrder = 100;
+
+                // The menu scales to a 1920x1080 reference, so a column measured in raw device pixels covers the
+                // buttons underneath it on a small screen - and its raycaster swallows the clicks - while rendering
+                // at half the surrounding text size at 4K. Fixed reference, deliberately NOT the player's UI Scale
+                // slider: following that re-creates the overlap at 1.5.
+                var scaler = _panel.AddComponent<UnityEngine.UI.CanvasScaler>();
+                scaler.uiScaleMode = UnityEngine.UI.CanvasScaler.ScaleMode.ScaleWithScreenSize;
+                scaler.referenceResolution = new Vector2(1920f, 1080f);
+                scaler.matchWidthOrHeight = 0f;   // the game matches width
 
                 var holder = new GameObject("panel");
                 var rect = holder.AddComponent<RectTransform>();

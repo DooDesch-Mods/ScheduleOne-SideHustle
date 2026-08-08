@@ -55,6 +55,22 @@ namespace SideHustle.Menu
 
             int reuse = diff.Entries.Count(x => x.OwnCopyReuse);
 
+            if (manual > 0)
+            {
+                Components.SectionHeader(content, "Only via download link");
+                foreach (var e in diff.Entries.Where(x => x.Status == DiffStatus.Manual))
+                    Note(content, $"~  {Label(e)}", Theme.WarningText);
+                Note(content, "Download these in your browser on the next step - Side Hustle installs them for you.", Theme.TextMuted);
+            }
+
+            if (dropped > 0)
+            {
+                Components.SectionHeader(content, "Only on Nexus (link on the next step)");
+                foreach (var e in diff.Entries.Where(x => x.Status == DiffStatus.Dropped))
+                    Note(content, $"~  {Label(e)}", Theme.WarningText);
+                Note(content, "If you can't find one, the session just runs without it.", Theme.TextMuted);
+            }
+
             Components.SectionHeader(content, "What syncing sets up");
             bool allExact = diff.Entries.Where(x => x.Status == DiffStatus.Present).All(x => !x.HashWarn && !x.OwnCopyReuse);
             if (download == 0 && present > 0 && allExact)
@@ -71,22 +87,6 @@ namespace SideHustle.Menu
                 foreach (var e in diff.Entries.Where(x => x.OwnCopyReuse))
                     Note(content, $"=  {Label(e)} - using your own installed copy"
                                   + (e.VersionWarn ? "  (version differs / unverified)" : ""), Theme.TextPrimary);
-            }
-
-            if (manual > 0)
-            {
-                Components.SectionHeader(content, "Only via download link (picked up automatically)");
-                foreach (var e in diff.Entries.Where(x => x.Status == DiffStatus.Manual))
-                    Note(content, $"~  {Label(e)}", Theme.WarningText);
-                Note(content, "The next step opens each link - download in your browser and SideHustle spots the file in your Downloads folder and installs it on its own.", Theme.TextMuted);
-            }
-
-            if (dropped > 0)
-            {
-                Components.SectionHeader(content, "Only on Nexus (link on the next step)");
-                foreach (var e in diff.Entries.Where(x => x.Status == DiffStatus.Dropped))
-                    Note(content, $"~  {Label(e)}", Theme.WarningText);
-                Note(content, "Not on Thunderstore - the next step opens each one on Nexus: its own page when the name identifies it, a search otherwise (downloads are picked up automatically). If you can't find one, the session just runs without it.", Theme.TextMuted);
             }
 
             if (diff.LocalOnly.Count > 0)

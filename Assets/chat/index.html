@@ -12,8 +12,13 @@
   <div class="log" id="log"></div>
 
   <div class="control">
-    <input class="field" id="reply" maxlength="240" placeholder="Ask the host anything" data-typing>
-    <div class="btn icon-only" id="send"><img src="icons/send.png" class="glyph"></div>
+    <!-- NO data-typing here, and that is deliberate. It parks the caret in this field the moment the column
+         mounts, which raises GameInput.IsTyping - and while that flag is up the game's own exit handling returns
+         on its first line, so Escape does nothing on the whole menu screen behind it. The phone app keeps
+         data-typing because there the player is standing in the world and loose letters really are key bindings;
+         a surface has no back gesture to rescue them with. The two need opposite answers. -->
+    <input class="field" id="reply" maxlength="240" placeholder="Ask the host anything">
+    <div class="btn" id="send"><img src="icons/send.png" class="glyph"></div>
   </div>
 </div>
 

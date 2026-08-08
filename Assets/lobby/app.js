@@ -402,7 +402,28 @@ function renderChat(body) {
   if (!threads.some((t) => t.id === openThread)) openThread = threads[0].id;
 
   const cols = el('div', 'cols tall');
-  const list = el('div', 'col threadlist');
+/* One element for the whole session, re-appended on every render.
+ *
+ * Sideload rescues a form control across a rebuild by DOM IDENTITY - it looks the element up in a map built from
+ * the previous paint. A field the script re-creates is therefore a different key, gets a fresh empty control, and
+ * loses whatever was typed. That matters here more than anywhere: the page re-renders whenever the thread moves,
+ * which is precisely while the person waiting for an answer is writing their next line. */
+let composeField = null;
+
+function composeInput() {
+  if (composeField) return composeField;
+  composeField = el('input', 'field');
+  composeField.setAttribute('maxlength', '240');
+  composeField.setAttribute('placeholder', 'Write a reply');
+  // data-typing: while this is on screen the caret comes back here, so typing a reply does not walk the player
+  // through the game world. Correct on the PHONE - the player is standing in the world and loose letters are key
+  // bindings - and deliberately absent from the menu column, which would trap Escape instead.
+  composeField.setAttribute('data-typing', '');
+  return composeField;
+}
+
+  const threadcol = el('div', 'col threadcol');
+  const list = el('div', 'threadlist');
   for (const t of threads) {
     const row = el('div', 'thread' + (t.id === openThread ? ' on' : ''));
     const main = el('div', 'thread-main');
@@ -410,10 +431,15 @@ function renderChat(body) {
     main.appendChild(el('div', 'thread-last', t.last));
     row.appendChild(main);
     if (t.unread) row.appendChild(el('div', 'dot live'));
-    row.addEventListener('click', () => { openThread = t.id; render(); });
+    row.addEventListener('click', () => {
+      // Clear the draft when the thread changes, or a line meant for one stranger follows to the next.
+      if (t.id !== openThread) { openThread = t.id; if (composeField) composeField.value = ''; }
+      render();
+    });
     list.appendChild(row);
   }
-  cols.appendChild(list);
+  threadcol.appendChild(list);
+  cols.appendChild(threadcol);
 
   const pane = el('div', 'col');
   const openName = (threads.find((t) => t.id === openThread) || {}).name || '';
@@ -453,12 +479,7 @@ function renderChat(body) {
   pane.appendChild(log);
 
   const compose = el('div', 'control');
-  const field = el('input', 'field');
-  field.setAttribute('maxlength', '240');
-  field.setAttribute('placeholder', 'Write a reply');
-  // data-typing: while this is on screen the caret comes back here, so typing a reply does not walk the player
-  // through the game world.
-  field.setAttribute('data-typing', '');
+  const field = composeInput();
   const send = () => {
     const text = field.value.trim();
     if (!text) return;
@@ -534,7 +555,7 @@ function render() {
 
   if (!s.inLobby) {
     body.appendChild(emptyState('lobby', 'No session running',
-      'Host or join a game from the Side Hustle menu, and this becomes the place you run it from.'));
+      'Host or join a game from the Side Hustle menu. Host one and this is where you set seats and who can find you.'));
     return;
   }
 

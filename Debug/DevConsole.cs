@@ -79,6 +79,7 @@ namespace SideHustle.Debugging
             new[] { "shmods", "which mods are registered, and which sit unloaded in Mods/_late" },
             new[] { "shmanual", "shmanual [steamid] - open the manual-install screen with sample rows" },
             new[] { "shbrowser", "open the vanilla lobby LIST (the screen with Join and Chat)" },
+            new[] { "shtyping", "is a text field holding the keyboard - which is what blocks Escape" },
         };
 
         private static bool Handle(string[] parts)
@@ -112,6 +113,7 @@ namespace SideHustle.Debugging
                     case "shmods": ListMods(); break;
                     case "shmanual": ManualDemo(parts); break;
                     case "shbrowser": Menu.Hub.OpenVanillaListForTest(); break;
+                    case "shtyping": Typing(); break;
                 }
             }
             catch (Exception e) { Core.Log?.Warning("[dev] " + cmd + " failed: " + e); }
@@ -347,10 +349,25 @@ namespace SideHustle.Debugging
                 "Host's build differs from Thunderstore 2.9.0");
             Row("Trashville.dll", "Litterally", "1.0.0", null);   // the plain "waiting for the download..." row
 
-            Menu.SyncManualInstallView.SetHost(peer, peer == 0UL ? "" : SideHustle.Phone.ChatRelay.NameOf(peer), peer != 0UL);
-            Menu.Hub.OpenManualForTest(diff);
+            Menu.Hub.OpenManualForTest(diff, peer, peer == 0UL ? "" : SideHustle.Phone.ChatRelay.NameOf(peer), peer != 0UL);
             Core.Log?.Msg("[dev] shmanual: checklist open with " + diff.Entries.Count + " sample row(s)"
                 + (peer != 0UL ? ", chat column for " + peer : ""));
+        }
+
+        /// <summary>
+        /// Whether the game thinks the player is typing.
+        ///
+        /// The one thing a screenshot cannot show and a key press is the only other way to test: while this is
+        /// true the game's exit handling returns on its first line, so Escape does nothing at all. A menu column
+        /// that parks the caret in its own field raises it the moment it opens.
+        /// </summary>
+        private static void Typing()
+        {
+            bool typing = false;
+            try { typing = Il2CppScheduleOne.GameInput.IsTyping; } catch (Exception e)
+            { Core.Log?.Warning("[dev] shtyping: could not read GameInput.IsTyping: " + e.Message); return; }
+            Core.Log?.Msg("[dev] shtyping: IsTyping=" + typing
+                + (typing ? "  <- Escape is blocked while this is true" : "  <- Escape works"));
         }
 
         private static ulong LocalId()

@@ -131,6 +131,12 @@ namespace SideHustle.Multiplayer
                     SteamMatchmaking.SetLobbyData(sid, KeyConfig, opts.ConfigBlob);
                 SteamMatchmaking.SetLobbyData(sid, KeyBuild, BuildIdOf(desc));
                 SteamMatchmaking.SetLobbyData(sid, KeyRuntime, ThisRuntime);
+
+                // Whether this host can be asked a question before somebody commits to joining. The World guard is
+                // load-bearing: a MenuSpace gamemode never loads a save, so its host has no phone to answer on and
+                // a Chat button there would open onto silence.
+                SteamMatchmaking.SetLobbyData(sid, Sync.VanillaLobby.KeyMessages,
+                    desc.Surface == GamemodeSurface.World && Config.Preferences.AcceptStrangerMessages ? "1" : "0");
                 // Advertise this gamemode's PUBLIC lobbies to players who do not have it installed (a discovery marker
                 // + a download link the browser can open). Private lobbies are never advertised - you cannot join them
                 // anyway - and a gamemode can opt out with Advertise = false (e.g. a WIP mod not ready to be found).

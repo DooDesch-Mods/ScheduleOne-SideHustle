@@ -359,6 +359,7 @@ namespace SideHustle.Menu
                 SetTmp(_clone.transform, "Title", "Manual installs");
                 var mh = CreateFormHost("SH_GhostManual", 560f);
                 SyncManualInstallView.Build(mh, diff,
+                    row?.OwnerSteamId ?? 0UL, row?.HostName, row?.AcceptsMessages ?? false,
                     onContinue: () => GhostBuildAndRestart(g, row, diff, mhash),
                     onBack: () => ShowGhostConsent(g, row, manifest, diff, mhash));
                 return;
@@ -423,6 +424,7 @@ namespace SideHustle.Menu
                         SetTmp(_clone.transform, "Title", "Still missing");
                         var mh2 = CreateFormHost("SH_GhostManualRetry", 560f);
                         SyncManualInstallView.Build(mh2, diff,
+                            row?.OwnerSteamId ?? 0UL, row?.HostName, row?.AcceptsMessages ?? false,
                             onContinue: () => GhostBuildAndRestart(g, row, diff, mhash),
                             onBack: () => ShowGhostBrowser(g));
                         return;

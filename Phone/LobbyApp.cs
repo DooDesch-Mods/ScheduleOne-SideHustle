@@ -95,6 +95,10 @@ namespace SideHustle.Phone
             {
                 var thread = ChatRelay.Thread(peer);
                 string last = thread.Count > 0 ? thread[thread.Count - 1].Text : "";
+                // Clamped here, not in CSS: the engine does not clip a text leaf, so a 240-character question
+                // wraps to eight lines in a 210px column. Three full stops rather than the ellipsis character,
+                // which the game's font atlas has no glyph for and draws as an empty box.
+                if (last.Length > 38) last = last.Substring(0, 37).TrimEnd() + "...";
                 arr.Item(Json.Object()
                     .Add("id", peer.ToString())
                     .Add("name", ChatRelay.NameOf(peer))
