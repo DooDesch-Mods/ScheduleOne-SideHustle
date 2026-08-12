@@ -318,6 +318,7 @@ namespace SideHustle
             Menu.ChatPanel.AnnounceReply();   // in the menu there is no phone to notify on - see the method
             Phone.LobbyApp.Tick();   // pushes one event to the Lobby app when the session state actually moved
             Multiplayer.ClientExitGuard.TickWatchdog();   // recover a kicked/dropped client stranded on a loading screen
+            Multiplayer.PublicLobbyAccess.Tick();   // the auth mode has to land even when the authenticator comes up late
 
             if (_inMenu)
             {
