@@ -3,6 +3,13 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [2.4.2] - 2026-08-13
+
+### Fixed
+- Side Hustle loads again after 2.4.1, which quietly needed a newer S1API than it asked for and broke
+  the lobby list on installs that had not updated.
+- The package asks for S1API 3.1.15 now, so a mod manager pulls a version that matches.
+
 ## [2.4.1] - 2026-08-13
 
 ### Fixed
