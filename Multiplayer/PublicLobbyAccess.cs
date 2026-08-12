@@ -1,5 +1,6 @@
 using System;
 using HarmonyLib;
+using Il2CppFishNet;                         // InstanceFinder (the registered authenticator lives on the ServerManager)
 using Il2CppScheduleOne.Platform;
 
 namespace SideHustle.Multiplayer
@@ -106,19 +107,72 @@ namespace SideHustle.Multiplayer
         private static bool _typeAbsent;     // this build has no authenticator at all - final
         private static bool _shapeChanged;   // it exists but not as we know it - final
 
+        // What the session WANTS, kept apart from what the game has already been told. The authenticator comes up with
+        // the server, so the attempt at publish time regularly runs before it exists. A single missed attempt used to
+        // leave the lobby on FriendOfAnyExistingPlayer for its whole life - the host saw nothing, and every non-friend
+        // got "Authentication failed" - because the retry only came "on the next host". Tick() keeps trying instead.
+        private static bool _hasWish;    // SetAuthModeAnyone was called at least once - nothing runs before that
+        private static bool _wantAnyone;
+        private static bool _applied;
+        private static float _retryIn;
+        private static float _giveUpIn;
+        private static bool _waitLogged;
+
+        // Long enough for a world load on a slow disk, short enough that a mode which can never land stops asking.
+        // Without a deadline a session that ends before the mode is set would retry - and warn - every half second
+        // for as long as the game runs.
+        private const float RetryWindowSeconds = 180f;
+
         /// <summary>Ask the game to let anyone in (host session) or restore its own default (session over). No-op on any
-        /// build that has no authenticator.</summary>
+        /// build that has no authenticator. If the authenticator is not up yet, <see cref="Tick"/> finishes the job.</summary>
         internal static void SetAuthModeAnyone(bool anyone)
+        {
+            _hasWish = true;
+            _wantAnyone = anyone;
+            _applied = false;
+            _retryIn = 0f;
+            _giveUpIn = RetryWindowSeconds;
+            _waitLogged = false;
+            Apply();
+        }
+
+        /// <summary>Retry until the mode actually lands. Returns immediately once it has, or on a build without an
+        /// authenticator, so this costs nothing on the frames that matter.</summary>
+        internal static void Tick()
+        {
+            if (!_hasWish || _applied || _typeAbsent || _shapeChanged) return;
+            float dt = UnityEngine.Time.unscaledDeltaTime;
+            _giveUpIn -= dt;
+            if (_giveUpIn <= 0f)
+            {
+                _hasWish = false;
+                Core.Log?.Warning("[mp] the Steam authenticator never came up - this lobby stays friends-only.");
+                return;
+            }
+            _retryIn -= dt;
+            if (_retryIn > 0f) return;
+            _retryIn = 0.5f;
+            Apply();
+        }
+
+        private static void Apply()
         {
             try
             {
                 if (!ResolveAuthenticator()) return;
-                object mode = anyone ? _modeAnyone : _modeDefault;
+                object mode = _wantAnyone ? _modeAnyone : _modeDefault;
                 if (mode == null) return;
                 _setAuthMode.Invoke(_authInstance, new[] { mode });
-                Core.Log?.Msg($"[mp] steam auth mode -> {(anyone ? "Anyone" : "FriendOfAnyExistingPlayer")} (public-lobby access).");
+                _applied = true;
+                Core.Log?.Msg($"[mp] steam auth mode -> {(_wantAnyone ? "Anyone" : "FriendOfAnyExistingPlayer")} (public-lobby access).");
             }
-            catch (Exception e) { Core.Log?.Warning("[mp] could not set the Steam auth mode: " + e.Message); }
+            catch (Exception e)
+            {
+                // A cached instance can outlive its scene - the call then throws on a destroyed object and would
+                // keep throwing forever. Drop it so the next attempt resolves a live one.
+                _authInstance = null;
+                Core.Log?.Warning("[mp] could not set the Steam auth mode: " + e.Message);
+            }
         }
 
         private static bool ResolveAuthenticator()
@@ -156,15 +210,37 @@ namespace SideHustle.Multiplayer
             }
             catch { }
 
-            // The authenticator is a component in the scene, so find it the same way anything else would.
+            // FishNet owns it: the server manager holds the REGISTERED authenticator, which is the instance that
+            // actually decides, and it answers even while its GameObject is inactive. Ask that first.
             try
             {
-                var objs = UnityEngine.Object.FindObjectsOfType(Il2CppInterop.Runtime.Il2CppType.From(t));
-                if (objs != null && objs.Length > 0) _authInstance = objs[0];
+                var registered = InstanceFinder.ServerManager?.Authenticator;
+                if (registered != null)
+                {
+                    var tryCast = typeof(Il2CppInterop.Runtime.InteropTypes.Il2CppObjectBase)
+                        .GetMethod("TryCast")?.MakeGenericMethod(t);
+                    _authInstance = tryCast?.Invoke(registered, null);
+                }
             }
-            catch (Exception e) { Core.Log?.Warning("[mp] authenticator lookup failed: " + e.Message); }
+            catch (Exception e) { Core.Log?.Warning("[mp] authenticator lookup via ServerManager failed: " + e.Message); }
 
-            if (_authInstance == null) Core.Log?.Warning("[mp] the Steam authenticator was not in the scene yet - retrying on the next host.");
+            // Fallback: the scene search - now INCLUDING inactive objects. Without that flag the component can exist
+            // and still not be found, which is indistinguishable from "not created yet" and was silently fatal.
+            if (_authInstance == null)
+            {
+                try
+                {
+                    var objs = UnityEngine.Object.FindObjectsOfType(Il2CppInterop.Runtime.Il2CppType.From(t), true);
+                    if (objs != null && objs.Length > 0) _authInstance = objs[0];
+                }
+                catch (Exception e) { Core.Log?.Warning("[mp] authenticator lookup failed: " + e.Message); }
+            }
+
+            if (_authInstance == null && !_waitLogged)
+            {
+                _waitLogged = true;
+                Core.Log?.Msg("[mp] the Steam authenticator is not up yet - retrying while the world loads.");
+            }
             return _authInstance != null && _setAuthMode != null;
         }
     }

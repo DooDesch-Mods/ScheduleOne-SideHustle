@@ -3,6 +3,13 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [2.4.1] - 2026-08-13
+
+### Fixed
+- Non-friends can join your hosted lobby again. Since game version 0.4.6f12 every lobby stayed
+  friends-only and joiners got "Authentication failed".
+- The fix sits with the host, so joining a public lobby needs its host on 2.4.1 or later.
+
 ## [2.4.0] - 2026-08-08
 
 ### Added
