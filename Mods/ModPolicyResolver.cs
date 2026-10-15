@@ -150,14 +150,16 @@ namespace SideHustle.Mods
                 foreach (var keeper in loaded.Where(m => keep.Contains(m.File)).ToList())
                 {
                     var refs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    try { foreach (var r in keeper.Assembly?.GetReferencedAssemblies() ?? Array.Empty<AssemblyName>()) refs.Add(r.Name); } catch { /* ignore */ }
+                    try { foreach (var r in keeper.Assembly?.GetReferencedAssemblies() ?? Array.Empty<AssemblyName>()) refs.Add(r.Name); }
+                    catch (Exception e) { Core.Log?.Warning($"[modpolicy] could not read the references of {keeper.File}: {e.Message}"); }
                     foreach (var d in DeclaredDeps(keeper)) refs.Add(StripExt(d));
 
                     foreach (var cand in loaded)
                     {
                         if (keep.Contains(cand.File) || cand.Assembly == null) continue;
                         string candAsm = null;
-                        try { candAsm = cand.Assembly.GetName().Name; } catch { /* ignore */ }
+                        try { candAsm = cand.Assembly.GetName().Name; }
+                        catch (Exception e) { Core.Log?.Warning($"[modpolicy] could not read the assembly name of {cand.File}: {e.Message}"); }
                         if ((candAsm != null && refs.Contains(candAsm)) || refs.Contains(StripExt(cand.File)))
                         {
                             keep.Add(cand.File);
@@ -186,16 +188,10 @@ namespace SideHustle.Mods
                 if (attrs == null) return names;
                 foreach (var a in attrs)
                 {
-                    var t = a.GetType();
-                    if (t == null || t.Name.IndexOf("Dependencies", StringComparison.OrdinalIgnoreCase) < 0) continue;
-                    foreach (var pn in new[] { "AssemblyNames", "Dependencies", "Mods" })
-                    {
-                        try { if (t.GetProperty(pn)?.GetValue(a) is string[] arr) names.AddRange(arr); }
-                        catch { /* ignore */ }
-                    }
+                    names.AddRange(Internal.GameTargets.DeclaredDependencyNames(a));
                 }
             }
-            catch { /* ignore */ }
+            catch (Exception e) { Core.Log?.Warning($"[modpolicy] could not read the declared dependencies of {keeper.File}: {e.Message}"); }
             return names;
         }
     }

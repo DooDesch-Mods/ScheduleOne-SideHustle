@@ -36,11 +36,10 @@ namespace SideHustle.Sync
             try
             {
                 _harmony = new HarmonyLib.Harmony("doodesch.sidehustle.livepublish");
-                var lateUpdate = AccessTools.Method(typeof(LobbyInterface), "LateUpdate");
+                var lateUpdate = Internal.GameTargets.LobbyInterfaceLateUpdate.Value;
                 if (lateUpdate != null)
                     _harmony.Patch(lateUpdate, postfix: new HarmonyMethod(
                         typeof(LivePublish).GetMethod(nameof(LateUpdatePostfix), AccessTools.all)));
-                else Core.Log?.Warning("[sync] LobbyInterface.LateUpdate not found - no live-publish button.");
             }
             catch (Exception e) { Core.Log?.Warning("[sync] live-publish install failed: " + e.Message); }
         }

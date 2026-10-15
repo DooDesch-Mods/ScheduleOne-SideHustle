@@ -37,6 +37,10 @@ namespace SideHustle
             Preferences.Initialize();
             API.IsReady = true;
 
+            // Every game member reached by name is resolved once, here, so a game update that renamed one is in the
+            // log at startup and the feature behind it switches itself off.
+            Internal.GameTargets.ResolveAll();
+
             // Native bigger lobbies - raise the co-op cap ourselves (no external BiggerLobbies dependency).
             // Idempotent + single-flight guarded, so a standalone FullHouse.dll or BiggerLobbies alongside is fine.
             DooDesch.FullHouse.Lobbies.Install();
