@@ -109,8 +109,9 @@ namespace SideHustle.Menu
             ["neon"] = new Preset { Pos = new Vector3(-4.6f, 2.1f, 3.0f), Euler = new Vector3(8f, 138f, 0f), Fov = 50f, Dim = 0.5f },
             // low behind the cash stacks, the player and the RV beyond them
             ["cash"] = new Preset { Pos = new Vector3(5f, 0.9f, 3.5f), Euler = new Vector3(8f, 225f, 0f), Fov = 50f, Dim = 1f },
-            // from above, the cash spread like a haul on a table
-            ["haul"] = new Preset { Pos = new Vector3(3f, 5f, 4.5f), Euler = new Vector3(45f, 200f, 0f), Fov = 45f, Dim = 1f },
+            // from above, the cash spread like a haul on a table; the player and the RV door stand in the right 40 percent,
+            // which the hub page leaves free
+            ["haul"] = new Preset { Pos = new Vector3(3.5f, 5.5f, 5.5f), Euler = new Vector3(42f, 188f, 0f), Fov = 50f, Dim = 1f },
         };
 
         // The look staged behind the hub page; null leaves the vanilla scene alone.
@@ -213,10 +214,45 @@ namespace SideHustle.Menu
                     case "page": Hub.ShowPageCanvasForTest(parts.Length < 3 || parts[2] != "off"); break;
                     case "reset": Reset(); break;
                     case "preset": Reset(); Apply(P(2)); break;
+                    case "res":
+                        // shscene res <w> <h> - windowed, to check the framing at another size
+                        Screen.SetResolution((int)F(2, 1920f), (int)F(3, 1080f), false);
+                        Core.Log?.Msg($"[scene] resolution set to {(int)F(2, 1920f)}x{(int)F(3, 1080f)} windowed.");
+                        break;
+                    case "where": Where(P(2)); break;
+                    case "size": Sizes(); break;
                     default: Core.Log?.Warning($"[scene] unknown subcommand '{sub}'."); break;
                 }
             }
             catch (Exception e) { Core.Log?.Error("[scene] " + sub + " failed: " + e); }
+        }
+
+        // Where an object lands on screen, as viewport fractions: x 0 is the left edge, 1 the right edge.
+        private static void Where(string path)
+        {
+            var cam = MenuCamera();
+            var t = FindAny(path);
+            if (cam == null || t == null) { Core.Log?.Warning($"[scene] where: '{path}' or the camera not found."); return; }
+            Vector3 v = cam.WorldToViewportPoint(t.position);
+            Core.Log?.Msg(string.Format(CultureInfo.InvariantCulture, "[scene] '{0}' at {1} is on screen at x {2:0.00} y {3:0.00} depth {4:0.0}.",
+                path, V(t.position), v.x, v.y, v.z));
+        }
+
+        // The screen, and the size every overlay canvas and the hub page holder report for it.
+        private static void Sizes()
+        {
+            Core.Log?.Msg($"[scene] screen {Screen.width}x{Screen.height}, current resolution {Screen.currentResolution.width}x{Screen.currentResolution.height}, fullscreen {Screen.fullScreen}.");
+            foreach (var c in UnityEngine.Object.FindObjectsOfType<Canvas>())
+            {
+                if (c == null || !c.isRootCanvas) continue;
+                var rt = c.GetComponent<RectTransform>();
+                Core.Log?.Msg(string.Format(CultureInfo.InvariantCulture, "[scene] canvas '{0}' {1} rect {2:0}x{3:0} scale {4:0.###} pixelRect {5:0}x{6:0}",
+                    c.name, c.renderMode, rt.rect.width, rt.rect.height, c.scaleFactor, c.pixelRect.width, c.pixelRect.height));
+            }
+            var page = FindAny("SideHustle_HubSurface/page");
+            if (page == null) { Core.Log?.Warning("[scene] size: the hub page holder was not found."); return; }
+            var r = page.GetComponent<RectTransform>().rect;
+            Core.Log?.Msg(string.Format(CultureInfo.InvariantCulture, "[scene] hub page holder {0:0}x{1:0}.", r.width, r.height));
         }
 
         private static void Dump()

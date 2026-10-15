@@ -32,7 +32,7 @@ namespace SideHustle.Menu
         internal const string HubSurfaceId = "sidehustle-hub";
 
         /// <summary>The page is written for a 900px short side, so a 16:9 screen is 1600x900 to it and a 4:3 one
-        /// 1200x900; its stylesheet stacks the status column under the content below 1280.</summary>
+        /// 1200x900.</summary>
         private const float HubDesignShortSide = 900f;
 
         private static GameObject _hubRoot;

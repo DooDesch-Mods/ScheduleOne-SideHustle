@@ -9,6 +9,11 @@
  * Transitions run on colour, opacity and transform only.
  *
  * Mounted with a 900px design short side: 1440x900 on 16:10, 1600x900 on 16:9, 1200x900 on 4:3.
+ * A width media query on a surface measures the phone's 733px, never this viewport, so the wide columns scale
+ * with vw instead.
+ *
+ * All content sits in one column on the left 60 percent. The right side stays free for the staged menu scene,
+ * where the player stands at the RV door.
  */
 
 :root {
@@ -31,10 +36,11 @@
   --bad: #F1707A;
 }
 
-/* The bottom padding keeps the content clear of the menu's own "Esc Back" hint in the lower left corner. */
+/* The bottom padding keeps the content clear of the menu's own "Esc Back" hint in the lower left corner.
+   The right padding leaves the scene free. */
 body {
   height: 100%;
-  padding: 32px 40px 84px 40px;
+  padding: 32px 40vw 84px 40px;
   gap: 20px;
   font-family: game-ui;
   font-size: 14px;
@@ -102,11 +108,11 @@ body {
 .need { color: var(--warn); }
 .bad { color: var(--bad); }
 
-/* --- page: content on the left, the status column on the right --- */
+/* --- page: content, with the status panel under it --- */
 
-.page { flex: 1; min-height: 0; flex-direction: row; gap: 24px; }
-.main { flex: 1; min-height: 0; min-width: 0; gap: 18px; }
-.side { width: 330px; flex: none; justify-content: flex-end; padding-bottom: 84px; }
+.page { flex: 1; min-height: 0; gap: 14px; }
+.main { flex: 1; min-height: 0; min-width: 0; gap: 16px; }
+.side { flex: none; }
 
 
 /* --- Play: continue the last vanilla save --- */
@@ -123,14 +129,14 @@ body {
 .feature { flex-direction: row; gap: 20px; padding: 18px 22px; flex: none; border: 2px solid var(--lift2); }
 .feature .fl { flex: 1; min-width: 0; gap: 14px; }
 .feature .fh { flex-direction: row; align-items: center; gap: 20px; }
-.feature .icon { width: 112px; height: 112px; }
-.feature .icon.mono { font-size: 40px; }
+.feature .icon { width: 80px; height: 80px; }
+.feature .icon.mono { font-size: 30px; }
 .feature .t { flex: 1; min-width: 0; gap: 6px; }
 .feature .k { font-size: 13px; font-weight: 700; color: var(--cash); letter-spacing: 1px; }
-.feature .nm { font-size: 26px; font-weight: 800; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.feature .nm { font-size: 24px; font-weight: 800; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 .feature .d { color: var(--mu); font-size: 15px; }
 .feature .acts { flex-direction: row; gap: 10px; }
-.feature .fr { width: 380px; flex: none; gap: 8px; padding: 14px; border-radius: 12px; background: rgba(0, 0, 0, .22); }
+.feature .fr { width: 20vw; flex: none; gap: 8px; padding: 14px; border-radius: 12px; background: rgba(0, 0, 0, .22); }
 .cont { flex-direction: row; align-items: center; gap: 14px; padding: 12px 16px; flex: none; }
 .cont .icon { width: 44px; height: 44px; border-radius: 9px; }
 .cont .icon.mono { font-size: 16px; }
@@ -140,12 +146,12 @@ body {
 .cont .nm { font-size: 17px; font-weight: 700; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 .cont .d { color: var(--mu); font-size: 13px; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 
-/* --- Play: gamemode tiles --- */
+/* --- Play: gamemode list --- */
 
 .tilescroll { flex: 1; min-height: 0; overflow-y: auto; }
-.tiles { flex-direction: row; flex-wrap: wrap; gap: 16px; padding-bottom: 4px; }
+.tiles { gap: 8px; padding-bottom: 4px; }
 .tile {
-  width: 291px; padding: 12px; gap: 12px;
+  flex-direction: row; align-items: center; flex: none; padding: 10px 14px; gap: 14px;
   border: 2px solid rgba(0, 0, 0, 0);
   transition: background-color .12s, border-color .12s;
 }
@@ -153,9 +159,11 @@ body {
 .tile.ghost { background: var(--glass2); }
 .tile.ghost:hover { background: var(--glass); }
 .tile.sel { border-color: var(--neon); }
-.tile .head { flex-direction: row; align-items: center; gap: 12px; }
-.tile .icon { width: 56px; height: 56px; border-radius: 10px; }
-.tile .icon.mono { font-size: 20px; }
+.tile .head { flex-direction: row; align-items: center; gap: 12px; flex: 1; min-width: 0; }
+.tile .icon { width: 48px; height: 48px; border-radius: 10px; }
+.tile .icon.mono { font-size: 18px; }
+.tile > .live, .tile > .quiet { width: 11vw; flex: none; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.tile > .sp { flex: none; }
 .tile .t { flex: 1; min-width: 0; gap: 2px; }
 .tile .nm { font-size: 17px; font-weight: 700; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 .tile .sub { color: var(--mu); font-size: 12px; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
@@ -195,7 +203,7 @@ body {
 .fnote { color: var(--dim); font-size: 12px; }
 .ferr { color: var(--bad); font-size: 13px; font-weight: 600; }
 .facts { flex-direction: row; align-items: center; gap: 10px; padding-top: 4px; }
-.lob { width: 360px; flex: none; gap: 8px; }
+.lob { width: 20vw; flex: none; gap: 8px; }
 .lr { flex-direction: row; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; background: var(--lift); }
 .lr .t { flex: 1; min-width: 0; gap: 2px; }
 .lr .nm { font-size: 15px; font-weight: 700; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
@@ -207,7 +215,7 @@ body {
 .board { flex: 1; min-height: 0; padding: 22px 24px; gap: 14px; }
 .ttl { flex-direction: row; align-items: center; gap: 16px; flex: none; }
 .ttl .nm { font-size: 28px; font-weight: 800; }
-.search { width: 300px; padding: 12px 14px; border-radius: 10px; background: var(--lift); color: var(--tx); font-size: 14px; -s1-ghost-color: var(--dim); }
+.search { width: 16vw; padding: 12px 14px; border-radius: 10px; background: var(--lift); color: var(--tx); font-size: 14px; -s1-ghost-color: var(--dim); }
 .chips { flex-direction: row; flex-wrap: wrap; gap: 8px; flex: none; }
 .chip {
   flex-direction: row; align-items: center; height: 34px; padding: 0 14px; border-radius: 9px;
@@ -228,12 +236,12 @@ body {
 .r.glow { background: rgba(224, 74, 230, .30); }
 .r .icon { width: 40px; height: 40px; border-radius: 9px; }
 .r .icon.mono { font-size: 14px; }
-.r .c1 { width: 240px; flex: none; gap: 2px; }
+.r .c1 { width: 13vw; flex: none; gap: 2px; }
 .r .c1 .nm { font-size: 16px; font-weight: 700; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 .r .c1 .sub { font-size: 12px; color: var(--mu); white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 .r .c2 { flex: 1; min-width: 0; font-size: 12px; color: var(--mu); }
-.r .c3 { width: 170px; flex: none; flex-direction: row; align-items: center; gap: 4px; }
-.r .c4 { width: 170px; flex: none; font-weight: 700; font-size: 13px; }
+.r .c3 { width: 9vw; flex: none; flex-direction: row; align-items: center; gap: 4px; }
+.r .c4 { width: 9vw; flex: none; font-weight: 700; font-size: 13px; }
 .seat { width: 12px; height: 12px; border-radius: 4px; background: var(--neon); flex: none; }
 .seat.e { background: var(--lift2); }
 .seatn { color: var(--neontx); font-weight: 800; font-size: 13px; }
@@ -241,22 +249,22 @@ body {
 .empty .msg { font-size: 17px; color: var(--mu); }
 
 .pass { flex-direction: row; align-items: stretch; height: 104px; flex: none; border-radius: 14px; background: rgba(0, 0, 0, .45); overflow: hidden; }
-.seg { justify-content: center; gap: 4px; padding: 0 22px; border-right: 2px solid rgba(255, 255, 255, .10); flex: none; }
+.seg { justify-content: center; gap: 4px; padding: 0 18px; border-right: 2px solid rgba(255, 255, 255, .10); flex: none; }
 .seg .v { font-size: 19px; font-weight: 700; white-space: nowrap; }
 .seg.w { flex: 1; flex-shrink: 1; min-width: 0; }
-.seg.w .v { white-space: normal; font-size: 16px; }
+.seg.w .v { white-space: normal; font-size: 14px; }
 .join {
-  width: 220px; flex: none; justify-content: center; align-items: center; text-align: center;
+  width: 160px; flex: none; justify-content: center; align-items: center; text-align: center;
   background: linear-gradient(180deg, var(--cashhi), var(--cash)); color: var(--oncash);
   font-size: 22px; font-weight: 800; transition: background-color .12s;
 }
 .join:hover { background: linear-gradient(180deg, #B0EA94, var(--cashhi)); }
 .join.off { background: var(--lift); color: var(--dim); }
 
-/* --- status panel --- */
+/* --- status panel: one row of stations under the content --- */
 
-.status { padding: 18px; gap: 10px; flex: none; }
-.stns { gap: 10px; }
+.status { padding: 14px 18px; gap: 10px; flex: none; }
+.stns { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 22px; }
 .stn { flex-direction: row; align-items: center; gap: 12px; font-size: 14px; color: var(--mu); }
 .stn .d { width: 12px; height: 12px; border-radius: 6px; background: var(--lift2); flex: none; }
 .stn.done { color: var(--tx); }
@@ -265,13 +273,12 @@ body {
 .stn.now .d { background: var(--neon); box-shadow: 0 0 10px var(--neon); }
 .stn.fail { color: var(--bad); font-weight: 800; }
 .stn.fail .d { background: var(--bad); }
-.stn .lb { flex: 1; min-width: 0; }
+.stn .lb { flex: none; }
 .stn .note { color: var(--mu); font-size: 13px; font-weight: 400; }
-.bar { height: 6px; border-radius: 3px; background: var(--lift2); overflow: hidden; flex: none; }
+.bar { width: 120px; height: 6px; border-radius: 3px; background: var(--lift2); overflow: hidden; flex: none; }
 .bar .fill { height: 6px; width: 0; background: var(--neon); }
 .serr { color: var(--bad); font-size: 13px; }
-.sacts { flex-direction: row; gap: 8px; padding-top: 4px; }
-.sacts .btn { flex: 1; }
+.sacts { flex-direction: row; justify-content: flex-end; gap: 8px; padding-top: 4px; }
 
 /* --- password overlay --- */
 
@@ -280,16 +287,3 @@ body {
 .dialog .nm { font-size: 22px; font-weight: 800; }
 .dialog .sub { color: var(--mu); }
 .dialog .acts { flex-direction: row; gap: 10px; justify-content: flex-end; }
-
-/* Below 1280 the status panel moves under the content. */
-@media (max-width: 1279px) {
-  .page { flex-direction: column; gap: 14px; }
-  .side { width: 100%; padding-bottom: 0; }
-  .status { padding: 14px 18px; }
-  .stns { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 22px; }
-  .stn .lb { flex: none; }
-  .bar { width: 120px; }
-  .sacts { justify-content: flex-end; }
-  .sacts .btn { flex: none; }
-  .feature .fr { width: 320px; }
-}
