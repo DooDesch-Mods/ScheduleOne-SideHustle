@@ -76,7 +76,7 @@ namespace SideHustle.Menu
             _back = null;
             ClearFormHost();
             SetTmp(_clone.transform, "Title", "Joining the host");
-            var host = CreateFormHost("SH_Syncing", 560f);
+            var host = CreateFormHost("SH_Syncing");
             var names = new[] { "Fake-ModA 1.0.0", "Fake-ModB 2.1.0", "Fake-ModC 0.3.2" };
             const long size = 3_000_000;
             var plan = names.Select(n => new InstallPlanRow { FullName = n.Split(' ')[0], Version = n.Split(' ')[1], Key = n, Size = size }).ToList();

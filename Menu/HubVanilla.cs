@@ -133,7 +133,7 @@ namespace SideHustle.Menu
             var s = SyntheticSync();
             ClearFormHost();
             SetTmp(_clone.transform, "Title", "Manual installs");
-            var host = CreateFormHost("SH_ManualInstall", 560f);
+            var host = CreateFormHost("SH_ManualInstall");
             SyncManualInstallView.Build(host, s.Diff,
                 s.Row?.OwnerSteamId ?? 0UL, s.Row?.HostName, s.Row?.AcceptsMessages ?? false,
                 onContinue: ShowVanillaChoice, onBack: ShowVanillaChoice);
@@ -389,7 +389,7 @@ namespace SideHustle.Menu
             ClearFormHost();
             var rememberedVis = SideHustle.Config.Preferences.GetHost(SideHustle.Config.Preferences.VanillaHostKey)?.Visibility ?? 0;
             SetTmp(_clone.transform, "Title", VanillaHostView.HostLabel(rememberedVis));
-            var host = CreateFormHost("SH_VanillaHost", 560f);
+            var host = CreateFormHost("SH_VanillaHost");
 
             // The mod list needs the Thunderstore index (source resolution) + a hash of every mod DLL - both off
             // the main thread; the form appears once it is ready.
@@ -411,7 +411,7 @@ namespace SideHustle.Menu
                     // during the async index fetch).
                     if (_cloneScreen == null || !_cloneScreen.IsOpen || _formHost == null || _formHost.name != "SH_VanillaHost") return;
                     ClearFormHost();
-                    var h = CreateFormHost("SH_VanillaHost", 560f);
+                    var h = CreateFormHost("SH_VanillaHost");
                     if (plan == null)
                     {
                         ProfilesViews.BuildInstalling(h, "Couldn't prepare your mod list. Go back and try again.", ShowVanillaSavePicker);
@@ -431,7 +431,7 @@ namespace SideHustle.Menu
                                 if (target == null)
                                 {
                                     Core.Log?.Error(slot < 0 ? "[sync] new game: no free save slot." : $"[sync] new game: creating the save in slot {slot + 1} failed.");
-                                    ProfilesViews.BuildInstalling(CreateFormHost("SH_VanillaHost", 560f),
+                                    ProfilesViews.BuildInstalling(CreateFormHost("SH_VanillaHost"),
                                         slot < 0 ? "All save slots are full. Delete one to start a new game."
                                                  : "Couldn't create the new save. Try again or pick another slot.", ShowVanillaSavePicker);
                                     return;
@@ -464,7 +464,7 @@ namespace SideHustle.Menu
             ClearFormHost();
             SetTmp(_clone.transform, "Title", "Join a vanilla lobby");
 
-            var host = CreateFormHost("SH_VanillaBrowser", 560f);
+            var host = CreateFormHost("SH_VanillaBrowser");
             JoinBrowserView.Build(host, new JoinBrowserView.Options
             {
                 Query = done => ServerBrowser.BeginQueryVanilla(rows => MainThread.Post(() =>
@@ -712,7 +712,7 @@ namespace SideHustle.Menu
             _back = ShowVanillaBrowser;
             ClearFormHost();
             SetTmp(_clone.transform, "Title", string.IsNullOrEmpty(row.LobbyName) ? "Sync check" : row.LobbyName);
-            var host = CreateFormHost("SH_SyncConsent", 560f);
+            var host = CreateFormHost("SH_SyncConsent");
 
             // The question this screen raises - "can I actually get all of that?" - has one answer nobody here can
             // give, and it belongs to the host. So the conversation is already open beside it rather than behind a
@@ -763,7 +763,7 @@ namespace SideHustle.Menu
                 _back = () => ShowVanillaConsent(row, manifest, diff, mhash, hostPrefs);
                 ClearFormHost();
                 SetTmp(_clone.transform, "Title", "Manual installs");
-                var mh = CreateFormHost("SH_ManualInstall", 560f);
+                var mh = CreateFormHost("SH_ManualInstall");
                 // The owner id the browser already read from the lobby - what turns "you cannot get this mod" into
                 // "ask the person who has it".
                 SyncManualInstallView.Build(mh, diff,
@@ -790,7 +790,7 @@ namespace SideHustle.Menu
                 _back = null;
                 ClearFormHost();
                 SetTmp(_clone.transform, "Title", "Joining the host");
-                var host = CreateFormHost("SH_Syncing", 560f);
+                var host = CreateFormHost("SH_Syncing");
                 // Same reasoning as the gamemode join: the wait IS the download, so the screen shows the download.
                 _syncUi = InstallProgressView.Build(host, "Matching the host's mods",
                     SyncDownloadProgress.PlanFrom(diff), diff.Unresolved, onCancel: () => StopSyncDownload("cancel button"));
@@ -833,7 +833,7 @@ namespace SideHustle.Menu
                         _back = null;
                         ClearFormHost();
                         SetTmp(_clone.transform, "Title", "Still missing");
-                        var mh = CreateFormHost("SH_SyncRetry", 560f);
+                        var mh = CreateFormHost("SH_SyncRetry");
                         SyncManualInstallView.Build(mh, diff,
                             row?.OwnerSteamId ?? 0UL, row?.HostName, row?.AcceptsMessages ?? false,
                             onContinue: () => BuildAndRestart(row, diff, mhash, hostPrefs, cancelBack),

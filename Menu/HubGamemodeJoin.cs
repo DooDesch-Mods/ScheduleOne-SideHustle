@@ -38,7 +38,7 @@ namespace SideHustle.Menu
             _back = () => ShowUninstalledChoice(g);
             ClearFormHost();
             SetTmp(_clone.transform, "Title", "Join: " + g.Name);
-            var host = CreateFormHost("SH_GhostBrowser", 560f);
+            var host = CreateFormHost("SH_GhostBrowser");
             JoinBrowserView.Build(host, new JoinBrowserView.Options
             {
                 // The cache the gamemode list was drawn from is shown at once; the browser then re-queries on its own.
@@ -241,7 +241,7 @@ namespace SideHustle.Menu
             SyncManualInstallView.PrefetchLinks(diff);
             ClearFormHost();
             SetTmp(_clone.transform, "Title", g.Name);
-            var host = CreateFormHost("SH_GhostConsent", 560f);
+            var host = CreateFormHost("SH_GhostConsent");
             // enforced: a gamemode session always runs the host's set - joining "as you are" is not on offer here,
             // because without the gamemode's own mod there is nothing to join with.
             SyncConsentView.Build(host, manifest, diff, enforced: true, hasPrefs: false,
@@ -370,7 +370,7 @@ namespace SideHustle.Menu
             SyncManualInstallView.PrefetchLinks(diff);
             ClearFormHost();
             SetTmp(_clone.transform, "Title", g.Name);
-            var host = CreateFormHost("SH_JoinModCheck", 560f);
+            var host = CreateFormHost("SH_JoinModCheck");
             SyncConsentView.Build(host, manifest, diff, enforced: false, hasPrefs: false,
                 row?.OwnerSteamId ?? 0UL, row?.HostName, row?.AcceptsMessages ?? false,
                 onSyncJoin: () => GhostSyncAndJoin(g, row, manifest, diff, mhash, () => ShowInstalledConsent(g, row, manifest, diff, mhash, joinAnyway)),
@@ -389,7 +389,7 @@ namespace SideHustle.Menu
                 _back = () => ShowGhostConsent(g, row, manifest, diff, mhash);
                 ClearFormHost();
                 SetTmp(_clone.transform, "Title", "Manual installs");
-                var mh = CreateFormHost("SH_GhostManual", 560f);
+                var mh = CreateFormHost("SH_GhostManual");
                 SyncManualInstallView.Build(mh, diff,
                     row?.OwnerSteamId ?? 0UL, row?.HostName, row?.AcceptsMessages ?? false,
                     onContinue: () => GhostBuildAndRestart(g, row, diff, mhash, consentBack),
@@ -409,7 +409,7 @@ namespace SideHustle.Menu
                 _back = null;
                 ClearFormHost();
                 SetTmp(_clone.transform, "Title", "Installing " + g.Name);
-                var host = CreateFormHost("SH_GhostInstalling", 560f);
+                var host = CreateFormHost("SH_GhostInstalling");
                 // The real progress view, not a static card: this is the part of the flow that takes time, so it is the
                 // part that has to show what is happening. The card said nothing while several megabytes came down.
                 _installUi = InstallProgressView.Build(host, "Installing " + g.Name,
@@ -463,7 +463,7 @@ namespace SideHustle.Menu
                         _back = null;
                         ClearFormHost();
                         SetTmp(_clone.transform, "Title", "Still missing");
-                        var mh2 = CreateFormHost("SH_GhostManualRetry", 560f);
+                        var mh2 = CreateFormHost("SH_GhostManualRetry");
                         SyncManualInstallView.Build(mh2, diff,
                             row?.OwnerSteamId ?? 0UL, row?.HostName, row?.AcceptsMessages ?? false,
                             onContinue: () => GhostBuildAndRestart(g, row, diff, mhash, cancelBack),

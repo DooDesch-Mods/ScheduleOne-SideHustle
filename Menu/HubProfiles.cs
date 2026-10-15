@@ -183,7 +183,7 @@ namespace SideHustle.Menu
 
             ClearFormHost();
             SetTmp(_clone.transform, "Title", "Mod Profiles");
-            var host = CreateFormHost("SH_ProfilesList", 560f);
+            var host = CreateFormHost("SH_ProfilesList");
             var recent = Sync.LastSync.Load();
             ProfilesViews.BuildList(host,
                 onOpen: ShowProfileDetail,
@@ -312,7 +312,7 @@ namespace SideHustle.Menu
 
             ClearFormHost();
             SetTmp(_clone.transform, "Title", p.Name);
-            var host = CreateFormHost("SH_ProfileDetail", 560f);
+            var host = CreateFormHost("SH_ProfileDetail");
             var graph = BuildGraph(p);
             var runtimeNotes = BuildRuntimeNotes(p);
             ProfilesViews.BuildDetail(host, p, writable, IsEssentialFile,
@@ -346,7 +346,7 @@ namespace SideHustle.Menu
 
             ClearFormHost();
             SetTmp(_clone.transform, "Title", "Add an installed mod");
-            var host = CreateFormHost("SH_AddBaseMod", 560f);
+            var host = CreateFormHost("SH_AddBaseMod");
             ProfilesViews.BuildAddBase(host, candidates,
                 onAdd: f =>
                 {
@@ -599,7 +599,7 @@ namespace SideHustle.Menu
 
             ClearFormHost();
             SetTmp(_clone.transform, "Title", "Updates");
-            var host = CreateFormHost("SH_Updates", 560f);
+            var host = CreateFormHost("SH_Updates");
             ProfilesViews.BuildUpdatesPending(host, () => ShowProfileDetail(profileId));
 
             System.Threading.Tasks.Task.Run(async () =>
@@ -628,7 +628,7 @@ namespace SideHustle.Menu
                 {
                     if (_cloneScreen == null || !_cloneScreen.IsOpen) return;
                     ClearFormHost();
-                    var h = CreateFormHost("SH_UpdateResults", 560f);
+                    var h = CreateFormHost("SH_UpdateResults");
                     ProfilesViews.BuildUpdateResults(h, updates, error,
                         onUpdate: u => InstallIntoProfile(profileId, u.FullName, u.Latest, fromUpdate: true),
                         onBack: () => ShowProfileDetail(profileId));
@@ -681,7 +681,7 @@ namespace SideHustle.Menu
 
             ClearFormHost();
             SetTmp(_clone.transform, "Title", "Installing");
-            var host = CreateFormHost("SH_InstallProgress", 560f);
+            var host = CreateFormHost("SH_InstallProgress");
             var cts = new System.Threading.CancellationTokenSource();
             _installCts = cts;
             var ui = InstallProgressView.Build(host, $"Installing {fullName} {version}", plan, unresolved,
@@ -854,7 +854,7 @@ namespace SideHustle.Menu
                     .Select(m => m.FullName),
                 StringComparer.OrdinalIgnoreCase);
 
-            var host = CreateFormHost("SH_PackageBrowser", 560f);
+            var host = CreateFormHost("SH_PackageBrowser");
             PackageBrowserView.Build(host,
                 () => ShowProfileDetail(profileId),
                 (fullName, version) => InstallIntoProfile(profileId, fullName, version),
