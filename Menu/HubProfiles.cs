@@ -166,7 +166,8 @@ namespace SideHustle.Menu
             float waited = 0f;
             while (_installCts == null && waited < 30f) { yield return new UnityEngine.WaitForSeconds(0.25f); waited += 0.25f; }
             yield return new UnityEngine.WaitForSeconds(1f);
-            try { _installCts?.Cancel(); Core.Log?.Msg("[selftest] installcancel: cancel requested."); } catch { }
+            try { _installCts?.Cancel(); Core.Log?.Msg("[selftest] installcancel: cancel requested."); }
+            catch (Exception e) { Core.Log?.Warning("[selftest] installcancel: cancel threw: " + e.Message); }
         }
 #endif
 
@@ -201,7 +202,7 @@ namespace SideHustle.Menu
             {
                 if (string.IsNullOrWhiteSpace(name)) return "Enter a name.";
                 var def = ProfileEngine.CreateProfile(name.Trim());
-                if (def == null) return "Could not create the profile (see log).";
+                if (def == null) return "Couldn't create the profile. The profile file isn't writable.";
                 SeedEssentials(def.Id);
                 ShowProfileDetail(def.Id);
                 return null;
@@ -219,7 +220,7 @@ namespace SideHustle.Menu
 
             string name = string.IsNullOrWhiteSpace(rec.Host) ? "Synced lobby" : rec.Host.Trim() + "'s mods";
             var def = ProfileEngine.CreateProfile(name);
-            if (def == null) { ShowToast("Could not create the profile (see log).", Severity.Warning); return; }
+            if (def == null) { ShowToast("Couldn't create the profile. The profile file isn't writable.", Severity.Warning); return; }
             SeedEssentials(def.Id);
 
             var pins = new List<(string, string)>();
@@ -241,7 +242,8 @@ namespace SideHustle.Menu
             Components.PromptDialog(root, "Rename profile", "Give this profile a new name.", currentName ?? "profile name", "Rename", name =>
             {
                 if (string.IsNullOrWhiteSpace(name)) return "Enter a name.";
-                if (!ProfileEngine.RenameProfile(profileId, name.Trim())) return "Could not rename the profile (see log).";
+                if (!ProfileEngine.RenameProfile(profileId, name.Trim())) return "Couldn't rename the profile. The profile file isn't writable.";
+                ShowToast("Profile renamed.", Severity.Success);
                 ShowProfileDetail(profileId);
                 return null;
             });
@@ -254,7 +256,8 @@ namespace SideHustle.Menu
             Components.PromptDialog(root, "Edit description", "A short note about what this profile is for (leave empty to clear).",
                 string.IsNullOrEmpty(currentNotes) ? "e.g. lightweight co-op set" : currentNotes, "Save", notes =>
             {
-                if (!ProfileEngine.SetDescription(profileId, notes)) return "Could not save the description (see log).";
+                if (!ProfileEngine.SetDescription(profileId, notes)) return "Couldn't save the description. The profile file isn't writable.";
+                ShowToast("Description saved.", Severity.Success);
                 ShowProfileDetail(profileId);
                 return null;
             });
@@ -270,11 +273,16 @@ namespace SideHustle.Menu
                 if (string.IsNullOrEmpty(dir) || !System.IO.Directory.Exists(dir))
                 {
                     Core.Log?.Warning("[profiles] no folder yet for '" + profileId + "' - activate the profile once to build it.");
+                    ShowToast("This profile has no folder yet. Switch to it once to build it.", Severity.Info);
                     return;
                 }
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(dir) { UseShellExecute = true });
             }
-            catch (Exception e) { Core.Log?.Warning("[profiles] could not open the profile folder: " + e.Message); }
+            catch (Exception e)
+            {
+                Core.Log?.Warning("[profiles] could not open the profile folder: " + e.Message);
+                ShowToast("Couldn't open the profile folder.", Severity.Warning);
+            }
         }
 
         // A profile without Side Hustle would boot without this menu (and without the switch-back entry) - seed
@@ -340,11 +348,16 @@ namespace SideHustle.Menu
             SetTmp(_clone.transform, "Title", "Add an installed mod");
             var host = CreateFormHost("SH_AddBaseMod", 560f);
             ProfilesViews.BuildAddBase(host, candidates,
-                onAdd: f => { AddBaseMod(profileId, f); ShowProfileDetail(profileId); },
+                onAdd: f =>
+                {
+                    if (AddBaseMod(profileId, f)) ShowToast("Added " + f + ".", Severity.Success);
+                    else ShowToast("Couldn't add " + f + ". The profile file isn't writable.", Severity.Warning);
+                    ShowProfileDetail(profileId);
+                },
                 onBack: () => ShowProfileDetail(profileId));
         }
 
-        private static void AddBaseMod(string profileId, string file) => ProfileEngine.AddBaseMod(profileId, file);
+        private static bool AddBaseMod(string profileId, string file) => ProfileEngine.AddBaseMod(profileId, file);
 
         // Removal is dependency-aware (the r2modman/Gale pattern): a mod nothing depends on gets the plain confirm;
         // a mod with dependants gets a choice dialog listing everything that would break, with "remove all" as the
@@ -469,7 +482,7 @@ namespace SideHustle.Menu
                     notes[group.Key] = wholeRef ? "Mono build - disabled (IL2CPP game)" : "Mono variant skipped";
                 }
             }
-            catch { /* hints only */ }
+            catch (Exception e) { Safe.Report("reading the per-mod runtime notes", e); }
             return notes;
         }
 
@@ -497,7 +510,7 @@ namespace SideHustle.Menu
                     parts.Add("missing: " + string.Join(", ", missing.Take(2)) + (missing.Count > 2 ? $" (+{missing.Count - 2})" : ""));
                 return parts.Count > 0 ? string.Join(" - ", parts) : null;
             }
-            catch { return null; }
+            catch (Exception e) { Safe.Report("annotating a profile row", e); return null; }
         }
 
         /// <summary>Named-profile session, menu loaded: if this profile's build dropped wrong-runtime mods, show
@@ -544,14 +557,18 @@ namespace SideHustle.Menu
             catch (Exception e) { Core.Log?.Warning("[profiles] runtime notice failed: " + e.Message); }
         }
 
+        /// <summary>A toast from outside the hub (the continue prompt, the settings form).</summary>
+        internal static void Notify(string message, Severity sev) => ShowToast(message, sev);
+
         private static void ShowToast(string message, Severity sev)
         {
             try
             {
-                Toast.Init(DialogRoot());
+                // The hub's own canvas while it exists, the overlay canvas otherwise (the screen can close under a toast).
+                Toast.Init(DialogRoot() ?? DialogRootStatic());
                 Toast.Show(message, sev);
             }
-            catch { /* purely cosmetic */ }
+            catch (Exception e) { Core.Log?.Warning("[hub] could not show a toast: " + e.Message + " - " + message); }
         }
 
         private static void ConfirmDeleteProfile(string profileId, string name)
@@ -560,7 +577,8 @@ namespace SideHustle.Menu
             if (root == null) return;
             Components.ConfirmDialog(root, "Delete profile", $"Delete '{name}'? Cached downloads and your Mods folder stay as they are.", "Delete", () =>
             {
-                ProfileEngine.DeleteProfile(profileId);
+                if (ProfileEngine.DeleteProfile(profileId)) ShowToast($"Deleted '{name}'.", Severity.Success);
+                else ShowToast("Couldn't delete the profile. The profile file isn't writable.", Severity.Warning);
                 ShowProfilesList();
             });
         }
@@ -667,7 +685,7 @@ namespace SideHustle.Menu
             var cts = new System.Threading.CancellationTokenSource();
             _installCts = cts;
             var ui = InstallProgressView.Build(host, $"Installing {fullName} {version}", plan, unresolved,
-                onCancel: () => { try { cts.Cancel(); } catch { } });
+                onCancel: () => { try { cts.Cancel(); } catch (Exception e) { Core.Log?.Warning("[profiles] install cancel threw: " + e.Message); } });
 
             var sink = new UiInstallProgress(ui);
             System.Threading.Tasks.Task.Run(async () =>
@@ -680,7 +698,7 @@ namespace SideHustle.Menu
                         promoteRootToManual: !fromUpdate);
                     if (status == EnsureStatus.Ready)
                     {
-                        MainThread.Post(() => { try { ui.SetApplying(); } catch { } });
+                        MainThread.Post(() => Safe.Try("showing the applying step", () => ui.SetApplying()));
                         built = ProfileEngine.BuildProfile(profileId);
                     }
                 }
@@ -724,7 +742,7 @@ namespace SideHustle.Menu
                 }
                 return (wrong > 0 && loading == 0, wrong > 0 && loading > 0);
             }
-            catch { return (false, false); }
+            catch (Exception e) { Safe.Report("reading a package's runtime summary", e); return (false, false); }
         }
 
         private static void OnInstallFinished(string profileId, string fullName, string version,
@@ -814,7 +832,7 @@ namespace SideHustle.Menu
                 {
                     ProfileProgress pp;
                     lock (_lock) { pp = _latest; _posted = false; }
-                    try { _ui.Report(pp); } catch { }
+                    Safe.Try("updating the install progress", () => _ui.Report(pp));
                 });
             }
         }

@@ -28,7 +28,7 @@ namespace SideHustle.Menu
                     for (int i = 0; i < saves.Length && save == null; i++)
                     {
                         try { if (saves[i] != null && !string.IsNullOrEmpty(saves[i].OrganisationName)) save = saves[i]; }
-                        catch { /* next */ }
+                        catch (Exception e) { Core.Log?.Warning("[selftest] vanillahost: a save could not be read, trying the next: " + e.Message); }
                     }
             }
             catch (Exception e) { Core.Log?.Error("[selftest] vanillahost: save enumeration failed: " + e.Message); }
@@ -66,9 +66,12 @@ namespace SideHustle.Menu
                 var saves = Il2CppScheduleOne.Persistence.LoadManager.SaveGames;
                 if (saves != null)
                     for (int i = 0; i < saves.Length && save == null; i++)
-                        try { if (saves[i] != null && !string.IsNullOrEmpty(saves[i].OrganisationName)) save = saves[i]; } catch { }
+                    {
+                        try { if (saves[i] != null && !string.IsNullOrEmpty(saves[i].OrganisationName)) save = saves[i]; }
+                        catch (Exception e) { Core.Log?.Warning("[selftest] hostform: a save could not be read, trying the next: " + e.Message); }
+                    }
             }
-            catch { }
+            catch (Exception e) { Core.Log?.Error("[selftest] hostform: save enumeration failed: " + e.Message); }
             if (save != null) ShowVanillaHostForm(save);
         }
 
@@ -306,8 +309,10 @@ namespace SideHustle.Menu
                         string org;
                         float worth = 0f;
                         int slot = i;
-                        try { org = info.OrganisationName; } catch { org = null; }
-                        try { worth = info.Networth; } catch { /* ignore */ }
+                        try { org = info.OrganisationName; }
+                        catch (Exception e) { org = null; Core.Log?.Warning($"[sync] save slot {i + 1}: could not read the organisation name: {e.Message}"); }
+                        try { worth = info.Networth; }
+                        catch (Exception e) { Core.Log?.Warning($"[sync] save slot {i + 1}: could not read the net worth: {e.Message}"); }
                         if (string.IsNullOrEmpty(org)) continue;   // empty slot
                         var save = info;
                         rows.Add(new Row
@@ -436,8 +441,10 @@ namespace SideHustle.Menu
                                 target = slot >= 0 ? Multiplayer.WorldBoot.CreateNewSave(slot, newGameOrg) : null;
                                 if (target == null)
                                 {
+                                    Core.Log?.Error(slot < 0 ? "[sync] new game: no free save slot." : $"[sync] new game: creating the save in slot {slot + 1} failed.");
                                     ProfilesViews.BuildInstalling(CreateFormHost("SH_VanillaHost", 560f),
-                                        "Couldn't create the new save (no free slot or an error - see the log).", ShowVanillaSavePicker);
+                                        slot < 0 ? "All save slots are full. Delete one to start a new game."
+                                                 : "Couldn't create the new save. Try again or pick another slot.", ShowVanillaSavePicker);
                                     return;
                                 }
                             }
@@ -468,23 +475,34 @@ namespace SideHustle.Menu
             SetTmp(_clone.transform, "Title", "Join a vanilla lobby");
 
             var host = CreateFormHost("SH_VanillaBrowser", 560f);
-            var content = JoinBrowserView.Build(host, ShowVanillaChoice, ShowVanillaBrowser);
-            JoinBrowserView.SetStatus(content, "Searching for public vanilla lobbies...");
-            ServerBrowser.BeginQueryVanilla(rows => MainThread.Post(() =>
+            JoinBrowserView.Build(host, new JoinBrowserView.Options
             {
-                if (_cloneScreen == null || !_cloneScreen.IsOpen || _formHost == null || _formHost.name != "SH_VanillaBrowser") return;
-                _vanillaRowsById.Clear();
-                var mapped = new List<LobbyRow>();
-                foreach (var r in rows ?? new List<VanillaLobbyRow>())
+                Query = done => ServerBrowser.BeginQueryVanilla(rows => MainThread.Post(() =>
                 {
-                    _vanillaRowsById[r.LobbyId] = r;
-                    mapped.Add(MapVanillaRow(r));
-                }
-                JoinBrowserView.Populate(content, mapped, lr =>
+                    if (_cloneScreen == null || !_cloneScreen.IsOpen || _formHost == null || _formHost.name != "SH_VanillaBrowser")
+                    {
+                        Core.Log?.Msg("[browser] dropped a lobby answer for a screen that is gone.");
+                        return;
+                    }
+                    _vanillaRowsById.Clear();
+                    var mapped = new List<LobbyRow>();
+                    foreach (var r in rows ?? new List<VanillaLobbyRow>())
+                    {
+                        _vanillaRowsById[r.LobbyId] = r;
+                        mapped.Add(MapVanillaRow(r));
+                    }
+                    done(mapped);
+                })),
+                OnJoin = lr =>
                 {
                     if (_vanillaRowsById.TryGetValue(lr.LobbyId, out var vr)) StartVanillaJoin(vr);
-                });
-            }));
+                    else Core.Log?.Warning($"[browser] lobby {lr.LobbyId} is no longer in the last result; not joining.");
+                },
+                JoinBlock = lr => _vanillaRowsById.TryGetValue(lr.LobbyId, out var vr) && !VanillaLobby.AcceptsJoiners(vr)
+                    ? "Not accepting joiners" : null,
+                OnBack = ShowVanillaChoice,
+                OnHost = ShowVanillaSavePicker,
+            });
         }
 
         // Adapt a vanilla lobby summary to the generic browser-card model: the save name, published mod counts and
@@ -497,7 +515,6 @@ namespace SideHustle.Menu
             // screen title above every card already says "Join a vanilla lobby".
             string extra = $"save '{r.Org}'";
             if (r.Enforced) extra += "  ·  synced-only";
-            if (!VanillaLobby.AcceptsJoiners(r)) extra += "  ·  not accepting joiners";
             return new LobbyRow
             {
                 LobbyId = r.LobbyId,
@@ -594,12 +611,9 @@ namespace SideHustle.Menu
             // The browse read the card off Steam's lobby-LIST snapshot, which delivers big values (the chunked
             // manifest) late and unreliably - so a first read can miss the manifest entirely, producing a false
             // "Sync unavailable". Request the full lobby data and retry a few times before declaring it unsyncable.
-            ShowRows("Reading the host's mods...", new List<Row>
-            {
-                new Row { Name = "Reading the host's mod list...", Subtitle = "Fetching the details from Steam.", Disabled = true }
-            });
+            ShowManifestWait("Reading the host's mods...", "Reading the host's mod list...", 0, ShowVanillaBrowser);
             ChatPanel.Keep(row.OwnerSteamId, row.HostName, row.AcceptsMessages);
-            try { Il2CppSteamworks.SteamMatchmaking.RequestLobbyData(new Il2CppSteamworks.CSteamID(row.LobbyId)); } catch { }
+            RequestLobbyData(row.LobbyId);
             WaitForManifest(row, 0, _joinGen);
         }
 
@@ -616,12 +630,14 @@ namespace SideHustle.Menu
             // Two ways to reach the backend: the host says up front that Steam is not carrying the payload (a mod list
             // past Steam's 8 KB of lobby data publishes the hash alone), or Steam simply never produced it. Only the
             // second one is worth waiting five seconds for.
-            if (attempt >= 7 || VanillaLobby.PayloadOnBackendOnly(row.LobbyId))
+            if (attempt >= JoinManifestAttempts || VanillaLobby.PayloadOnBackendOnly(row.LobbyId))
             {
                 TryDirectoryFallback(row, gen);
                 return;
             }
-            try { Il2CppSteamworks.SteamMatchmaking.RequestLobbyData(new Il2CppSteamworks.CSteamID(row.LobbyId)); } catch { }
+            if (attempt > 0) ShowManifestWait("Reading the host's mods...", "Reading the host's mod list...", attempt, ShowVanillaBrowser);
+            ChatPanel.Keep(row.OwnerSteamId, row.HostName, row.AcceptsMessages);
+            RequestLobbyData(row.LobbyId);
             System.Threading.Tasks.Task.Run(async () =>
             {
                 await System.Threading.Tasks.Task.Delay(700);
@@ -637,7 +653,8 @@ namespace SideHustle.Menu
             Core.Log?.Msg("[sync] Steam manifest unavailable; trying the backend fallback...");
             ShowRows("Reading the host's mods...", new List<Row>
             {
-                new Row { Name = "Reading the host's mod list (backend)...", Subtitle = "Steam couldn't share it - using the fallback.", Disabled = true }
+                new Row { Name = "Reading the host's mod list (backend)...", Subtitle = "Steam couldn't share it - using the fallback.", Disabled = true },
+                new Row { Name = "Cancel", Subtitle = "Back to the lobby list.", OnClick = () => { InvalidateJoinChecks(); ShowVanillaBrowser(); } }
             });
             ChatPanel.Keep(row.OwnerSteamId, row.HostName, row.AcceptsMessages);
             System.Threading.Tasks.Task.Run(async () =>
@@ -654,7 +671,7 @@ namespace SideHustle.Menu
                     else
                     {
                         Core.Log?.Warning("[sync] manifest unreadable via Steam AND backend: " + VanillaLobby.DescribeReadFailure(row.LobbyId));
-                        ShowUnsyncableJoin(row, "Couldn't read the host's mod list from Steam or the backend. The host may be on a different build. Go Back and try again.");
+                        ShowUnsyncableJoin(row, "Couldn't read the host's mod list. The host may run a different Side Hustle version.");
                     }
                 });
             });
@@ -676,7 +693,7 @@ namespace SideHustle.Menu
                 MainThread.Post(() =>
                 {
                     if (JoinStale(gen)) return;
-                    if (diff == null) { ShowUnsyncableJoin(row, "Comparing failed (see log)."); return; }
+                    if (diff == null) { ShowUnsyncableJoin(row, "Couldn't compare the mod lists."); return; }
 
                     bool nothingToFetch = diff.Count(DiffStatus.Download) == 0 && diff.Count(DiffStatus.Manual) == 0;
                     if (!diff.NeedsRestart && !diff.AnyVersionWarn && string.IsNullOrEmpty(hostPrefs))
@@ -734,6 +751,7 @@ namespace SideHustle.Menu
                     Corner = "Join",
                     OnClick = () => { CloseHubScreen(); LobbyCoordinator.JoinLobby(row.LobbyId); }
                 },
+                new Row { Name = "Try again", Subtitle = "Read the host's mod list again.", OnClick = () => { InvalidateJoinChecks(); ShowVanillaSyncCheck(row); } },
                 new Row { Name = "Back", Subtitle = "Back to the lobby list.", OnClick = ShowVanillaBrowser }
             };
             ShowRows(string.IsNullOrEmpty(row.LobbyName) ? "Vanilla lobby" : row.LobbyName, rows);
@@ -760,18 +778,21 @@ namespace SideHustle.Menu
                 // "ask the person who has it".
                 SyncManualInstallView.Build(mh, diff,
                     row?.OwnerSteamId ?? 0UL, row?.HostName, row?.AcceptsMessages ?? false,
-                    onContinue: () => BuildAndRestart(row, diff, mhash, hostPrefs),
+                    onContinue: () => BuildAndRestart(row, diff, mhash, hostPrefs, () => ShowVanillaConsent(row, manifest, diff, mhash, hostPrefs)),
                     onBack: () => ShowVanillaConsent(row, manifest, diff, mhash, hostPrefs));
                 return;
             }
-            BuildAndRestart(row, diff, mhash, hostPrefs);
+            BuildAndRestart(row, diff, mhash, hostPrefs, () => ShowVanillaConsent(row, manifest, diff, mhash, hostPrefs));
         }
 
         // One pass through the checklist when a download failed; continuing a second time builds with what is there.
         private static bool _vanillaRetried;
 
-        private static void BuildAndRestart(VanillaLobbyRow row, SyncDiff diff, string mhash, string hostPrefs)
+        private static void BuildAndRestart(VanillaLobbyRow row, SyncDiff diff, string mhash, string hostPrefs,
+            Action cancelBack = null)
         {
+            var ct = SyncRun.Begin();
+            _syncBack = cancelBack ?? ShowVanillaBrowser;
             // The UI update is optional (the dev-loop test drives this without an open hub); the download +
             // build + restart below never depend on _clone.
             if (_clone != null && _cloneScreen != null && _cloneScreen.IsOpen)
@@ -782,7 +803,7 @@ namespace SideHustle.Menu
                 var host = CreateFormHost("SH_Syncing", 560f);
                 // Same reasoning as the gamemode join: the wait IS the download, so the screen shows the download.
                 _syncUi = InstallProgressView.Build(host, "Matching the host's mods",
-                    SyncDownloadProgress.PlanFrom(diff), diff.Unresolved, onCancel: null);
+                    SyncDownloadProgress.PlanFrom(diff), diff.Unresolved, onCancel: () => StopSyncDownload("cancel button"));
             }
 
             var sink = _syncUi != null ? new SyncDownloadProgress(_syncUi, diff) : null;
@@ -791,9 +812,13 @@ namespace SideHustle.Menu
                 bool downloadsOk = false;
                 try
                 {
-                    downloadsOk = await SyncResolver.DownloadMissingAsync(diff, sink, System.Threading.CancellationToken.None);
+                    downloadsOk = await SyncResolver.DownloadMissingAsync(diff, sink, ct);
                 }
+                catch (OperationCanceledException) { Core.Log?.Msg("[sync] downloads stopped by the player."); }
                 catch (Exception e) { Core.Log?.Warning("[sync] downloads failed: " + e.Message); }
+
+                // Cancelled: the screen is already back where it came from, so nothing may build or restart here.
+                if (ct.IsCancellationRequested) return;
 
                 var inputs = SyncResolver.ToInputs(diff);
                 // Shared libraries the synced packages bring along (their own Plugins/UserLibs + the ones they declare
@@ -802,6 +827,8 @@ namespace SideHustle.Menu
                 SyncResolver.ResolveExtras(diff, out var pluginInputs, out var userLibInputs);
                 MainThread.Post(() =>
                 {
+                    if (ct.IsCancellationRequested) { Core.Log?.Msg("[sync] download cancelled before the restart; not building the profile."); return; }
+                    SyncRun.End(ct);
                     // A download that failed (CDN hiccup, a package pulled from the store) leaves a mod the host runs
                     // out of the session - and an enforcing host would bounce the player right back out. Show what is
                     // missing ONCE, with its links, instead of restarting into a quietly incomplete set; continuing
@@ -819,7 +846,7 @@ namespace SideHustle.Menu
                         var mh = CreateFormHost("SH_SyncRetry", 560f);
                         SyncManualInstallView.Build(mh, diff,
                             row?.OwnerSteamId ?? 0UL, row?.HostName, row?.AcceptsMessages ?? false,
-                            onContinue: () => BuildAndRestart(row, diff, mhash, hostPrefs),
+                            onContinue: () => BuildAndRestart(row, diff, mhash, hostPrefs, cancelBack),
                             onBack: ShowVanillaBrowser);
                         return;
                     }
@@ -869,13 +896,14 @@ namespace SideHustle.Menu
                         ? null
                         : cfg => PrefsSync.ApplyOverlay(cfg, hostPrefs);
                     string libNote = userLibInputs.Count + pluginInputs.Count > 0
-                        ? $" + {userLibInputs.Count + pluginInputs.Count} library file(s)" : "";
+                        ? $" + {userLibInputs.Count + pluginInputs.Count} library files" : "";
                     // Same commit point as the gamemode join. This path used to relaunch with nothing on screen,
                     // which is the whole reason the notice looked intermittent between runs.
                     CommittedRestart.Then(row.LobbyName ?? row.HostName ?? "the host", () =>
                         Mods.ModSwitcher.RelaunchIntoSyncProfile("sync-" + row.OwnerSteamId, inputs, tokens,
                             overlay, $"syncing {inputs.Count} mod(s){libNote} for '{row.LobbyName}'",
-                            pluginInputs, userLibInputs));
+                            pluginInputs, userLibInputs),
+                        onCancel: cancelBack ?? ShowVanillaBrowser);
                 });
             });
         }
