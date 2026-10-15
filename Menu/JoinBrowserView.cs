@@ -20,7 +20,6 @@ namespace SideHustle.Menu
     /// </summary>
     internal static class JoinBrowserView
     {
-        private const float Pad = 30f;
         private const float ToolbarHeight = 92f;
 
         /// <summary>How long a search may take before the list says Steam did not answer.</summary>
@@ -88,30 +87,18 @@ namespace SideHustle.Menu
                 _o = o;
                 _tag = "[browser]";
 
-                var footer = NewPanel("footer", formHost);
-                var frt = footer.GetComponent<RectTransform>();
-                frt.anchorMin = new Vector2(0, 0); frt.anchorMax = new Vector2(1, 0); frt.pivot = new Vector2(0.5f, 0);
-                frt.offsetMin = new Vector2(Pad, 0); frt.offsetMax = new Vector2(-Pad, 56);
-
+                // No SmoothScroll: Render restores the scroll offset itself after every rebuild.
+                var page = Scaffold.Create(formHost, topInset: ToolbarHeight + 8f, spacing: 8f, smoothScroll: false);
+                _content = page.Content;
+                _scroll = page.Scroll;
                 BuildToolbar(formHost);
 
-                var scrollArea = NewPanel("scrollArea", formHost);
-                var srt = scrollArea.GetComponent<RectTransform>();
-                srt.anchorMin = new Vector2(0, 0); srt.anchorMax = new Vector2(1, 1);
-                srt.offsetMin = new Vector2(Pad, 64); srt.offsetMax = new Vector2(-Pad, -(ToolbarHeight + 8f));
-                _content = Components.ScrollList(scrollArea.transform, out _scroll, 8f, Theme.ScrimPanel);
-
-                var (backGO, backBtn, _b) = UIFactory.ButtonWithLabel("Back", "Back", footer.transform, Theme.Button, 140, 40);
-                PlaceFooter(backGO, left: true);
-                backBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => _o.OnBack?.Invoke()));
-
-                var (refGO, refBtn, _r) = UIFactory.ButtonWithLabel("Refresh", "Refresh", footer.transform, Theme.Accent, 160, 40);
-                PlaceFooter(refGO, left: false);
-                refBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => StartQuery(silent: false)));
+                Scaffold.FooterButton(page.Footer, "Back", Theme.Button, left: true, onClick: _o.OnBack);
+                Scaffold.FooterButton(page.Footer, "Refresh", Theme.Accent, left: false, onClick: () => StartQuery(silent: false), width: 160f);
 
                 // Centre link to the public web directory (SideHustle.doodesch.de) - every open lobby, filterable, in a
                 // browser. Opens via the Steam overlay; joining still happens here in-game.
-                var (webGO, webBtn, _w) = UIFactory.ButtonWithLabel("Web", "Browse online", footer.transform, Theme.Button, 190, 40);
+                var (webGO, webBtn, _w) = UIFactory.ButtonWithLabel("Web", "Browse online", page.Footer, Theme.Button, 190, Scaffold.ButtonHeight);
                 var wrt = webGO.GetComponent<RectTransform>();
                 wrt.anchorMin = wrt.anchorMax = new Vector2(0.5f, 0.5f); wrt.pivot = new Vector2(0.5f, 0.5f);
                 wrt.anchoredPosition = Vector2.zero; wrt.sizeDelta = new Vector2(190, 40);
@@ -125,7 +112,7 @@ namespace SideHustle.Menu
                 var bar = NewPanel("toolbar", formHost);
                 var brt = bar.GetComponent<RectTransform>();
                 brt.anchorMin = new Vector2(0, 1); brt.anchorMax = new Vector2(1, 1); brt.pivot = new Vector2(0.5f, 1);
-                brt.offsetMin = new Vector2(Pad, -ToolbarHeight); brt.offsetMax = new Vector2(-Pad, -4);
+                brt.offsetMin = new Vector2(Scaffold.Pad, -ToolbarHeight); brt.offsetMax = new Vector2(-Scaffold.Pad, -4);
 
                 _search = Components.TextInput(bar.transform, "", _ => { }, "Search by lobby or host name", 40);
                 var irt = _search.GetComponent<RectTransform>();
@@ -363,7 +350,7 @@ namespace SideHustle.Menu
             string gm = row.GamemodeName ?? "";
             if (!string.IsNullOrEmpty(row.Mode)) gm = string.IsNullOrEmpty(gm) ? row.Mode : gm + " - " + row.Mode;
             string cap = row.MaxPlayers > 0 ? $"{row.Members} / {row.MaxPlayers} players"
-                       : row.Members == 1 ? "1 player" : $"{row.Members} players";
+                       : Words.Plural(row.Members, "player", "players");
             string localBuild = o.LocalBuild;
             bool versionMismatch = !string.IsNullOrEmpty(localBuild) && !string.IsNullOrEmpty(row.BuildId)
                                    && !string.Equals(localBuild, row.BuildId, StringComparison.Ordinal);
@@ -375,7 +362,7 @@ namespace SideHustle.Menu
                        + (string.IsNullOrEmpty(gm) ? "" : "   ·   " + gm)
                        + (!string.IsNullOrEmpty(row.HostName) && !string.Equals(row.LobbyName, row.HostName, StringComparison.Ordinal) ? "   ·   by " + row.HostName : "")
                        + (row.HasPassword ? "   ·   Locked" : "")
-                       + (versionMismatch ? "   ·   Different version - update to match host" : "")
+                       + (versionMismatch ? "   ·   Different version" : "")
                        + (blocked != null ? "   ·   " + blocked : "");
 
             // Buttons stack from the right edge; everything to their left clips against the leftmost one.
@@ -468,14 +455,6 @@ namespace SideHustle.Menu
             var go = UIFactory.Panel(name, parent, Theme.Clear);
             var img = go.GetComponent<Image>(); if (img != null) img.raycastTarget = false;
             return go;
-        }
-
-        private static void PlaceFooter(GameObject go, bool left)
-        {
-            var rt = go.GetComponent<RectTransform>();
-            rt.anchorMin = rt.anchorMax = new Vector2(left ? 0 : 1, 0.5f);
-            rt.pivot = new Vector2(left ? 0 : 1, 0.5f);
-            rt.anchoredPosition = new Vector2(left ? 16 : -16, 0);
         }
 
         // Detach immediately (so the layout doesn't show stale cards for a frame) and destroy.

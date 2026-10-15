@@ -40,8 +40,9 @@ namespace SideHustle.Menu
         }
 
         /// <summary>Footer first, then the scroll area above it. <paramref name="topInset"/> leaves room above the
-        /// body for a toolbar the caller places itself.</summary>
-        internal static Page Create(Transform formHost, float topInset = 0f, float spacing = ListSpacing)
+        /// body for a toolbar the caller places itself. A list that restores its own scroll position on rebuild passes
+        /// <paramref name="smoothScroll"/> false, so the glide does not fight the jump.</summary>
+        internal static Page Create(Transform formHost, float topInset = 0f, float spacing = ListSpacing, bool smoothScroll = true)
         {
             var footer = UIFactory.Panel("footer", formHost, Theme.Clear);
             var frt = footer.GetComponent<RectTransform>();
@@ -54,7 +55,7 @@ namespace SideHustle.Menu
             art.offsetMin = new Vector2(Pad, FooterHeight + FooterGap); art.offsetMax = new Vector2(-Pad, -topInset);
 
             var content = Components.ScrollList(area.transform, out var scroll, spacing, Theme.ScrimPanel);
-            SmoothScroll.Attach(scroll);
+            if (smoothScroll) SmoothScroll.Attach(scroll);
             return new Page(content, footer.transform, scroll, art);
         }
 

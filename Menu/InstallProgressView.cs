@@ -30,8 +30,6 @@ namespace SideHustle.Menu
     /// </summary>
     internal static class InstallProgressView
     {
-        private const float Pad = 30f;
-
         internal sealed class Controller
         {
             internal Text Status;
@@ -124,17 +122,8 @@ namespace SideHustle.Menu
                     if (Footer == null) return;
                     if (CancelButton != null) UnityEngine.Object.Destroy(CancelButton.gameObject);
 
-                    var (backGO, backBtn, _) = UIFactory.ButtonWithLabel("Back", "Back", Footer, Theme.Button, 140, 40);
-                    var brt = backGO.GetComponent<RectTransform>();
-                    brt.anchorMin = new Vector2(0, 0.5f); brt.anchorMax = new Vector2(0, 0.5f); brt.pivot = new Vector2(0, 0.5f);
-                    brt.anchoredPosition = Vector2.zero;
-                    backBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => onBack?.Invoke()));
-
-                    var (retryGO, retryBtn, _2) = UIFactory.ButtonWithLabel("Retry", "Try again", Footer, Theme.Accent, 180, 40);
-                    var rrt = retryGO.GetComponent<RectTransform>();
-                    rrt.anchorMin = new Vector2(1, 0.5f); rrt.anchorMax = new Vector2(1, 0.5f); rrt.pivot = new Vector2(1, 0.5f);
-                    rrt.anchoredPosition = Vector2.zero;
-                    retryBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => onRetry?.Invoke()));
+                    Scaffold.FooterButton(Footer, "Back", Theme.Button, left: true, onClick: onBack);
+                    Scaffold.FooterButton(Footer, "Try again", Theme.Accent, left: false, onClick: onRetry);
 
                     Interactions.PolishButtons(Footer);
                 }
@@ -166,11 +155,7 @@ namespace SideHustle.Menu
                     if (Footer == null) return;
                     if (CancelButton != null) UnityEngine.Object.Destroy(CancelButton.gameObject);
 
-                    var (backGO, backBtn, _) = UIFactory.ButtonWithLabel("Back", "Back", Footer, Theme.Button, 140, 40);
-                    var brt = backGO.GetComponent<RectTransform>();
-                    brt.anchorMin = new Vector2(0, 0.5f); brt.anchorMax = new Vector2(0, 0.5f); brt.pivot = new Vector2(0, 0.5f);
-                    brt.anchoredPosition = Vector2.zero;
-                    backBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => onBack?.Invoke()));
+                    Scaffold.FooterButton(Footer, "Back", Theme.Button, left: true, onClick: onBack);
 
                     Interactions.PolishButtons(Footer);
                 }
@@ -278,7 +263,7 @@ namespace SideHustle.Menu
             var header = UIFactory.Panel("header", formHost, Theme.Clear);
             var hrt = header.GetComponent<RectTransform>();
             hrt.anchorMin = new Vector2(0, 1); hrt.anchorMax = new Vector2(1, 1); hrt.pivot = new Vector2(0.5f, 1);
-            hrt.offsetMin = new Vector2(Pad, -96); hrt.offsetMax = new Vector2(-Pad, 0);
+            hrt.offsetMin = new Vector2(Scaffold.Pad, -96); hrt.offsetMax = new Vector2(-Scaffold.Pad, 0);
 
             var title = UIFactory.Text("headline", headline, header.transform, Theme.H3, TextAnchor.UpperLeft, FontStyle.Bold);
             title.color = Theme.TextPrimary; title.raycastTarget = false;
@@ -296,30 +281,17 @@ namespace SideHustle.Menu
             brt2.anchorMin = new Vector2(0, 1); brt2.anchorMax = new Vector2(1, 1); brt2.pivot = new Vector2(0.5f, 1);
             brt2.offsetMin = new Vector2(0, -78); brt2.offsetMax = new Vector2(0, -68);
 
-            var footer = UIFactory.Panel("footer", formHost, Theme.Clear);
-            var frt = footer.GetComponent<RectTransform>();
-            frt.anchorMin = new Vector2(0, 0); frt.anchorMax = new Vector2(1, 0); frt.pivot = new Vector2(0.5f, 0);
-            frt.offsetMin = new Vector2(Pad, 0); frt.offsetMax = new Vector2(-Pad, 56);
-            c.Footer = footer.transform;
+            var page = Scaffold.Create(formHost, topInset: 102f, spacing: 4f);
+            c.Footer = page.Footer;
+            var content = page.Content;
 
             // A Cancel that nothing listens to is a dead button. It is only built when the caller has something to stop.
             if (onCancel != null)
             {
-                var (cancelGO, cancelBtn, cancelLbl) = UIFactory.ButtonWithLabel("Cancel", "Cancel", footer.transform, Theme.Button, 160, 40);
-                var crt = cancelGO.GetComponent<RectTransform>();
-                crt.anchorMin = new Vector2(0, 0.5f); crt.anchorMax = new Vector2(0, 0.5f); crt.pivot = new Vector2(0, 0.5f);
-                crt.anchoredPosition = Vector2.zero;
-                c.CancelButton = cancelBtn; c.CancelLabel = cancelLbl;
-                cancelBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => { c.SetCancelling(); onCancel(); }));
+                var cancelBtn = Scaffold.FooterButton(page.Footer, "Cancel", Theme.Button, left: true,
+                    onClick: () => { c.SetCancelling(); onCancel(); });
+                c.CancelButton = cancelBtn; c.CancelLabel = cancelBtn.GetComponentInChildren<Text>();
             }
-
-            var listArea = UIFactory.Panel("list", formHost, Theme.Clear);
-            var lrt = listArea.GetComponent<RectTransform>();
-            lrt.anchorMin = new Vector2(0, 0); lrt.anchorMax = new Vector2(1, 1);
-            lrt.offsetMin = new Vector2(Pad, 64); lrt.offsetMax = new Vector2(-Pad, -102);
-
-            var content = Components.ScrollList(listArea.transform, out var scroll, 4f, Theme.ScrimPanel);
-            SmoothScroll.Attach(scroll);
 
             if (plan != null)
                 foreach (var row in plan)
@@ -328,7 +300,7 @@ namespace SideHustle.Menu
                     c.TotalBytes += Controller.SizeOf(row);
                     string label = row.Cached ? $"=  {row.Key}  -  already cached" : $"·  {row.Key}  -  queued";
                     var color = row.Cached ? Theme.TextMuted : Theme.TextPrimary;
-                    if (row.NameLooksMono) { label += "  -  looks like a Mono build"; color = Theme.WarningText; }
+                    if (row.NameLooksMono) { label += "  -  may be for the other game version"; color = Theme.WarningText; }
                     c.Rows[row.Key] = NoteRow(content, label, color);
                 }
 
@@ -342,15 +314,8 @@ namespace SideHustle.Menu
 
         private static Text NoteRow(RectTransform content, string text, Color color)
         {
-            var row = UIFactory.Panel("note", content, Theme.Clear);
-            var rle = row.AddComponent<LayoutElement>();
-            rle.minHeight = 30f; rle.preferredHeight = 30f; rle.flexibleWidth = 1;
-            var t = UIFactory.Text("text", text, row.transform, Theme.Body, TextAnchor.MiddleLeft);
-            t.color = color; t.raycastTarget = false;
-            var rt = t.rectTransform;
-            rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
-            rt.offsetMin = new Vector2(12, 0); rt.offsetMax = new Vector2(-12, 0);
-            return t;
+            Scaffold.Note(content, text, color);
+            return content.GetChild(content.childCount - 1).GetComponentInChildren<Text>();
         }
     }
 }
