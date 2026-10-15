@@ -21,7 +21,8 @@ namespace SideHustle.Menu
         private const float RowH = 54f;
 
         internal static void BuildList(Transform formHost, Action<string> onOpen, Action onSwitchFullSet,
-            Action onNew, Action onBack, (string Host, int ModCount)? lastSync = null, Action onCreateFromLastSync = null)
+            Action onNew, Action onBack, (string Host, int ModCount)? lastSync = null, Action onCreateFromLastSync = null,
+            Action<string, string> onSwitch = null)
         {
             var page = Scaffold.Create(formHost);
             var content = page.Content;
@@ -58,7 +59,10 @@ namespace SideHustle.Menu
                 string sub = Words.Plural(modCount, "mod", "mods")
                              + (isActive ? " - active" : isDefault ? " - default" : "")
                              + (string.IsNullOrEmpty(def.Notes) ? "" : " - " + def.Notes);
-                Row(content, def.Name, sub, "Open", isActive ? Theme.Accent : Theme.Button, () => onOpen(def.Id));
+                // The active profile is already running, so only the others get a direct Switch.
+                Row(content, def.Name, sub, "Open", isActive ? Theme.Accent : Theme.Button, () => onOpen(def.Id),
+                    extraLabel: !isActive && onSwitch != null ? "Switch" : null,
+                    onExtra: !isActive && onSwitch != null ? () => onSwitch(def.Id, def.Name) : (Action)null);
             }
 
             Scaffold.FooterButton(footer, "Back", Theme.Button, left: true, onBack);
@@ -263,8 +267,10 @@ namespace SideHustle.Menu
         // --- scaffold + primitives ---
 
         private static void Row(RectTransform content, string title, string subtitle, string actionLabel,
-            Color actionColor, Action onAction, bool dependency = false)
+            Color actionColor, Action onAction, bool dependency = false, string extraLabel = null, Action onExtra = null)
         {
+            // A second button sits left of the main one, so the text lines stop earlier to stay clear of both.
+            float textMax = extraLabel != null ? 0.58f : 0.72f;
             // Dependency rows sit below the mods the player actually chose and read as secondary: a recessed panel
             // with a coloured left accent bar and a muted title, so "installed by you" stays visually primary.
             var row = UIFactory.Panel("row_" + title, content, dependency ? Theme.BgPanel : Theme.BgElevated);
@@ -284,28 +290,37 @@ namespace SideHustle.Menu
 
             var t = UIFactory.Text("name", title, row.transform, Theme.H3, TextAnchor.UpperLeft, FontStyle.Bold);
             t.color = dependency ? Theme.TextMuted : Theme.TextPrimary;
-            PlaceLine(t, topInset: 9f, height: 20f, left: textLeft);
+            PlaceLine(t, topInset: 9f, height: 20f, left: textLeft, maxX: textMax);
             var s = UIFactory.Text("sub", subtitle ?? "", row.transform, Theme.Body, TextAnchor.UpperLeft);
             // Clip within the 72%-wide line instead of overflowing: the annotate suffix ("required by ..., missing ...")
             // makes subtitles long, and Overflow would draw them straight across the Remove button on the right.
             s.color = Theme.TextMuted; s.horizontalOverflow = HorizontalWrapMode.Wrap; s.verticalOverflow = VerticalWrapMode.Truncate;
-            PlaceLine(s, topInset: 30f, height: 16f, left: textLeft);
+            PlaceLine(s, topInset: 30f, height: 16f, left: textLeft, maxX: textMax);
 
             var (btnGO, btn, _) = UIFactory.ButtonWithLabel("action", actionLabel, row.transform, actionColor, 120f, 36f);
             var brt = btnGO.GetComponent<RectTransform>();
             brt.anchorMin = new Vector2(1, 0.5f); brt.anchorMax = new Vector2(1, 0.5f); brt.pivot = new Vector2(1, 0.5f);
             brt.anchoredPosition = new Vector2(-10f, 0f);
             btn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => onAction?.Invoke()));
+
+            if (extraLabel != null)
+            {
+                var (xGO, xBtn, _) = UIFactory.ButtonWithLabel("extra", extraLabel, row.transform, Theme.Accent, 120f, 36f);
+                var xrt = xGO.GetComponent<RectTransform>();
+                xrt.anchorMin = new Vector2(1, 0.5f); xrt.anchorMax = new Vector2(1, 0.5f); xrt.pivot = new Vector2(1, 0.5f);
+                xrt.anchoredPosition = new Vector2(-140f, 0f);
+                xBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => onExtra?.Invoke()));
+            }
         }
 
         // Stack the title and subtitle as two tight lines anchored from the row's top edge, instead of flinging
         // one to the top and the other to the bottom of the row (which left an ugly gap between them). Each line
         // gets a fixed-height band [rowTop - topInset - height .. rowTop - topInset], left-inset, capped at 72%
-        // width so the action button on the right stays clear.
-        private static void PlaceLine(Text t, float topInset, float height, float left = 12f)
+        // width (maxX) so the action button on the right stays clear.
+        private static void PlaceLine(Text t, float topInset, float height, float left = 12f, float maxX = 0.72f)
         {
             var rt = t.GetComponent<RectTransform>();
-            rt.anchorMin = new Vector2(0, 1); rt.anchorMax = new Vector2(0.72f, 1); rt.pivot = new Vector2(0, 1);
+            rt.anchorMin = new Vector2(0, 1); rt.anchorMax = new Vector2(maxX, 1); rt.pivot = new Vector2(0, 1);
             rt.offsetMin = new Vector2(left, -(topInset + height));
             rt.offsetMax = new Vector2(0, -topInset);
         }

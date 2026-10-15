@@ -191,7 +191,8 @@ namespace SideHustle.Menu
                 onNew: PromptNewProfile,
                 onBack: () => _cloneScreen?.Close(),
                 lastSync: recent != null ? (string.IsNullOrWhiteSpace(recent.Host) ? "a lobby" : recent.Host, recent.ModCount) : ((string, int)?)null,
-                onCreateFromLastSync: CreateFromLastSync);
+                onCreateFromLastSync: CreateFromLastSync,
+                onSwitch: ConfirmSwitch);
         }
 
         private static void PromptNewProfile()
