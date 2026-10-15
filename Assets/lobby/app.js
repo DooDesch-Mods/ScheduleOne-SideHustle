@@ -86,7 +86,9 @@ function state() {
   try { return JSON.parse(raw); } catch (e) { console.error('unreadable state:', e.message); return { host: false, inLobby: false }; }
 }
 
-let tab = s1.storage.get('tab', 'lobby');
+// Every open starts on the home tab: that is where the session's own controls and the Discord link sit, and a
+// tab remembered from the last visit (usually Chat) puts one extra tap in front of them.
+let tab = 'lobby';
 
 /* Every answer the mod gives comes back through here.
  *
@@ -697,7 +699,7 @@ function render() {
       b.appendChild(icon(t.icon));
       b.appendChild(el('div', null, t.label));
       if (t.id === 'chat' && s.unread > 0) b.appendChild(el('div', 'tab-badge', s.unread));
-      b.addEventListener('click', () => { if (tab !== t.id) { tab = t.id; s1.storage.set('tab', tab); render(); } });
+      b.addEventListener('click', () => { if (tab !== t.id) { tab = t.id; render(); } });
       tabsEl.appendChild(b);
     }
   }
@@ -718,7 +720,6 @@ document.addEventListener('back', (e) => {
   if (tab === 'lobby') return;
   e.preventDefault();
   tab = 'lobby';
-  s1.storage.set('tab', tab);
   render();
 });
 
