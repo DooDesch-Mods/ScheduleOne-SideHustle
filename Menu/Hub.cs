@@ -879,6 +879,8 @@ namespace SideHustle.Menu
 
             HideChild(slot, "Container/Info/Created");
             HideChild(slot, "Container/Info/LastPlayed");
+            // The native slot number ("1", "2", ...) would show faintly at the row's left edge.
+            HideChild(slot, "Container/Index");
 
             // Export/Import are NOT hidden here - they are not children of a row. See StripSaveSlotChrome, which
             // sweeps the whole panel once the rows are built.
