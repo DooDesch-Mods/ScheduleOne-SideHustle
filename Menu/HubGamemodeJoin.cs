@@ -35,7 +35,7 @@ namespace SideHustle.Menu
         private static void ShowGhostBrowser(Ghost g)
         {
             if (_clone == null || g == null) return;
-            _back = () => ShowUninstalledChoice(g);
+            _back = ShowGamemodeList;
             ClearFormHost();
             SetTmp(_clone.transform, "Title", "Join " + g.Name);
             var host = CreateFormHost("SH_GhostBrowser");
@@ -59,8 +59,28 @@ namespace SideHustle.Menu
                     done(mine);
                 }),
                 OnJoin = row => StartGhostJoin(g, row),
-                OnBack = () => ShowUninstalledChoice(g),
+                OnBack = ShowGamemodeList,
+                Extras = GhostExtras(g),
             });
+        }
+
+        // What the not-installed choice screen offered besides joining, as footer buttons: the ghost row opens the
+        // browser straight away, so these must not get lost on the way.
+        private static List<KeyValuePair<string, Action>> GhostExtras(Ghost g)
+        {
+            var extras = new List<KeyValuePair<string, Action>>();
+            if (DownloadLink.IsAllowed(g.Url))
+                extras.Add(new KeyValuePair<string, Action>("Download the mod", () => DownloadLink.Open(g.Url)));
+            else if (Sync.NexusLookup.CanLookUp(g.Name))
+            {
+                Sync.NexusLookup.Prefetch(new[] { g.Name });
+                extras.Add(new KeyValuePair<string, Action>("Find it on Nexus", () => DownloadLink.Open(DownloadLink.NexusUrl(g.Name))));
+            }
+            else Core.Log?.Msg($"[browser] '{g.GamemodeId}' has no trusted download link and no Nexus lookup.");
+            var catalogued = GamemodeCatalogue.Find(g.GamemodeId);
+            if (catalogued != null)
+                extras.Add(new KeyValuePair<string, Action>("Add to a profile", () => StartCatalogueInstall(catalogued, () => ShowGhostBrowser(g))));
+            return extras;
         }
 
         /// <summary>A session was picked: password gate, fetch that host's mod list, consent.</summary>

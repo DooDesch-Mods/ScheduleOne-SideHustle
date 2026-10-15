@@ -46,6 +46,9 @@ namespace SideHustle.Menu
             public Func<LobbyRow, string> JoinBlock;
             /// <summary>Lobbies to show before the first search returns (already known, e.g. the advertised cache).</summary>
             public List<LobbyRow> Initial;
+            /// <summary>Footer buttons in the centre instead of the "Browse online" link (the not-installed browser:
+            /// download the mod, add it to a profile). Null or empty keeps the link.</summary>
+            public List<KeyValuePair<string, Action>> Extras;
         }
 
         private static Browser _current;
@@ -96,13 +99,22 @@ namespace SideHustle.Menu
                 Scaffold.FooterButton(page.Footer, "Back", Theme.Button, left: true, onClick: _o.OnBack);
                 Scaffold.FooterButton(page.Footer, "Refresh", Theme.Accent, left: false, onClick: () => StartQuery(silent: false), width: 160f);
 
-                // Centre link to the public web directory (SideHustle.doodesch.de) - every open lobby, filterable, in a
-                // browser. Opens via the Steam overlay; joining still happens here in-game.
-                var (webGO, webBtn, _w) = UIFactory.ButtonWithLabel("Web", "Browse online", page.Footer, Theme.Button, 190, Scaffold.ButtonHeight);
-                var wrt = webGO.GetComponent<RectTransform>();
-                wrt.anchorMin = wrt.anchorMax = new Vector2(0.5f, 0.5f); wrt.pivot = new Vector2(0.5f, 0.5f);
-                wrt.anchoredPosition = Vector2.zero; wrt.sizeDelta = new Vector2(190, 40);
-                webBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => DownloadLink.Open(WebDirectoryUrl)));
+                // Centre: the screen's own extras, or the link to the public web directory (SideHustle.doodesch.de) -
+                // every open lobby, filterable, in a browser. Opens via the Steam overlay; joining still happens in-game.
+                var centre = _o.Extras != null && _o.Extras.Count > 0
+                    ? _o.Extras
+                    : new List<KeyValuePair<string, Action>> { new KeyValuePair<string, Action>("Browse online", () => DownloadLink.Open(WebDirectoryUrl)) };
+                const float centreW = 190f, centreGap = 10f;
+                float x0 = -(centre.Count * centreW + (centre.Count - 1) * centreGap) / 2f + centreW / 2f;
+                for (int i = 0; i < centre.Count; i++)
+                {
+                    var act = centre[i].Value;
+                    var (cGO, cBtn, _c) = UIFactory.ButtonWithLabel("Centre" + i, centre[i].Key, page.Footer, Theme.Button, centreW, Scaffold.ButtonHeight);
+                    var crt = cGO.GetComponent<RectTransform>();
+                    crt.anchorMin = crt.anchorMax = new Vector2(0.5f, 0.5f); crt.pivot = new Vector2(0.5f, 0.5f);
+                    crt.anchoredPosition = new Vector2(x0 + i * (centreW + centreGap), 0); crt.sizeDelta = new Vector2(centreW, 40);
+                    cBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => act?.Invoke()));
+                }
 
                 Interactions.PolishButtons(formHost);
             }
@@ -149,7 +161,8 @@ namespace SideHustle.Menu
             private bool Alive => _content != null;
 
             /// <summary>Show what is already known, then search. A browser opened with a known set (the advertised
-            /// cache) paints it at once and lets the quiet re-query freshen it.</summary>
+            /// cache) paints it at once and freshens it with a quiet search right away: the cache holds only advertised
+            /// lobbies, the browser's own query can find more.</summary>
             internal void Start()
             {
                 if (_o.Initial != null)
@@ -157,6 +170,7 @@ namespace SideHustle.Menu
                     _rows = _o.Initial;
                     _activityAt = Time.unscaledTime;
                     Render(force: true);
+                    StartQuery(silent: true);
                     return;
                 }
                 StartQuery(silent: false);

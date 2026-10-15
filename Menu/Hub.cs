@@ -492,7 +492,9 @@ namespace SideHustle.Menu
                     Name = ghost.Name,
                     Subtitle = live,
                     Corner = "Not installed",
-                    OnClick = () => ShowUninstalledChoice(ghost)
+                    // Live lobbies are why the row is here: open them directly. Download and profile install sit in
+                    // the browser's footer.
+                    OnClick = ghost.Rows.Count > 0 ? (Action)(() => ShowGhostBrowser(ghost)) : () => ShowUninstalledChoice(ghost)
                 });
             }
             return rows;
@@ -718,8 +720,11 @@ namespace SideHustle.Menu
             SetTmp(_clone.transform, "Title", "Join " + (desc.DisplayName ?? desc.Id));
 
             var host = CreateFormHost("SH_JoinBrowser");
+            // The advertised lobbies the gamemode list already fetched show at once; the browser's own search follows.
+            var known = _advertisedCache?.Where(l => string.Equals(l.GamemodeId, desc.Id, StringComparison.OrdinalIgnoreCase)).ToList();
             JoinBrowserView.Build(host, new JoinBrowserView.Options
             {
+                Initial = known != null && known.Count > 0 ? known : null,
                 Query = done => ServerBrowser.BeginQuery(desc.Id, results =>
                 {
                     // Only apply if this gamemode's browser is still the active view.
