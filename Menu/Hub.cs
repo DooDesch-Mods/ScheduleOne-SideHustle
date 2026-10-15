@@ -1105,6 +1105,7 @@ namespace SideHustle.Menu
         /// <summary>Resolve a row icon from the descriptor (wrapping IconTex into a Sprite once, cached on the descriptor).</summary>
         private static Sprite IconOf(GamemodeDescriptor desc)
         {
+            IconResources.Fill(desc);   // an embedded IconResource becomes IconTex, once per descriptor
             if (desc.Icon != null) return desc.Icon;
             if (desc.IconTex != null)
             {

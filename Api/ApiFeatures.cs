@@ -49,10 +49,16 @@ namespace SideHustle
         /// and <see cref="API.OnMessage"/>. Since 2.5.0.</summary>
         public const string Messages = "messages";
 
+        /// <summary><see cref="GamemodeDescriptor.IconResource"/>. Since 2.5.0.</summary>
+        public const string IconResource = "icon-resource";
+
+        /// <summary>The <see cref="SideHustle.WorldHygiene"/> presets. Since 2.5.0.</summary>
+        public const string WorldHygienePresets = "world-hygiene-presets";
+
         private static readonly HashSet<string> Known = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             HostSettings, Presets, ModPolicy, WorldHygieneFlags, KickPlayer,
-            Validation, SessionEvents, SessionRole, Players, Notices, Messages
+            Validation, SessionEvents, SessionRole, Players, Notices, Messages, IconResource, WorldHygienePresets
         };
 
         internal static bool IsKnown(string feature) => !string.IsNullOrWhiteSpace(feature) && Known.Contains(feature.Trim());
