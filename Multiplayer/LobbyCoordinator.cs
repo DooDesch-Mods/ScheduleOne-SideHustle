@@ -355,9 +355,8 @@ namespace SideHustle.Multiplayer
         }
 
         /// <summary>Leave whatever lobby we are in, host or client. Used when a join is abandoned before the world
-        /// ever came up: the Steam lobby membership survives the failed load, so the host keeps counting a player
-        /// who never arrived (and keeps their seat occupied) until this client drops it. Returns true if it left
-        /// one.</summary>
+        /// ever came up (the Steam lobby membership survives the failed load, so the host keeps counting a player
+        /// who never arrived) and when a session ends without a world to exit. Returns true if it left one.</summary>
         internal static bool LeaveCurrentLobby()
         {
             var l = LobbyOrNull();
@@ -365,7 +364,7 @@ namespace SideHustle.Multiplayer
             {
                 if (l == null || !l.IsInLobby) return false;
                 l.LeaveLobby();
-                Core.Log?.Msg("[mp] left the lobby after an abandoned join.");
+                Core.Log?.Msg("[mp] left the lobby.");
                 return true;
             }
             catch (Exception e) { Core.Log?.Warning("[mp] leaving the lobby failed: " + e.Message); return false; }

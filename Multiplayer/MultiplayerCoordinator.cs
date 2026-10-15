@@ -8,7 +8,7 @@ namespace SideHustle.Multiplayer
     /// Core.OnUpdate. The flow is a small state machine because lobby creation and world loading are asynchronous:
     ///
     ///   HOST:  create public lobby -> (singleton flips) tag it -> boot the world (World surface) -> OnHostMultiplayer
-    ///   JOIN:  JoinLobby -> the game's OnLobbyEntered streams the host's world in -> OnJoinMultiplayer
+    ///   JOIN:  JoinLobby -> lobby entered -> (World) the game's OnLobbyEntered streams the host's world in -> OnJoinMultiplayer
     ///   RETURN: OnExitToHub -> leave lobby + ExitToMenu -> reopen the hub on the next Menu init
     ///
     /// The lobby must exist + be owned by us before the world boots, or StartGame binds the localhost-only
@@ -24,130 +24,137 @@ namespace SideHustle.Multiplayer
         private static LaunchContext _ctx;
         private static ulong _joinLobbyId;
         private static float _timer;
+        private static bool _lobbyEntered;    // Joining: Steam admitted us to the lobby we asked for
+        private static bool _loadStarted;     // Joining a World gamemode: the game has begun loading since we entered
+        private static bool _exitNotified;    // the gamemode's OnExitToHub has run for this session
 
-        // --- world-load watchdog -------------------------------------------------------------------
-        // A world load must not be policed by a single flat deadline. The load reports its progress only
-        // as coarse phase changes, and one phase - LoadingScene, which wraps Unity's LoadSceneAsync -
-        // reports nothing at all until it is done. A flat timeout therefore does not measure "stuck", it
-        // measures "slower than my machine": weak PCs and slow connections got aborted mid-load, and
-        // because the abort left the loading screen open that looked like an infinite loading screen.
-        // So: give the blind scene-loading phase a generous budget of its own, and police every other
-        // phase by how long it has sat WITHOUT changing. A genuinely dead load still ends, just not a
-        // merely slow one.
-        private const float StallTimeout = 90f;    // no phase change at all -> really stuck
-        private const float SceneTimeout = 420f;   // LoadingScene is opaque; only a hard ceiling fits
-        private const float HardCeiling = 900f;    // last resort, whatever the phase claims
+        /// <summary>How long a join may take to be admitted to the lobby at all.</summary>
+        private const float LobbyEntrySeconds = 20f;
 
-        private static float _stallTimer;
-        private static string _lastProgress;
+        /// <summary>How long an admitted client of a World gamemode waits for the game to start loading. Vanilla only
+        /// starts a client's load from the host's lobby keys on entry, so past this the load will never begin (see
+        /// <see cref="WorldBoot.LoadStarted"/>).</summary>
+        private const float NeverStartedSeconds = 15f;
 
-        /// <summary>Reset the watchdog at the start of every wait (a new load is not the previous one's stall).</summary>
-        private static void ResetWatchdog()
-        {
-            _timer = 0f;
-            _stallTimer = 0f;
-            _lastProgress = null;
-        }
-
-        /// <summary>
-        /// Advance the watchdog and report whether this load should be given up on. Progress is any change to
-        /// the scene, the load phase, or the phase's own detail text - the last one matters because the
-        /// syncing phase names the task it is replicating, so a slow but healthy sync keeps resetting the stall
-        /// timer instead of tripping it.
-        /// </summary>
-        private static bool LoadHasGivenUp(out string why)
-        {
-            string progress = WorldBoot.ProgressSignature();
-            if (progress != _lastProgress) { _lastProgress = progress; _stallTimer = 0f; }
-            else _stallTimer += Time.unscaledDeltaTime;
-
-            bool blindScenePhase = WorldBoot.IsLoadingScene;
-            float limit = blindScenePhase ? SceneTimeout : StallTimeout;
-
-            if (_stallTimer > limit)
-            {
-                why = blindScenePhase
-                    ? $"scene load exceeded {SceneTimeout:F0}s (scene={WorldBoot.CurrentScene}, status={WorldBoot.LoadStatus})"
-                    : $"no progress for {StallTimeout:F0}s (scene={WorldBoot.CurrentScene}, status={WorldBoot.LoadStatus})";
-                return true;
-            }
-            if (_timer > HardCeiling)
-            {
-                why = $"load exceeded {HardCeiling:F0}s (scene={WorldBoot.CurrentScene}, status={WorldBoot.LoadStatus})";
-                return true;
-            }
-            why = null;
-            return false;
-        }
+        private static readonly LoadWatchdog _watchdog = new LoadWatchdog();
 
         /// <summary>Set when a session ended via a full scene reload; Core reopens the hub on the next Menu init.</summary>
         internal static bool PendingHubReopen;
 
         internal static bool IsBusy => _state != State.Idle;
 
+        /// <summary>Why the last Start call returned false, in words a player can read. Empty after a successful start.</summary>
+        internal static string LastRefusal { get; private set; } = "";
+
         // --- entry points (called by the Hub UI) ---
 
-        internal static void StartHost(GamemodeDescriptor desc, HostOptions opts)
+        /// <summary>Whether a new session may start now. Double clicks and a start while a vanilla co-op session is
+        /// being set up would each open a second lobby on top of the first.</summary>
+        private static bool CanStart(string what, GamemodeDescriptor desc)
         {
-            if (desc == null) return;
+            if (_state != State.Idle)
+            {
+                LastRefusal = "A session is already starting.";
+                Core.Log?.Warning($"[mp] {what} of '{desc?.Id}' refused: a gamemode session is already {_state}.");
+                return false;
+            }
+            if (Sync.SyncCoordinator.IsBusy)
+            {
+                LastRefusal = "A vanilla co-op session is already starting.";
+                Core.Log?.Warning($"[mp] {what} of '{desc?.Id}' refused: a vanilla co-op session is in progress.");
+                return false;
+            }
+            LastRefusal = "";
+            return true;
+        }
+
+        internal static bool StartHost(GamemodeDescriptor desc, HostOptions opts)
+        {
+            if (desc == null) { Core.Log?.Warning("[mp] host refused: no gamemode given."); return false; }
             if (desc.OnHostMultiplayer == null)
             {
                 Core.Log?.Warning($"Gamemode '{desc.Id}' has no host callback; cannot host.");
-                return;
+                LastRefusal = "This gamemode cannot be hosted.";
+                return false;
             }
+            if (!CanStart("host", desc)) return false;
+
+            _state = State.HostCreatingLobby;   // claimed before anything else, so a second click is refused
             _desc = desc;
             _hostOpts = opts ?? new HostOptions();
             _ctx = null;
-            ResetWatchdog();
+            _exitNotified = false;
+            ResetPhase();
             GamemodeHygiene.Apply(desc);   // skip-intro / block-quests must be active before the world loads
             NetworkTuning.EnsureIceEnabled();   // allow all P2P ICE candidate types so non-friend clients can reach this host
             PublicLobbyAccess.Enable();   // stop the vanilla host from kicking non-friends, so public lobbies actually work
             LobbyInviteAccess.Enable();   // let any lobby member (incl. clients) invite Steam friends from the pause panel
             PlayerAlias.Enable(Config.Preferences.GetAlias(desc.Id));   // show the player's chosen (per-gamemode) display name this session
+            Mods.LateLoader.LoadAll("hosting a gamemode lobby");   // before the lobby: a mod that hooks the lobby has to exist by then
 
             Core.Log?.Msg($"[mp] hosting '{desc.DisplayName}' (max {_hostOpts.MaxPlayers}, {_hostOpts.Visibility})...");
-            if (!LobbyCoordinator.CreateLobby(_hostOpts.MaxPlayers, _hostOpts.Visibility)) { AbortToHub("could not create a lobby"); return; }
-            _state = State.HostCreatingLobby;
+            if (!LobbyCoordinator.CreateLobby(_hostOpts.MaxPlayers, _hostOpts.Visibility)) { AbortToHub("could not create a lobby"); return false; }
+            return true;
         }
 
-        internal static void StartJoin(GamemodeDescriptor desc, LobbyRow row)
+        internal static bool StartJoin(GamemodeDescriptor desc, LobbyRow row)
         {
-            if (desc == null || row == null) return;
+            if (desc == null || row == null) { Core.Log?.Warning("[mp] join refused: no gamemode or lobby given."); return false; }
             if (desc.OnJoinMultiplayer == null)
             {
                 Core.Log?.Warning($"Gamemode '{desc.Id}' has no join callback; cannot join.");
-                return;
+                LastRefusal = "This gamemode cannot be joined.";
+                return false;
             }
+            if (!CanStart("join", desc)) return false;
+
+            _state = State.Joining;   // claimed before anything else, so a second click is refused
             _desc = desc;
             _joinLobbyId = row.LobbyId;
             _ctx = null;
-            ResetWatchdog();
+            _exitNotified = false;
+            _lobbyEntered = false;
+            _loadStarted = false;
+            ResetPhase();
             GamemodeHygiene.Apply(desc);   // active before the host's world streams in (the client also runs PlayerLoaded)
             NetworkTuning.EnsureIceEnabled();   // allow all P2P ICE candidate types so this join can hold to a non-friend host
             LobbyInviteAccess.Enable();   // let this client invite Steam friends from the pause-menu lobby panel
             PlayerAlias.Enable(Config.Preferences.GetAlias(desc.Id));   // show the player's chosen (per-gamemode) display name this session
+            Mods.LateLoader.LoadAll("joining a gamemode lobby");
 
             Core.Log?.Msg($"[mp] joining '{desc.DisplayName}' lobby {row.LobbyId}...");
-            LobbyCoordinator.JoinLobby(row.LobbyId);
-            _state = State.Joining;
+            if (!LobbyCoordinator.JoinLobby(row.LobbyId)) { AbortToHub("could not ask Steam to join the lobby"); return false; }
+            return true;
         }
 
         /// <summary>Boot a throwaway world for a Surface=World singleplayer gamemode (no lobby).</summary>
-        internal static void StartWorldSingleplayer(GamemodeDescriptor desc)
+        internal static bool StartWorldSingleplayer(GamemodeDescriptor desc)
         {
-            if (desc == null) return;
+            if (desc == null) { Core.Log?.Warning("[mp] singleplayer refused: no gamemode given."); return false; }
             if (desc.OnLaunchSingleplayer == null)
             {
                 Core.Log?.Warning($"Gamemode '{desc.Id}' has no singleplayer callback.");
-                return;
+                LastRefusal = "This gamemode has no singleplayer mode.";
+                return false;
             }
+            if (!CanStart("singleplayer start", desc)) return false;
+
+            _state = State.SpBootingWorld;   // claimed before anything else, so a second click is refused
             _desc = desc;
             _ctx = null;
-            ResetWatchdog();
+            _exitNotified = false;
+            ResetPhase();
             GamemodeHygiene.Apply(desc);
             Core.Log?.Msg($"[mp] booting singleplayer world for '{desc.DisplayName}'...");
-            if (!WorldBoot.BootHostWorld(SessionOrgName())) { AbortToHub("world boot failed"); return; }
-            _state = State.SpBootingWorld;
+            if (!WorldBoot.BootHostWorld(SessionOrgName())) { AbortToHub("world boot failed"); return false; }
+            return true;
+        }
+
+        /// <summary>A new wait starts: the phase timer and the load watchdog both restart.</summary>
+        private static void ResetPhase()
+        {
+            _timer = 0f;
+            _watchdog.Reset();
         }
 
         // --- per-frame state machine ---
@@ -163,11 +170,11 @@ namespace SideHustle.Multiplayer
                 case State.HostCreatingLobby:
                     if (LobbyCoordinator.IsHost)
                     {
-                        LobbyCoordinator.TagLobby(_desc, _hostOpts);
+                        if (!LobbyCoordinator.TagLobby(_desc, _hostOpts)) { AbortToHub("could not set up the lobby"); break; }
                         if (_desc.Surface == GamemodeSurface.World)
                         {
                             if (!WorldBoot.BootHostWorld(SessionOrgName())) { AbortToHub("world boot failed"); break; }
-                            ResetWatchdog();
+                            ResetPhase();
                             _state = State.HostBootingWorld;
                         }
                         else
@@ -180,19 +187,50 @@ namespace SideHustle.Multiplayer
 
                 case State.HostBootingWorld:
                     if (WorldBoot.IsWorldReady()) FireHost();
-                    else if (LoadHasGivenUp(out string hostWhy)) AbortToHub("world not ready - " + hostWhy);
+                    else if (_watchdog.HasGivenUp(out string hostWhy)) AbortToHub("world not ready - " + hostWhy);
                     break;
 
                 case State.Joining:
-                    if (WorldBoot.IsWorldReady()) FireJoin();
-                    else if (LoadHasGivenUp(out string joinWhy)) AbortToHub("join did not complete - " + joinWhy);
+                    TickJoining();
                     break;
 
                 case State.SpBootingWorld:
                     if (WorldBoot.IsWorldReady()) FireSpWorld();
-                    else if (LoadHasGivenUp(out string spWhy)) AbortToHub("world not ready - " + spWhy);
+                    else if (_watchdog.HasGivenUp(out string spWhy)) AbortToHub("world not ready - " + spWhy);
                     break;
             }
+        }
+
+        private static void TickJoining()
+        {
+            // Phase 1: Steam has to admit us to the lobby we asked for. JoinLobby only queues the request.
+            if (!_lobbyEntered)
+            {
+                if (LobbyCoordinator.IsInLobby && LobbyCoordinator.CurrentLobbyId == _joinLobbyId)
+                {
+                    _lobbyEntered = true;
+                    ResetPhase();
+                    Core.Log?.Msg($"[mp] entered lobby {_joinLobbyId}.");
+                }
+                else if (_timer > LobbyEntrySeconds)
+                    AbortToHub($"could not enter the lobby within {LobbyEntrySeconds:F0}s (it may be full, closed or unreachable)");
+                return;
+            }
+
+            // A MenuSpace gamemode builds its overlay on the menu and the host never loads a world, so the lobby is
+            // the whole join.
+            if (_desc.Surface == GamemodeSurface.MenuSpace) { FireJoin(); return; }
+
+            // Phase 2 (World): the host's world streams in. Two different waits that must not share a deadline: until
+            // the game is going somewhere it is not slow, it is never going to start.
+            if (WorldBoot.IsWorldReady()) { FireJoin(); return; }
+            if (WorldBoot.LoadStarted) _loadStarted = true;
+            if (!_loadStarted)
+            {
+                if (_timer > NeverStartedSeconds)
+                    AbortToHub("the host's lobby never started the game - it is not marked ready for players");
+            }
+            else if (_watchdog.HasGivenUp(out string joinWhy)) AbortToHub("join did not complete - " + joinWhy);
         }
 
         // --- fire the gamemode callbacks ---
@@ -263,35 +301,65 @@ namespace SideHustle.Multiplayer
 
         internal static void ReturnFromSession(LaunchContext ctx)
         {
-            try { ctx?.Descriptor?.OnExitToHub?.Invoke(ctx); }
-            catch (Exception e) { Core.Log?.Warning("OnExitToHub threw: " + e.Message); }
-
-            bool host = ctx != null && ctx.IsHost == true;
-            if (host) LobbyCoordinator.Unlist();
-
-            bool wasInGame = WorldBoot.IsInGame;
-            if (wasInGame)
+            Core.Log?.Msg($"[mp] returning from '{ctx?.Descriptor?.Id ?? _desc?.Id}'.");
+            bool wasInGame = false;
+            try
             {
-                WorldBoot.ExitToMenu();        // also leaves the Steam lobby
-                PendingHubReopen = true;       // reopen the hub when the Menu scene re-initializes
+                NotifyExit(ctx);
+
+                bool host = ctx != null && ctx.IsHost == true;
+                if (host) Safe("unlist the lobby", LobbyCoordinator.Unlist);
+
+                Safe("leave the session", () =>
+                {
+                    wasInGame = WorldBoot.IsInGame;
+                    if (wasInGame) WorldBoot.ExitToMenu();   // also leaves the Steam lobby
+                    else LobbyCoordinator.LeaveCurrentLobby();   // a MenuSpace session has no world to exit, but a lobby to leave
+                });
+            }
+            finally
+            {
+                if (wasInGame) PendingHubReopen = true;   // reopen the hub when the Menu scene re-initializes
+                Teardown();
             }
 
-            GamemodeHygiene.Clear();
-            PublicLobbyAccess.Disable();   // restore the vanilla non-friend kick outside a Side Hustle session
-            PlayerAlias.Disable();         // stop aliasing; the next session uses the real Steam name again
-            LobbyInviteAccess.Disable();   // restore the vanilla host-only invite button outside a Side Hustle session
-            WorldBoot.CleanupScratch();
+            // MenuSpace MP (no scene reload): the menu is still here - reopen the hub directly.
+            if (!wasInGame) Menu.Hub.ReopenAfterSession();
+        }
+
+        /// <summary>Tells the gamemode the session is over - at most once per session, even when a callback threw or
+        /// the exit is reached from two paths.</summary>
+        private static void NotifyExit(LaunchContext ctx)
+        {
+            var d = ctx?.Descriptor ?? _desc;
+            if (d?.OnExitToHub == null) return;
+            if (_exitNotified) { Core.Log?.Msg($"[mp] '{d.Id}' was already told the session ended."); return; }
+            _exitNotified = true;
+            try { d.OnExitToHub(ctx ?? new LaunchContext { Descriptor = d }); }
+            catch (Exception e) { Core.Log?.Warning($"[mp] '{d.Id}' OnExitToHub threw: {e.Message}"); }
+        }
+
+        /// <summary>The session-wide switches that every way out of a session must undo. Each step stands alone, so
+        /// one that throws cannot leave the rest on and the state machine stuck.</summary>
+        private static void Teardown()
+        {
+            Safe("clear hygiene", GamemodeHygiene.Clear);
+            Safe("restore the friend kick", PublicLobbyAccess.Disable);   // the vanilla non-friend kick outside a Side Hustle session
+            Safe("stop aliasing", PlayerAlias.Disable);                   // the next session uses the real Steam name again
+            Safe("restore the host-only invite button", LobbyInviteAccess.Disable);
+            Safe("clean the scratch save", WorldBoot.CleanupScratch);
             _state = State.Idle;
             _ctx = null;
+        }
 
-            if (!wasInGame)
-            {
-                // MenuSpace MP (no scene reload): the menu is still here - reopen the hub directly.
-                Menu.Hub.ReopenAfterSession();
-            }
+        private static void Safe(string what, Action step)
+        {
+            try { step(); }
+            catch (Exception e) { Core.Log?.Error($"[mp] session teardown step '{what}' failed: {e}"); }
         }
 
         private static float _backAtMenuFor;
+        private static bool _aliveCheckFailedLogged;
 
         /// <summary>
         /// Notice when a live session has quietly ended underneath us.
@@ -313,7 +381,11 @@ namespace SideHustle.Multiplayer
 
             bool onMenu;
             try { onMenu = !WorldBoot.IsInGame && UnityEngine.SceneManagement.SceneManager.GetActiveScene().name == "Menu"; }
-            catch { return; }
+            catch (Exception e)
+            {
+                if (!_aliveCheckFailedLogged) { _aliveCheckFailedLogged = true; Core.Log?.Warning("[mp] session liveness check failed: " + e.Message); }
+                return;
+            }
 
             if (!onMenu) { _backAtMenuFor = 0f; return; }
 
@@ -333,25 +405,19 @@ namespace SideHustle.Multiplayer
             // Tell the player too, not just the log. Shown once they are back in the menu - right here there is
             // nothing to draw on, and the scene reload below would destroy it anyway.
             Menu.SessionNotice.Set(reason);
-            if (_desc != null && _ctx == null)
-            {
-                try { _desc.OnExitToHub?.Invoke(new LaunchContext { Descriptor = _desc }); } catch { /* ignore */ }
-            }
-            LobbyCoordinator.Unlist();
-            bool wasInGame = WorldBoot.IsInGame;
-            if (wasInGame) { WorldBoot.ExitToMenu(); PendingHubReopen = true; }
-            // We may be aborting DURING a load that never finished (the classic stalled join: scene is still
-            // Menu, so IsInGame is false and the branch above does nothing). The game's loading screen is open
-            // on top of the menu and nothing else will ever close it - leaving the player frozen at
-            // "Loading world..." with no way back. Take it down and drop the lobby membership by hand.
-            else if (WorldBoot.AbortLoadToMenu()) LobbyCoordinator.LeaveCurrentLobby();
-            GamemodeHygiene.Clear();
-            PublicLobbyAccess.Disable();   // restore the vanilla non-friend kick outside a Side Hustle session
-            PlayerAlias.Disable();         // stop aliasing; the next session uses the real Steam name again
-            LobbyInviteAccess.Disable();   // restore the vanilla host-only invite button outside a Side Hustle session
-            WorldBoot.CleanupScratch();
-            _state = State.Idle;
-            _ctx = null;
+
+            // The gamemode hears about the end of its session whether or not its own callback is what failed.
+            NotifyExit(_ctx ?? (_desc != null ? new LaunchContext { Descriptor = _desc } : null));
+
+            Safe("unlist the lobby", LobbyCoordinator.Unlist);
+            // We may be aborting DURING a load that never finished (the classic stalled join: scene is still Menu, so
+            // IsInGame is false). The game's loading screen is open on top of the menu and nothing else will ever
+            // close it - leaving the player frozen at "Loading world..." with no way back. TakeDownSession closes it
+            // and drops the lobby membership by hand.
+            bool wasInGame = false;
+            Safe("take the session down", () => wasInGame = WorldBoot.TakeDownSession());
+            if (wasInGame) PendingHubReopen = true;
+            Teardown();
             if (!wasInGame) Menu.Hub.ReopenAfterSession();
         }
 

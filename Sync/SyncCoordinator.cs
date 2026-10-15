@@ -32,6 +32,13 @@ namespace SideHustle.Sync
         private static bool _dataArrived;
         private static float _lobbyRetry;   // paces the re-request/re-discover while waiting for the lobby data
         private static bool _loadStarted;   // the game has begun going somewhere since we entered the lobby
+        private static bool _handshakeWritten;   // the sh_sync member data is on the lobby (read back)
+        private static float _handshakeRetry;
+        private static readonly LoadWatchdog _watchdog = new LoadWatchdog();   // host world boot and client world load
+        private static string _lastRefusal = "";
+
+        /// <summary>Why the last start call returned false, in words a player can read. Empty after a successful start.</summary>
+        internal static string LastRefusal => _lastRefusal;
 
         /// <summary>How long a joined-but-idle client waits before calling it. Deliberately short: this is the state
         /// where the game will never start loading at all (see <see cref="Multiplayer.WorldBoot.LoadStarted"/>), so
@@ -47,11 +54,31 @@ namespace SideHustle.Sync
         /// lobby is and not something the host can fix.</summary>
         internal static bool HasModList => !string.IsNullOrEmpty(_manifestText);
 
-        internal static void StartHostVanilla(Il2CppScheduleOne.Persistence.SaveInfo save, HostOptions opts,
+        /// <summary>Whether a vanilla co-op start/join may begin: neither coordinator may be mid-session, or a double
+        /// click (or a start from the other flow) would open a second lobby on top of the first.</summary>
+        private static bool CanStart(string what)
+        {
+            if (_state != State.Idle)
+            {
+                _lastRefusal = "A session is already starting.";
+                Core.Log?.Warning($"[sync] {what} refused: a vanilla co-op session is already {_state}.");
+                return false;
+            }
+            if (MultiplayerCoordinator.IsBusy)
+            {
+                _lastRefusal = "A gamemode session is already starting.";
+                Core.Log?.Warning($"[sync] {what} refused: a gamemode session is in progress.");
+                return false;
+            }
+            _lastRefusal = "";
+            return true;
+        }
+
+        internal static bool StartHostVanilla(Il2CppScheduleOne.Persistence.SaveInfo save, HostOptions opts,
             string manifestText, string prefsText, string modSummary, bool enforce)
         {
-            if (_state != State.Idle) { Core.Log?.Warning("[sync] a session is already starting."); return; }
-            if (save == null) { Core.Log?.Warning("[sync] no save selected."); return; }
+            if (!CanStart("hosting")) return false;
+            if (save == null) { Core.Log?.Warning("[sync] no save selected."); _lastRefusal = "No save selected."; return false; }
 
             _save = save;
             _opts = opts ?? new HostOptions();
@@ -59,7 +86,9 @@ namespace SideHustle.Sync
             _prefsText = prefsText ?? "";
             _modSummary = modSummary ?? "";
             _enforce = enforce;
-            try { _org = save.OrganisationName; } catch { _org = ""; }
+            try { _org = save.OrganisationName; }
+            catch (Exception e) { _org = ""; Core.Log?.Warning("[sync] the save's organisation name is unreadable: " + e.Message); }
+            _state = State.HostCreatingLobby;   // claimed before anything else, so a second click is refused
 
             // The session is what the mods are for, so this is where they load. On a normal boot the gate never
             // armed and this returns before touching anything. Before the lobby, not after: a mod that hooks the
@@ -72,9 +101,9 @@ namespace SideHustle.Sync
             PlayerAlias.Enable(Config.Preferences.GetAlias("vanilla"));   // the host's chosen "Your name" for vanilla lobbies
 
             Core.Log?.Msg($"[sync] hosting vanilla save '{_org}' publicly (max {_opts.MaxPlayers})...");
-            if (!LobbyCoordinator.CreateLobby(_opts.MaxPlayers, _opts.Visibility)) { Abort("could not create a lobby"); return; }
             _timer = 0f;
-            _state = State.HostCreatingLobby;
+            if (!LobbyCoordinator.CreateLobby(_opts.MaxPlayers, _opts.Visibility)) { Abort("could not create a lobby"); return false; }
+            return true;
         }
 
         /// <summary>
@@ -84,15 +113,21 @@ namespace SideHustle.Sync
         /// or a changed manifest leaves the player safely in the menu (the profile session still offers
         /// "Restore my mods").
         /// </summary>
-        internal static void ContinueJoin(string payload)
+        internal static bool ContinueJoin(string payload)
         {
+            if (!CanStart("rejoin"))
+            {
+                Menu.RejoinNotice.Hide();
+                return false;
+            }
             var map = ConfigCodec.Decode(payload);
-            if (!map.TryGetValue("lobby", out var ls) || !ulong.TryParse(ls, out _joinLobbyId) || _joinLobbyId == 0)
+            if (!map.TryGetValue("lobby", out var ls) || !ulong.TryParse(ls, out ulong parsedLobby) || parsedLobby == 0)
             {
                 Core.Log?.Warning("[sync] rejoin token unreadable; staying in the menu.");
                 Menu.RejoinNotice.Hide();
-                return;
+                return false;
             }
+            _joinLobbyId = parsedLobby;
             map.TryGetValue("mhash", out _joinMHash);
 
             // This process was relaunched into the host's mod set; the gate held it back on the way up, so load it
@@ -111,10 +146,10 @@ namespace SideHustle.Sync
                 if (!SteamMatchmaking.RequestLobbyData(new CSteamID(_joinLobbyId)))
                 {
                     RejoinFailed("the lobby no longer exists");
-                    return;
+                    return false;
                 }
             }
-            catch (Exception e) { RejoinFailed("lobby lookup failed: " + e.Message); return; }
+            catch (Exception e) { RejoinFailed("lobby lookup failed: " + e.Message); return false; }
 
             Core.Log?.Msg($"[sync] rejoining lobby {_joinLobbyId} after the mod-sync restart...");
             Menu.RejoinNotice.Show("Looking for the lobby and checking its mod list has not changed...");
@@ -122,20 +157,23 @@ namespace SideHustle.Sync
             _timer = 0f;
             _lobbyRetry = 0f;
             _loadStarted = false;
+            _handshakeWritten = false;
             // Prime lobby discovery: a fresh (just-restarted) client must re-learn the host's lobby exists before
             // RequestLobbyData will resolve it. A vanilla lobby-list query repopulates that registry.
             try { Multiplayer.ServerBrowser.BeginQueryVanilla(_ => { }); }
             catch (Exception e) { Core.Log?.Warning("[sync] lobby discovery could not be primed: " + e.Message); }
             _state = State.ClientCheckingLobby;
+            return true;
         }
 
         /// <summary>Join a lobby whose mods already match ours in place (no restart needed) but still announce the
         /// synced handshake: an enforcing host's gate reads the sh_sync member data, so a client that skipped the
         /// restart path would otherwise be kicked as "unsynced". Reuses the ClientJoining wait-for-world + sh_sync.</summary>
-        internal static void StartInPlaceJoin(ulong lobbyId, string mhash)
+        internal static bool StartInPlaceJoin(ulong lobbyId, string mhash)
         {
-            if (_state != State.Idle) { Core.Log?.Warning("[sync] a session is already active; ignoring in-place join."); return; }
-            if (lobbyId == 0) return;
+            if (!CanStart("in-place join")) return false;
+            if (lobbyId == 0) { Core.Log?.Warning("[sync] in-place join refused: no lobby id."); _lastRefusal = "No lobby selected."; return false; }
+            _state = State.ClientJoining;   // claimed before anything else, so a second click is refused
             // The one path where the gate pays off immediately: our mods already match the host's, so loading them
             // here and joining is the whole join - no profile, no relaunch.
             Mods.LateLoader.LoadAll("joining a session");
@@ -145,12 +183,14 @@ namespace SideHustle.Sync
             NetworkTuning.EnsureIceEnabled();
             LobbyInviteAccess.Enable();
             PlayerAlias.Enable(Config.Preferences.GetAlias("vanilla"));
-            LobbyCoordinator.JoinLobby(lobbyId);
             _timer = 0f;
             _loadStarted = false;
+            _handshakeWritten = false;
+            _watchdog.Reset();
             Menu.RejoinNotice.SetCancel(CancelRejoin);   // no notice up on this path yet, but the step owns the way out
-            _state = State.ClientJoining;   // waits for the world, sets sh_sync, then InSession
             Core.Log?.Msg($"[sync] in-place synced join to lobby {lobbyId}.");
+            if (!LobbyCoordinator.JoinLobby(lobbyId)) { RejoinFailed("Steam did not accept the join request"); return false; }
+            return true;   // the state machine waits for the world, sets sh_sync, then InSession
         }
 
         private static void OnLobbyData(LobbyDataUpdate_t data)
@@ -209,7 +249,7 @@ namespace SideHustle.Sync
                 DooDesch.UI.Toast.Init(Menu.Hub.DialogRootStatic());
                 DooDesch.UI.Toast.Show(line, severity);
             }
-            catch { /* purely cosmetic */ }
+            catch (Exception e) { Core.Log?.Warning("[sync] could not show a notice: " + e.Message); }
         }
 
         internal static void Tick()
@@ -233,10 +273,12 @@ namespace SideHustle.Sync
                         // The notice comes down on its own when the menu scene unloads for the world - from there the
                         // game's own loading screen is the better signal.
                         Menu.RejoinNotice.Update("Lobby verified - loading the world...");
-                        LobbyCoordinator.JoinLobby(_joinLobbyId);
                         _timer = 0f;
                         _loadStarted = false;
+                        _handshakeWritten = false;
+                        _watchdog.Reset();
                         _state = State.ClientJoining;
+                        if (!LobbyCoordinator.JoinLobby(_joinLobbyId)) RejoinFailed("Steam did not accept the join request");
                     }
                     else if (_timer > 20f) RejoinFailed("the lobby could not be reached (host may have left, or a network issue)");
                     else
@@ -257,14 +299,20 @@ namespace SideHustle.Sync
                     break;
 
                 case State.ClientJoining:
+                    // The handshake goes onto the lobby as soon as we are in it, not when the world is up: the host's
+                    // gate starts each member's grace at lobby entry, and a slow load must not read as "unsynced".
+                    if (!_handshakeWritten && LobbyCoordinator.IsInLobby && LobbyCoordinator.CurrentLobbyId == _joinLobbyId)
+                    {
+                        _handshakeRetry -= Time.unscaledDeltaTime;
+                        if (_handshakeRetry <= 0f)
+                        {
+                            _handshakeWritten = WriteSyncHandshake("lobby entered");
+                            _handshakeRetry = 2f;
+                        }
+                    }
                     if (WorldBoot.IsWorldReady())
                     {
-                        try
-                        {
-                            // The synced-client handshake the host's gate reads (and, later, friends see).
-                            SteamMatchmaking.SetLobbyMemberData(new CSteamID(_joinLobbyId), "sh_sync", _joinMHash ?? "");
-                        }
-                        catch { /* member data is best-effort */ }
+                        WriteSyncHandshake("world ready");   // re-asserted once the world is up; also logs if it did not stick
                         _state = State.InSession;
                         Core.Log?.Msg($"[sync] SYNCED JOIN complete: lobby {_joinLobbyId}, {LobbyCoordinator.MemberCount} player(s).");
                         break;
@@ -280,8 +328,8 @@ namespace SideHustle.Sync
                             RejoinFailed("the host let us in but their lobby never started the game - it is not marked "
                                          + "ready for players. Ask them to unpublish and publish again");
                     }
-                    else if (_timer > 120f)
-                        RejoinFailed($"world never arrived (scene={WorldBoot.CurrentScene}, status={WorldBoot.LoadStatus})");
+                    else if (_watchdog.HasGivenUp(out string loadWhy))
+                        RejoinFailed("world never arrived - " + loadWhy);
                     break;
 
                 case State.HostCreatingLobby:
@@ -296,6 +344,7 @@ namespace SideHustle.Sync
                         }
                         catch (Exception e) { Abort("could not start the save: " + e.Message); break; }
                         _timer = 0f;
+                        _watchdog.Reset();
                         _state = State.HostBootingWorld;
                     }
                     else if (_timer > 10f) Abort("lobby did not open within 10s");
@@ -325,7 +374,7 @@ namespace SideHustle.Sync
                         Core.Log?.Msg($"[sync] vanilla session live: '{_org}' lobby {LobbyCoordinator.CurrentLobbyId}, " +
                                       $"{LobbyCoordinator.MemberCount} player(s), enforce={_enforce}.");
                     }
-                    else if (_timer > 95f) Abort($"world not ready (scene={WorldBoot.CurrentScene}, status={WorldBoot.LoadStatus})");
+                    else if (_watchdog.HasGivenUp(out string hostWhy)) Abort("world not ready - " + hostWhy);
                     break;
             }
         }
@@ -369,8 +418,7 @@ namespace SideHustle.Sync
             if (string.IsNullOrEmpty(expectedMHash)) expectedMHash = RepublishModList();
 
             if (string.IsNullOrEmpty(expectedMHash)) { SyncGate.Disable(); return false; }
-            SyncGate.Enable(expectedMHash);
-            return true;
+            return SyncGate.Enable(expectedMHash);   // false on a gamemode lobby: the gate refuses and says why
         }
 
         /// <summary>
@@ -396,6 +444,39 @@ namespace SideHustle.Sync
             {
                 Core.Log?.Warning("[sync] could not re-advertise the mod set: " + e.Message);
                 return "";
+            }
+        }
+
+        /// <summary>
+        /// Put the synced-client handshake (<c>sh_sync</c> = the host's mod-set hash) on our member data in the joined
+        /// lobby, and read it back: Steam gives no result for the write, and an unverified handshake is how a synced
+        /// client got kicked as "unsynced".
+        /// </summary>
+        private static bool WriteSyncHandshake(string when)
+        {
+            string value = _joinMHash ?? "";
+            if (value.Length == 0)
+            {
+                Core.Log?.Msg($"[sync] no mod-set hash to announce ({when}); the lobby has no requirement to meet.");
+                return true;
+            }
+            try
+            {
+                var lobby = new CSteamID(_joinLobbyId);
+                SteamMatchmaking.SetLobbyMemberData(lobby, "sh_sync", value);
+                string back = SteamMatchmaking.GetLobbyMemberData(lobby, SteamUser.GetSteamID(), "sh_sync");
+                if (string.Equals(back, value, StringComparison.Ordinal))
+                {
+                    Core.Log?.Msg($"[sync] synced-mods handshake on the lobby ({when}).");
+                    return true;
+                }
+                Core.Log?.Warning($"[sync] the synced-mods handshake did not stick ({when}): wrote {value}, read back '{back}'.");
+                return false;
+            }
+            catch (Exception e)
+            {
+                Core.Log?.Warning($"[sync] could not write the synced-mods handshake ({when}): {e.Message}");
+                return false;
             }
         }
 
@@ -434,29 +515,54 @@ namespace SideHustle.Sync
                 Menu.ChatPanel.ForgetConversations();
             }
 
-            if (_state == State.Idle) return;
-            if (_state == State.InSession) Core.Log?.Msg("[sync] vanilla session ended; cleaning up.");
+            // Only a session that was actually live ends here. The Menu scene initializes several times while a
+            // world is loading (and again around a rejoin), so resetting any in-flight state on those would kill the
+            // very start this method is not part of; the load watchdogs own those states.
+            if (_state != State.InSession) return;
+            Core.Log?.Msg("[sync] vanilla session ended; cleaning up.");
             if (!_isClient) VanillaLobby.Untag();
             PublicLobbyAccess.Disable();
             LobbyInviteAccess.Disable();
             PlayerAlias.Disable();
+            ResetSession();
+        }
+
+        /// <summary>Forget everything about the session that just ended, so nothing stale (above all the manifest text)
+        /// can be republished by a later lobby.</summary>
+        private static void ResetSession()
+        {
             _state = State.Idle;
             _save = null;
+            _manifestText = null;
+            _prefsText = null;
+            _modSummary = null;
+            _org = null;
+            _enforce = false;
             _isClient = false;
             _joinLobbyId = 0;
+            _joinMHash = null;
+            _loadStarted = false;
+            _handshakeWritten = false;
         }
 
         private static void Abort(string reason)
         {
             Core.Log?.Warning("[sync] aborting: " + reason);
             Menu.SessionNotice.Set(reason);   // the player gets the reason on the menu, not just the log
-            VanillaLobby.Untag();
-            PublicLobbyAccess.Disable();
-            LobbyInviteAccess.Disable();
-            PlayerAlias.Disable();
-            _state = State.Idle;
-            _save = null;
-            Menu.Hub.ReopenAfterSession();
+
+            // A half-started load has to come down with the session, exactly as in the gamemode flow: the stalled
+            // load, its loading screen and the Steam lobby membership are all still there after the state flips.
+            bool wasInGame = false;
+            try { VanillaLobby.Untag(); }
+            catch (Exception e) { Core.Log?.Error("[sync] abort: unpublishing the lobby failed: " + e); }
+            try { wasInGame = WorldBoot.TakeDownSession(); }
+            catch (Exception e) { Core.Log?.Error("[sync] abort: taking the session down failed: " + e); }
+            try { SyncGate.Disable(); PublicLobbyAccess.Disable(); LobbyInviteAccess.Disable(); PlayerAlias.Disable(); }
+            catch (Exception e) { Core.Log?.Error("[sync] abort: restoring the session switches failed: " + e); }
+            ResetSession();
+
+            if (wasInGame) MultiplayerCoordinator.PendingHubReopen = true;   // the menu reloads; the hub reopens there
+            else Menu.Hub.ReopenAfterSession();
         }
     }
 }

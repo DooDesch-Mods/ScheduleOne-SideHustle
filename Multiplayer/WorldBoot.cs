@@ -18,20 +18,33 @@ namespace SideHustle.Multiplayer
     {
         internal const string ScratchName = "SideHustleScratch";
 
+        // The probes below run every frame while a session loads; a repeating failure is logged once per site.
+        private static readonly System.Collections.Generic.HashSet<string> _warned = new System.Collections.Generic.HashSet<string>();
+        private static void WarnOnce(string site, Exception e)
+        {
+            if (_warned.Add(site)) Core.Log?.Warning($"[mp] {site} failed: {e.Message}");
+        }
+
         private static LoadManager LoadOrNull()
         {
-            try { return Singleton<LoadManager>.Instance; } catch { return null; }
+            try { return Singleton<LoadManager>.Instance; }
+            catch (Exception e) { WarnOnce("LoadManager lookup", e); return null; }
         }
 
         internal static string ScratchPath()
         {
             try { return Path.Combine(Singleton<SaveManager>.Instance.IndividualSavesContainerPath, ScratchName); }
-            catch { return null; }
+            catch (Exception e) { WarnOnce("scratch path lookup", e); return null; }
         }
 
         internal static bool IsInGame
         {
-            get { var lm = LoadOrNull(); try { return lm != null && lm.IsGameLoaded; } catch { return false; } }
+            get
+            {
+                var lm = LoadOrNull();
+                try { return lm != null && lm.IsGameLoaded; }
+                catch (Exception e) { WarnOnce("IsGameLoaded", e); return false; }
+            }
         }
 
         /// <summary>The world is fully loaded and interactive (host or client end-state).</summary>
@@ -44,17 +57,26 @@ namespace SideHustle.Multiplayer
                        && lm.LoadStatus == LoadManager.ELoadStatus.None
                        && SceneManager.GetActiveScene().name == "Main";
             }
-            catch { return false; }
+            catch (Exception e) { WarnOnce("IsWorldReady", e); return false; }
         }
 
         internal static string CurrentScene
         {
-            get { try { return SceneManager.GetActiveScene().name; } catch { return "?"; } }
+            get
+            {
+                try { return SceneManager.GetActiveScene().name; }
+                catch (Exception e) { WarnOnce("scene name", e); return "?"; }
+            }
         }
 
         internal static string LoadStatus
         {
-            get { var lm = LoadOrNull(); try { return lm != null ? lm.LoadStatus.ToString() : "?"; } catch { return "?"; } }
+            get
+            {
+                var lm = LoadOrNull();
+                try { return lm != null ? lm.LoadStatus.ToString() : "?"; }
+                catch (Exception e) { WarnOnce("LoadStatus", e); return "?"; }
+            }
         }
 
         /// <summary>
@@ -78,7 +100,11 @@ namespace SideHustle.Multiplayer
                     if (lm == null) return false;
                     return lm.IsGameLoaded || lm.IsLoading || lm.LoadStatus != LoadManager.ELoadStatus.None;
                 }
-                catch { return true; }   // unreadable: assume it is moving, so a watchdog never cuts a live load short
+                catch (Exception e)
+                {
+                    WarnOnce("LoadStarted", e);
+                    return true;   // unreadable: assume it is moving, so a watchdog never cuts a live load short
+                }
             }
         }
 
@@ -91,7 +117,7 @@ namespace SideHustle.Multiplayer
             {
                 var lm = LoadOrNull();
                 try { return lm != null && lm.LoadStatus == LoadManager.ELoadStatus.LoadingScene; }
-                catch { return false; }
+                catch (Exception e) { WarnOnce("IsLoadingScene", e); return false; }
             }
         }
 
@@ -107,7 +133,7 @@ namespace SideHustle.Multiplayer
                 if (lm == null) return scene + "|?";
                 return scene + "|" + lm.LoadStatus + "|" + lm.GetLoadStatusText();
             }
-            catch { return "?"; }
+            catch (Exception e) { WarnOnce("ProgressSignature", e); return "?"; }
         }
 
         /// <summary>Build a fresh scratch save and start it. For a host, the lobby must already exist + be owned by
@@ -228,8 +254,9 @@ namespace SideHustle.Multiplayer
         private static void CloseLoadingScreenHard()
         {
             Il2CppScheduleOne.UI.LoadingScreen ls = null;
-            try { ls = Singleton<Il2CppScheduleOne.UI.LoadingScreen>.Instance; } catch { /* not spawned yet */ }
-            if (ls == null) return;
+            try { ls = Singleton<Il2CppScheduleOne.UI.LoadingScreen>.Instance; }
+            catch (Exception e) { Core.Log?.Warning("[mp] loading screen lookup failed: " + e.Message); }
+            if (ls == null) { Core.Log?.Msg("[mp] no loading screen to close."); return; }
 
             try { ls.Close(); }
             catch (Exception e) { Core.Log?.Warning("[mp] LoadingScreen.Close threw (expected after a scene-less load): " + e.Message); }
@@ -240,6 +267,23 @@ namespace SideHustle.Multiplayer
                 if (ls.Canvas != null) ls.Canvas.enabled = false;
             }
             catch (Exception e) { Core.Log?.Warning("[mp] could not force the loading screen off: " + e.Message); }
+        }
+
+        /// <summary>
+        /// Take down whatever session is half or fully up and drop the Steam lobby membership: a loaded world exits to
+        /// the menu through the game's own path (which also leaves the lobby); a load that never finished is torn down
+        /// by hand (see <see cref="AbortLoadToMenu"/>); and a lobby that never got as far as a load is left directly.
+        /// Shared by every coordinator's abort path.
+        /// </summary>
+        /// <returns>true when a loaded world was exited - the menu scene reloads and the caller must defer reopening
+        /// the hub to that reload; false when the menu is still on screen.</returns>
+        internal static bool TakeDownSession()
+        {
+            bool wasInGame = IsInGame;
+            if (wasInGame) ExitToMenu();
+            else AbortLoadToMenu();
+            LobbyCoordinator.LeaveCurrentLobby();   // no-op when the paths above already left it
+            return wasInGame;
         }
 
         internal static void CleanupScratch()
