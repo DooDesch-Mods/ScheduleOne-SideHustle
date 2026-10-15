@@ -243,6 +243,10 @@ namespace SideHustle.Menu
         // fetched by hand and verified by hash; a resolved one flips to Cached and no longer counts as pending.
         private static bool Pending(DiffEntry e) => e.Status == DiffStatus.Manual || e.Status == DiffStatus.Dropped;
 
+        /// <summary>Whether the checklist has anything the player could install by hand: it lists Manual and Dropped
+        /// entries, and a Dropped one has no source to fetch from, so a list of only those is just a dead end.</summary>
+        internal static bool HasHandInstall(SyncDiff diff) => diff.Entries.Any(e => e.Status == DiffStatus.Manual);
+
         // The search term for a manual mod: its name, or the DLL file name without extension when the name is blank.
         private static string ManualQuery(DiffEntry e)
         {

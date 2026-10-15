@@ -382,7 +382,9 @@ namespace SideHustle.Menu
         {
             // Mods nobody can fetch automatically (a Nexus link, or one with no source at all) get the checklist -
             // the same one the co-op sync uses, including the "Open Nexus" lookup.
-            if (diff.Entries.Any(e => e.Status == DiffStatus.Manual || e.Status == DiffStatus.Dropped)
+            if (!SyncManualInstallView.HasHandInstall(diff) && diff.Entries.Any(e => e.Status == DiffStatus.Dropped))
+                Core.Log?.Msg("[mp] join: every unsynced mod is dropped (nothing to install by hand); skipping the checklist.");
+            if (SyncManualInstallView.HasHandInstall(diff)
                 && _clone != null && _cloneScreen != null && _cloneScreen.IsOpen)
             {
                 _back = () => ShowGhostConsent(g, row, manifest, diff, mhash);

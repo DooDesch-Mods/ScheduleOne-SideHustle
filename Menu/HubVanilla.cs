@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using SideHustle.Config;
 using SideHustle.Multiplayer;
 using SideHustle.Profiles;
 using SideHustle.Sync;
@@ -255,6 +256,14 @@ namespace SideHustle.Menu
         /// building the clone if the hub screen is not up.</summary>
         internal static void HostVanillaSave(Il2CppScheduleOne.Persistence.SaveInfo save)
         {
+            // Hosted before: reuse those settings instead of asking again. The form only opens the first time.
+            var remembered = Preferences.GetHost(Preferences.VanillaHostKey);
+            if (remembered != null && remembered.MaxPlayers >= 2)
+            {
+                HostVanillaDirect(save, remembered);
+                return;
+            }
+            Core.Log?.Msg("[sync] no remembered vanilla host settings; opening the host form.");
             EnsureInit();
             EnsureClone();
             if (_cloneScreen == null) { Core.Log?.Warning("[sync] host screen unavailable."); return; }
@@ -270,12 +279,142 @@ namespace SideHustle.Menu
             OnClick = ShowVanillaChoice
         };
 
+        // The save the remembered vanilla host settings last hosted, when that slot still holds a save.
+        private static Il2CppScheduleOne.Persistence.SaveInfo RememberedVanillaSave(Preferences.RememberedHost saved)
+        {
+            if (saved == null || !int.TryParse(saved.Save, out int slot)) return null;
+            try
+            {
+                var saves = Il2CppScheduleOne.Persistence.LoadManager.SaveGames;
+                if (saves == null) return null;
+                for (int i = 0; i < saves.Length; i++)
+                {
+                    var info = saves[i];
+                    if (info == null) continue;
+                    try
+                    {
+                        if (info.SaveSlotNumber == slot && !string.IsNullOrEmpty(info.OrganisationName)) return info;
+                    }
+                    catch (Exception e) { Core.Log?.Warning($"[sync] host again: save {i + 1} could not be read: {e.Message}"); }
+                }
+            }
+            catch (Exception e) { Core.Log?.Warning("[sync] host again: save enumeration failed: " + e.Message); }
+            Core.Log?.Msg($"[sync] host again: remembered save slot {slot} no longer exists.");
+            return null;
+        }
+
+        // Writes the hosted save's slot into the remembered vanilla host, so "Host again" follows the last save hosted.
+        private static void RememberVanillaSave(Il2CppScheduleOne.Persistence.SaveInfo save)
+        {
+            try
+            {
+                var saved = Preferences.GetHost(Preferences.VanillaHostKey);
+                if (saved == null) return;
+                string slot = save.SaveSlotNumber.ToString();
+                if (saved.Save == slot) return;
+                saved.Save = slot;
+                Preferences.SetHost(Preferences.VanillaHostKey, saved);
+            }
+            catch (Exception e) { Core.Log?.Warning("[sync] could not remember the hosted save: " + e.Message); }
+        }
+
+        // The mod list for a vanilla lobby needs the Thunderstore index and a hash of every mod DLL, so it is built off
+        // the main thread; the result (null on failure) comes back through done on the main thread.
+        private static void BuildPublishPlanAsync(Action<PublishPlan> done)
+        {
+            System.Threading.Tasks.Task.Run(async () =>
+            {
+                PublishPlan plan = null;
+                try
+                {
+                    var index = await ThunderstoreClient.GetIndexAsync(ProfileEngine.GameRoot, false, System.Threading.CancellationToken.None);
+                    plan = SyncPublisher.BuildPlan(index);
+                }
+                catch (Exception e) { Core.Log?.Warning("[sync] publish plan failed: " + e.Message); }
+                MainThread.Post(() => done(plan));
+            });
+        }
+
+        // The one place a vanilla lobby is started, for the host form and the Host again shortcuts alike.
+        private static void StartVanillaHost(Il2CppScheduleOne.Persistence.SaveInfo target, HostOptions opts, bool enforce,
+            List<string> syncedCats, PublishPlan plan)
+        {
+            string prefsText = PrefsCatalog.BuildOverlay(syncedCats);
+            CloseHubScreen();
+            if (!SyncCoordinator.StartHostVanilla(target, opts,
+                plan.Manifest.ToCanonicalText(), prefsText,
+                $"{plan.AutoCount + plan.GhCount}/{plan.LinkCount}/{plan.DroppedCount}", enforce))
+                ShowRefusal(SyncCoordinator.LastRefusal);
+        }
+
+        /// <summary>Host a save straight away with the remembered vanilla settings: same players, visibility, lobby
+        /// name, enforce flag and Discord code, the mod-settings categories at their defaults, no password.</summary>
+        private static void HostVanillaDirect(Il2CppScheduleOne.Persistence.SaveInfo save, Preferences.RememberedHost saved)
+        {
+            bool inHub = _clone != null && _cloneScreen != null && _cloneScreen.IsOpen;
+            if (inHub)
+            {
+                _back = null;
+                ClearFormHost();
+                SetTmp(_clone.transform, "Title", VanillaHostView.HostLabel(saved.Visibility));
+                ProfilesViews.BuildInstalling(CreateFormHost("SH_VanillaHost"), "Preparing your mod list...");
+            }
+            int players = Mathf.Clamp(saved.MaxPlayers >= 2 ? saved.MaxPlayers : 4, 2, Mathf.Max(2, LobbyCaps.MaxClients()));
+            var opts = new HostOptions
+            {
+                MaxPlayers = players,
+                Visibility = saved.Visibility == 1 ? LobbyVisibility.Private : LobbyVisibility.Public,
+                LobbyName = string.IsNullOrWhiteSpace(saved.LobbyName) ? null : saved.LobbyName,
+                DiscordCode = DiscordInvite.IsCode(saved.DiscordCode) ? saved.DiscordCode : null,
+            };
+            var syncedCats = PrefsCatalog.Enumerate().Where(c => c.SyncByDefault).Select(c => c.Id).ToList();
+            Core.Log?.Msg($"[sync] host again: {players} players, {(opts.Visibility == LobbyVisibility.Private ? "private" : "public")}, " +
+                          $"enforce={saved.Enforce}, save slot {save.SaveSlotNumber}.");
+            BuildPublishPlanAsync(plan =>
+            {
+                if (plan == null)
+                {
+                    Core.Log?.Error("[sync] host again: the mod list could not be prepared; not hosting.");
+                    if (inHub && _formHost != null && _formHost.name == "SH_VanillaHost")
+                    {
+                        ClearFormHost();
+                        ProfilesViews.BuildInstalling(CreateFormHost("SH_VanillaHost"), "Couldn't prepare your mod list.", ShowVanillaChoice);
+                    }
+                    else ShowToast("Couldn't prepare your mod list.", DooDesch.UI.Severity.Warning);
+                    return;
+                }
+                // The player left the screen while the list was built: that is a cancel, not a host.
+                if (inHub && (_cloneScreen == null || !_cloneScreen.IsOpen || _formHost == null || _formHost.name != "SH_VanillaHost"))
+                {
+                    Core.Log?.Msg("[sync] host again: the player left the screen; not hosting.");
+                    return;
+                }
+                RememberVanillaSave(save);
+                StartVanillaHost(save, opts, saved.Enforce, syncedCats, plan);
+            });
+        }
+
         private static void ShowVanillaChoice()
         {
             InvalidateJoinChecks();   // whatever join was being prepared, the player is somewhere else now
             _mpDesc = null;
             _back = ShowGamemodeList;
-            var rows = new List<Row>
+            var rows = new List<Row>();
+            var again = Preferences.GetHost(Preferences.VanillaHostKey);
+            var againSave = RememberedVanillaSave(again);
+            if (againSave != null)
+            {
+                string org;
+                try { org = againSave.OrganisationName; }
+                catch (Exception e) { org = "Your save"; Core.Log?.Warning("[sync] host again: could not read the organisation name: " + e.Message); }
+                rows.Add(new Row
+                {
+                    Name = "Host again",
+                    Subtitle = $"{org} - {HostAgainSummary(again)}",
+                    OnClick = () => HostVanillaDirect(againSave, again)
+                });
+            }
+            rows.AddRange(new[]
             {
                 new Row
                 {
@@ -290,7 +429,7 @@ namespace SideHustle.Menu
                     OnClick = ShowVanillaBrowser
                 },
                 new Row { Name = "Back", Subtitle = "Back to the gamemode list.", OnClick = ShowGamemodeList }
-            };
+            });
             ShowRows("Vanilla co-op", rows, aliasForGamemodeId: "vanilla");
         }
 
@@ -395,57 +534,42 @@ namespace SideHustle.Menu
             // the main thread; the form appears once it is ready.
             ProfilesViews.BuildInstalling(host, "Preparing your mod list...");
             var prefsCats = PrefsCatalog.Enumerate();
-            System.Threading.Tasks.Task.Run(async () =>
+            BuildPublishPlanAsync(plan =>
             {
-                PublishPlan plan = null;
-                try
+                // Only rebuild if the host form is still the active view (the player may have navigated away
+                // during the async index fetch).
+                if (_cloneScreen == null || !_cloneScreen.IsOpen || _formHost == null || _formHost.name != "SH_VanillaHost") return;
+                ClearFormHost();
+                var h = CreateFormHost("SH_VanillaHost");
+                if (plan == null)
                 {
-                    var index = await ThunderstoreClient.GetIndexAsync(ProfileEngine.GameRoot, false, System.Threading.CancellationToken.None);
-                    plan = SyncPublisher.BuildPlan(index);
+                    ProfilesViews.BuildInstalling(h, "Couldn't prepare your mod list.", ShowVanillaSavePicker);
+                    return;
                 }
-                catch (Exception e) { Core.Log?.Warning("[sync] publish plan failed: " + e.Message); }
-
-                MainThread.Post(() =>
-                {
-                    // Only rebuild if the host form is still the active view (the player may have navigated away
-                    // during the async index fetch).
-                    if (_cloneScreen == null || !_cloneScreen.IsOpen || _formHost == null || _formHost.name != "SH_VanillaHost") return;
-                    ClearFormHost();
-                    var h = CreateFormHost("SH_VanillaHost");
-                    if (plan == null)
+                VanillaHostView.Build(h, plan, prefsCats, LobbyCaps.MaxClients(),
+                    setTitle: title => { if (_clone != null) SetTmp(_clone.transform, "Title", title); },
+                    onBack: ShowVanillaSavePicker,
+                    onHost: (opts, enforce, syncedCats) =>
                     {
-                        ProfilesViews.BuildInstalling(h, "Couldn't prepare your mod list.", ShowVanillaSavePicker);
-                        return;
-                    }
-                    VanillaHostView.Build(h, plan, prefsCats, LobbyCaps.MaxClients(),
-                        setTitle: title => { if (_clone != null) SetTmp(_clone.transform, "Title", title); },
-                        onBack: ShowVanillaSavePicker,
-                        onHost: (opts, enforce, syncedCats) =>
+                        var target = save;
+                        if (target == null && newGameOrg != null)
                         {
-                            var target = save;
-                            if (target == null && newGameOrg != null)
+                            // Create the fresh save now, at the moment of hosting, so an abandoned form leaves nothing.
+                            int slot = FirstFreeSaveSlot();
+                            target = slot >= 0 ? Multiplayer.WorldBoot.CreateNewSave(slot, newGameOrg) : null;
+                            if (target == null)
                             {
-                                // Create the fresh save now, at the moment of hosting, so an abandoned form leaves nothing.
-                                int slot = FirstFreeSaveSlot();
-                                target = slot >= 0 ? Multiplayer.WorldBoot.CreateNewSave(slot, newGameOrg) : null;
-                                if (target == null)
-                                {
-                                    Core.Log?.Error(slot < 0 ? "[sync] new game: no free save slot." : $"[sync] new game: creating the save in slot {slot + 1} failed.");
-                                    ProfilesViews.BuildInstalling(CreateFormHost("SH_VanillaHost"),
-                                        slot < 0 ? "All save slots are full. Delete one to start a new game."
-                                                 : "Couldn't create the new save.", ShowVanillaSavePicker);
-                                    return;
-                                }
+                                Core.Log?.Error(slot < 0 ? "[sync] new game: no free save slot." : $"[sync] new game: creating the save in slot {slot + 1} failed.");
+                                ProfilesViews.BuildInstalling(CreateFormHost("SH_VanillaHost"),
+                                    slot < 0 ? "All save slots are full. Delete one to start a new game."
+                                             : "Couldn't create the new save.", ShowVanillaSavePicker);
+                                return;
                             }
-                            if (target == null) return;
-                            string prefsText = PrefsCatalog.BuildOverlay(syncedCats);
-                            CloseHubScreen();
-                            if (!SyncCoordinator.StartHostVanilla(target, opts,
-                                plan.Manifest.ToCanonicalText(), prefsText,
-                                $"{plan.AutoCount + plan.GhCount}/{plan.LinkCount}/{plan.DroppedCount}", enforce))
-                                ShowRefusal(SyncCoordinator.LastRefusal);
-                        });
-                });
+                        }
+                        if (target == null) return;
+                        RememberVanillaSave(target);
+                        StartVanillaHost(target, opts, enforce, syncedCats, plan);
+                    });
             });
         }
 
@@ -694,6 +818,15 @@ namespace SideHustle.Menu
                         if (!SyncCoordinator.StartInPlaceJoin(row.LobbyId, mhash)) ShowRefusal(SyncCoordinator.LastRefusal);
                         return;
                     }
+                    if (!diff.NeedsRestart && !diff.AnyVersionWarn && nothingToFetch)
+                    {
+                        // Reaching here with matching mods means only the host's synced mod settings differ (the
+                        // no-overlay case joined in place above). Nothing is downloaded or removed, so there is
+                        // nothing to consent to: continue as the consent screen's "Sync and join" would.
+                        Core.Log?.Msg("[sync] consent skipped: mods match the host's, only the host's mod settings differ.");
+                        StartSyncAndJoin(row, manifest, diff, mhash, hostPrefs);
+                        return;
+                    }
                     if (nothingToFetch && TrustStore.IsTrusted(row.OwnerSteamId, mhash))
                     {
                         // Consent already given for THIS manifest: rejoin seamlessly, no checklist even if dropped mods remain.
@@ -756,7 +889,9 @@ namespace SideHustle.Menu
             // Anything the client must fetch by hand - an nx: link mod (Manual) or a source-less Nexus-only mod
             // (Dropped) - gets the checklist: show it, and only build+restart once the player continues (resolved
             // files land in the cache the resolver reads). The dev/trusted path skips straight to the build.
-            if (offerChecklist && diff.Entries.Any(e => e.Status == DiffStatus.Manual || e.Status == DiffStatus.Dropped)
+            if (offerChecklist && !SyncManualInstallView.HasHandInstall(diff) && diff.Entries.Any(e => e.Status == DiffStatus.Dropped))
+                Core.Log?.Msg("[sync] every unsynced mod is dropped (nothing to install by hand); skipping the checklist.");
+            if (offerChecklist && SyncManualInstallView.HasHandInstall(diff)
                 && _clone != null && _cloneScreen != null && _cloneScreen.IsOpen)
             {
                 _back = () => ShowVanillaConsent(row, manifest, diff, mhash, hostPrefs);
