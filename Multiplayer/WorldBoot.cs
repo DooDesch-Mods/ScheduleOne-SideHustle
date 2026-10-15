@@ -118,7 +118,7 @@ namespace SideHustle.Multiplayer
             {
                 string folder = ScratchPath();
                 if (folder == null) { Core.Log?.Warning("[mp] scratch path unavailable."); return false; }
-                BuildScratchSave(folder, orgName);
+                if (!BuildScratchSave(folder, orgName)) return false;
 
                 var nowDt = Il2CppSystem.DateTime.Now;
                 var md = new MetaData(new DateTimeData(nowDt), new DateTimeData(nowDt),
@@ -141,8 +141,10 @@ namespace SideHustle.Multiplayer
             {
                 var sm = Singleton<SaveManager>.Instance;
                 if (sm == null) { Core.Log?.Warning("[mp] SaveManager unavailable for new game."); return null; }
-                string folder = Path.Combine(sm.IndividualSavesContainerPath, "SaveGame_" + (slot + 1));
-                BuildScratchSave(folder, orgName);   // the SetupScreen.StartGame recipe (copy + Game/Metadata json)
+                string folder = SaveSlotFolder(slot);
+                if (folder == null) { Core.Log?.Error("[mp] save folder for slot " + (slot + 1) + " unavailable; no new game created."); return null; }
+                if (!IsSaveSlotFree(slot)) { Core.Log?.Error("[mp] slot " + (slot + 1) + " is not empty; refusing to create a new game over it."); return null; }
+                if (!BuildScratchSave(folder, orgName)) return null;   // the SetupScreen.StartGame recipe (copy + Game/Metadata json)
                 Singleton<LoadManager>.Instance.RefreshSaveInfo();
                 var saves = LoadManager.SaveGames;
                 return saves != null && slot >= 0 && slot < saves.Length ? saves[slot] : null;
@@ -252,10 +254,12 @@ namespace SideHustle.Multiplayer
 
         // --- the SetupScreen.StartGame recipe ---
 
-        private static void BuildScratchSave(string folder, string orgName)
+        /// <summary>Copies the DefaultSave template into <paramref name="folder"/> and writes Game/Metadata json.
+        /// False (with an error logged) when the folder holds a real save and so was left untouched.</summary>
+        private static bool BuildScratchSave(string folder, string orgName)
         {
             if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
-            ClearFolderContents(folder);
+            if (!ClearFolderContents(folder)) return false;
             CopyFilesRecursively(Path.Combine(Application.streamingAssetsPath, "DefaultSave"), folder);
 
             string gameJson = new GameData(orgName, UnityEngine.Random.Range(0, int.MaxValue), new GameSettings()).GetJson();
@@ -264,13 +268,71 @@ namespace SideHustle.Multiplayer
             string metaJson = new MetaData(new DateTimeData(nowDt), new DateTimeData(nowDt),
                                            Application.version, Application.version, false).GetJson();
             File.WriteAllText(Path.Combine(folder, "Metadata.json"), metaJson);
+            return true;
         }
 
-        private static void ClearFolderContents(string folderPath)
+        private static readonly System.Text.RegularExpressions.Regex SaveSlotName =
+            new System.Text.RegularExpressions.Regex(@"^SaveGame_\d+$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        /// <summary>The folder of save slot <paramref name="slot"/> (0..4), or null when the save container is unknown.</summary>
+        internal static string SaveSlotFolder(int slot)
+        {
+            try
+            {
+                var sm = Singleton<SaveManager>.Instance;
+                if (sm == null) { Core.Log?.Warning("[mp] SaveManager unavailable; save folder unknown."); return null; }
+                return Path.Combine(sm.IndividualSavesContainerPath, "SaveGame_" + (slot + 1));
+            }
+            catch (Exception e) { Core.Log?.Warning("[mp] save folder lookup failed: " + e.Message); return null; }
+        }
+
+        /// <summary>
+        /// A slot is free only when its folder does not exist or holds nothing at all. Whether the game could READ the
+        /// save is irrelevant: a corrupt or half-written save is still the player's data, and a folder that exists
+        /// with content is never a candidate for a new game.
+        /// </summary>
+        internal static bool IsSaveSlotFree(int slot)
+        {
+            string folder = SaveSlotFolder(slot);
+            if (folder == null) return false;
+            try
+            {
+                if (!Directory.Exists(folder)) return true;
+                bool empty = !Directory.EnumerateFileSystemEntries(folder).GetEnumerator().MoveNext();
+                if (!empty) Core.Log?.Msg($"[mp] save slot {slot + 1} has content ({folder}); not offered as free.");
+                return empty;
+            }
+            catch (Exception e)
+            {
+                Core.Log?.Warning($"[mp] could not inspect save slot {slot + 1}: {e.Message}; treating it as occupied.");
+                return false;
+            }
+        }
+
+        /// <summary>The first slot (0..4) whose folder is missing or empty, or -1 when none is.</summary>
+        internal static int FirstFreeSaveSlot()
+        {
+            for (int i = 0; i < 5; i++)
+                if (IsSaveSlotFree(i)) return i;
+            return -1;
+        }
+
+        /// <summary>Empties a folder before a fresh world is written into it. A real "SaveGame_N" folder that has any
+        /// content is refused: nothing the mod does may delete a player's save. Only the scratch folder (and an empty
+        /// slot folder) are ever cleared.</summary>
+        private static bool ClearFolderContents(string folderPath)
         {
             var dir = new DirectoryInfo(folderPath);
+            bool hasContent = dir.EnumerateFileSystemInfos().GetEnumerator().MoveNext();
+            if (!hasContent) return true;
+            if (SaveSlotName.IsMatch(dir.Name))
+            {
+                Core.Log?.Error($"[mp] refusing to clear '{folderPath}': it is a save slot with content.");
+                return false;
+            }
             foreach (var f in dir.GetFiles()) f.Delete();
             foreach (var d in dir.GetDirectories()) d.Delete(true);
+            return true;
         }
 
         private static void CopyFilesRecursively(string sourcePath, string targetPath)

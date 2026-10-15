@@ -369,23 +369,9 @@ namespace SideHustle.Menu
             ShowVanillaHostForm(null, orgName);
         }
 
-        // The first empty save slot (0..4), or -1 when all five are occupied.
-        private static int FirstFreeSaveSlot()
-        {
-            try
-            {
-                var saves = Il2CppScheduleOne.Persistence.LoadManager.SaveGames;
-                for (int i = 0; i < (saves?.Length ?? 0); i++)
-                {
-                    var info = saves[i];
-                    string org = null;
-                    try { org = info?.OrganisationName; } catch { /* treat as empty */ }
-                    if (info == null || string.IsNullOrEmpty(org)) return i;
-                }
-            }
-            catch (Exception e) { Core.Log?.Warning("[sync] free-slot scan failed: " + e.Message); }
-            return -1;
-        }
+        // The first save slot (0..4) with no folder or an empty one, or -1 when all five hold something. A slot the
+        // game could not read still holds the player's data and is never reported free.
+        private static int FirstFreeSaveSlot() => Multiplayer.WorldBoot.FirstFreeSaveSlot();
 
         // Host an existing save, or - when newGameOrg is set - a fresh new game. For a new game the save is NOT
         // created here: it is materialized only when the player actually presses Host (in the onHost callback), so
