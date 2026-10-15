@@ -279,8 +279,19 @@ namespace SideHustle.Mods
                 {
                     string name = Path.GetFileName(sub);
                     if (name.Equals("Logs", StringComparison.OrdinalIgnoreCase)) continue;   // per-profile, kept real
-                    if (IsReparsePoint(sub)) continue;                                        // never chain a junction
-                    if (!MakeJunction(Path.Combine(mlLink, name), sub)) return false;
+                    // A missing runtime folder hangs the relaunch at "Runtime config not found", so a source that
+                    // cannot be linked aborts the build instead of leaving a partial loader behind.
+                    string source = JunctionSource(sub, "MelonLoader\\" + name);
+                    if (source == null)
+                    {
+                        Core.Log?.Error($"[profiles] MelonLoader\\{name} cannot be linked into the profile; aborting the MelonLoader base.");
+                        return false;
+                    }
+                    if (!MakeJunction(Path.Combine(mlLink, name), source))
+                    {
+                        Core.Log?.Error($"[profiles] could not junction MelonLoader\\{name} -> '{source}'.");
+                        return false;
+                    }
                 }
                 Directory.CreateDirectory(Path.Combine(mlLink, "Logs"));
                 return true;
@@ -387,9 +398,10 @@ namespace SideHustle.Mods
                 {
                     foreach (var sub in Directory.GetDirectories(realUserData))
                     {
-                        if (IsReparsePoint(sub)) continue;   // never junction a junction (would chain reparse points)
+                        string source = JunctionSource(sub, "UserData\\" + Path.GetFileName(sub));
+                        if (source == null) continue;   // JunctionSource logged why; a UserData cache can be rebuilt
                         string link = Path.Combine(clone, Path.GetFileName(sub));
-                        if (!MakeJunction(link, sub))
+                        if (!MakeJunction(link, source))
                         {
                             Core.Log?.Error($"[modpolicy] could not junction UserData\\{Path.GetFileName(sub)}; aborting clone.");
                             return false;
@@ -599,6 +611,40 @@ namespace SideHustle.Mods
             // Expected across volumes and on non-NTFS: the caller copies instead.
             if (!ok) Core.Log?.Msg($"[modpolicy] mklink /H '{Path.GetFileName(link)}' failed (exit {code}): {detail}; copying instead.");
             return ok;
+        }
+
+        /// <summary>
+        /// The folder a profile junction should point at, or null when there is none. A source that is itself a
+        /// junction (a test copy whose MelonLoader folders link to another install) is resolved to its final target,
+        /// so the profile links the real folder and never chains reparse points. A target inside SideHustle_Profiles
+        /// is refused: tearing that profile down would pull the folder out from under the new link.
+        /// </summary>
+        private static string JunctionSource(string sub, string what)
+        {
+            if (!IsReparsePoint(sub)) return sub;
+            try
+            {
+                var final = Directory.ResolveLinkTarget(sub, returnFinalTarget: true);
+                if (final == null || !final.Exists)
+                {
+                    Core.Log?.Warning($"[profiles] {what} is a link whose target does not exist ('{final?.FullName}'); not linking it.");
+                    return null;
+                }
+                string target = Path.GetFullPath(final.FullName);
+                string bases = BasesRoot();
+                if (bases != null && (PathsEqual(target, bases) || target.StartsWith(Path.GetFullPath(bases).TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase)))
+                {
+                    Core.Log?.Warning($"[profiles] {what} links into '{target}', inside the profiles folder; not linking it.");
+                    return null;
+                }
+                Core.Log?.Msg($"[profiles] {what} is a link; the profile links its target '{target}'.");
+                return target;
+            }
+            catch (Exception e)
+            {
+                Core.Log?.Warning($"[profiles] {what} is a link that cannot be resolved: {e.Message}");
+                return null;
+            }
         }
 
         /// <summary>Whether a folder is a junction or symlink. A folder that cannot be inspected counts as one, so no
