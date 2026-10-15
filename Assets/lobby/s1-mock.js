@@ -19,6 +19,8 @@ function base() {
     max: 4,
     ceiling: 32,
     enforce: false,
+    gamemode: false,
+    discord: '',
     canPublish: true,
     published: false,
     inLobby: true,
@@ -60,6 +62,18 @@ export function call(name, argument = '') {
       }
       return JSON.stringify(out);
     }
+
+    case 'lobby.setDiscord': {
+      const raw = (argument || '').trim();
+      if (!raw) { model.discord = ''; return 'ok'; }
+      const m = /^(?:https?:\/\/)?(?:discord\.gg|discord\.com\/invite)\/([A-Za-z0-9-]{2,32})$/.exec(raw);
+      if (!m) return 'invalid';
+      model.discord = m[1];
+      return 'ok';
+    }
+
+    case 'lobby.openDiscord':
+      return model.discord ? 'ok' : 'none';
 
     case 'lobby.setName': {
       const n = (argument || '').trim().slice(0, 48);
@@ -109,6 +123,10 @@ const enter = (next) => { model = next; changed(); };
 // exists to avoid.
 export const scenarios = {
   'hosting, public': () => enter(base()),
+
+  'hosting a gamemode, Discord set': () => enter({ ...base(), gamemode: true, discord: 'doodesch' }),
+
+  'client, Discord invite': () => enter({ ...base(), host: false, hostName: 'fadestyle', gamemode: true, discord: 'doodesch' }),
 
   'friends only, password set': () => enter({
     ...base(), public: false, hasPassword: true, password: 'kettle', members: 3,

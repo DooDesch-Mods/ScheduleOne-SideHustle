@@ -161,7 +161,7 @@ function blockers(s) {
       label: 'Remove', act: () => setPassword(''), can: true,
     });
   }
-  if (s.enforce) {
+  if (s.enforce && !s.gamemode) {
     out.push({ icon: 'modset', line: 'They need your mod set first.', label: 'Make optional', act: () => setEnforce(false), can: true });
   }
   if (s.canPublish && !s.published) {
@@ -250,6 +250,7 @@ function setPassword(pw) {
 
 function setEnforce(on) {
   const answer = ask('lobby.setEnforce', on ? '1' : '0');
+  if (answer === 'gamemode') { toast('A gamemode lobby always uses its own mods.', 'bad'); return; }
   if (answer === 'nolist') { toast('This session has no mod list to check joiners against.', 'bad'); return; }
   if (answer !== 'ok') { toast('Could not change the mod requirement.', 'bad'); return; }
   say(on ? 'Mod set required. Unsynced players are removed.' : 'Mod set no longer required.', 'ok');
@@ -338,6 +339,34 @@ function enforceRow(s) {
   return row;
 }
 
+/* The invite is stored as a bare code; the field shows the full link so what gets pasted is what gets read. */
+function discordRow(s) {
+  const row = el('div', 'row');
+  head(row, 'chat', 'Discord invite', s.discord ? 'Shown' : 'Optional');
+  const control = el('div', 'control');
+  const field = el('input', 'field');
+  field.setAttribute('maxlength', '80');
+  field.setAttribute('placeholder', 'discord.gg/invite');
+  field.value = s.discord ? 'discord.gg/' + s.discord : '';
+  const save = () => {
+    const answer = ask('lobby.setDiscord', field.value);
+    if (answer === 'invalid') { toast('Not a Discord invite.', 'bad'); return; }
+    if (answer !== 'ok') { toast('Steam would not take the invite. Try again in a moment.', 'bad'); return; }
+    say(field.value.trim() ? 'Invite shown with your lobby.' : 'Invite removed.', 'ok');
+  };
+  field.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
+  control.appendChild(field);
+  control.appendChild(button('btn', 'Save', null, save));
+  if (s.discord) control.appendChild(button('btn bad icon-only', null, 'close', () => { field.value = ''; save(); }));
+  row.appendChild(control);
+  return row;
+}
+
+function openDiscord() {
+  if (ask('lobby.openDiscord') !== 'ok') { toast('Could not open the invite.', 'bad'); return; }
+  toast('Opening Discord.', 'ok');
+}
+
 function publishRow(s) {
   const row = el('div', 'row');
   const h = head(row, 'publish', 'Publish this session');
@@ -392,8 +421,9 @@ function renderLobby(body, s) {
   left.appendChild(passwordRow(s));
   left.appendChild(visibilityRow(s));
   right.appendChild(publishRow(s));
-  right.appendChild(enforceRow(s));
+  if (!s.gamemode) right.appendChild(enforceRow(s));
   right.appendChild(nameRow(s));
+  right.appendChild(discordRow(s));
   cols.appendChild(left);
   cols.appendChild(right);
   body.appendChild(cols);
@@ -414,8 +444,12 @@ function renderSession(body, s) {
   fact(facts, 'seats', 'Seats taken', s.members + ' of ' + s.max, s.members >= s.max ? 'warn' : null);
   fact(facts, 'visibility', 'Listed', s.public ? 'Public' : 'Friends only', s.public ? 'live' : null);
   fact(facts, 'password', 'Password', s.hasPassword ? 'Required' : 'None');
-  fact(facts, 'modset', 'Host mod set', s.enforce ? 'Required' : 'Optional', s.enforce ? 'warn' : null);
+  if (!s.gamemode) fact(facts, 'modset', 'Host mod set', s.enforce ? 'Required' : 'Optional', s.enforce ? 'warn' : null);
   if (s.runtime) fact(facts, 'publish', 'Game branch', s.runtime === 'mono' ? 'Mono' : 'IL2CPP', s.runtime === 'mono' ? 'warn' : 'live');
+  if (s.discord) {
+    fact(facts, 'chat', 'Discord', 'discord.gg/' + s.discord);
+    facts.appendChild(button('btn wide', 'Open', null, openDiscord));
+  }
   wrap.appendChild(facts);
   body.appendChild(wrap);
 }
