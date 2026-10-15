@@ -393,7 +393,7 @@ namespace SideHustle
                     else if (!string.IsNullOrEmpty(_gamemodeJoinPayload)) { var p = _gamemodeJoinPayload; _gamemodeJoinPayload = null; Hub.ContinueGamemodeJoin(p); }
                     else if (!string.IsNullOrEmpty(_continueId)) { var id = _continueId; var host = _continueHost; _continueId = null; _continueHost = null; Hub.ContinueGamemode(id, host); }
                     else if (!string.IsNullOrEmpty(_reopenGamemodeId)) { var id = _reopenGamemodeId; _reopenGamemodeId = null; ReopenGamemode(id); }
-                    else Hub.OpenScreen();
+                    else Hub.OpenScreenAfterSession();
                 }
                 if (_runtimeNoticeFrames > 0 && --_runtimeNoticeFrames == 0)
                 {

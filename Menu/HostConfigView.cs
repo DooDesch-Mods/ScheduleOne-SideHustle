@@ -29,6 +29,7 @@ namespace SideHustle.Menu
             // The gamemode can default the mod-set choice (e.g. PropHunt wants a clean, everyone-identical set) - but
             // only when a policy is actually available and not blocked; otherwise "Current installed mods" (0).
             int policyMode = (hasPolicy && !blocked && desc.DefaultRequiredModsOnly) ? 1 : 0;   // 0 = current installed, 1 = required only
+            if (hasPolicy && !blocked && saved != null && saved.PolicyMode >= 0) policyMode = saved.PolicyMode;   // the host's own last choice wins
 
             var values = new Dictionary<string, string>();
             var textInputs = new List<KeyValuePair<string, InputField>>();
@@ -73,9 +74,7 @@ namespace SideHustle.Menu
             // Default lobby title uses the host's chosen display name for THIS gamemode when set. At config time the
             // session has not started, so the alias is not yet "active" - read it straight from the stored preference;
             // fall back to the real Steam persona name when no alias is set.
-            string hostDisplay = SideHustle.Config.Preferences.GetAlias(desc.Id);
-            if (string.IsNullOrEmpty(hostDisplay)) hostDisplay = LobbyCoordinator.LocalPersonaName();
-            string startName = saved != null && !string.IsNullOrWhiteSpace(saved.LobbyName) ? saved.LobbyName : hostDisplay + " Lobby";
+            string startName = saved != null && !string.IsNullOrWhiteSpace(saved.LobbyName) ? saved.LobbyName : DefaultLobbyName(desc);
             lobbyNameField = Components.TextInput(lnSlot, startName, null, "lobby name", 40);
             Fill(lobbyNameField.gameObject, 6f);
 
@@ -168,11 +167,21 @@ namespace SideHustle.Menu
                     Visibility = visibility,
                     LobbyName = lobbyName,
                     DiscordCode = discordCode,
+                    PolicyMode = hasPolicy ? mode : -1,
                 });
                 onStart?.Invoke(opts, mode);
             });
 
             Interactions.PolishButtons(formHost);
+        }
+
+        /// <summary>The lobby title a host gets without typing one: their display name for this gamemode (or Steam
+        /// name) plus "Lobby". At config time the session has not started, so the alias is read from the preference.</summary>
+        internal static string DefaultLobbyName(GamemodeDescriptor desc)
+        {
+            string hostDisplay = SideHustle.Config.Preferences.GetAlias(desc.Id);
+            if (string.IsNullOrEmpty(hostDisplay)) hostDisplay = LobbyCoordinator.LocalPersonaName();
+            return hostDisplay + " Lobby";
         }
 
         // --- control builders ---

@@ -22,6 +22,9 @@ namespace SideHustle.Mods
         // Set once a relaunch is committed; a second click (the menu keeps ticking while the process quits) is ignored.
         private static bool _inFlight;
 
+        /// <summary>True once a relaunch has started and the process is quitting.</summary>
+        internal static bool RelaunchInFlight => _inFlight;
+
 #if DEBUG
         // Dev.SelfTest only: build the profile + UserData clone via the real path but stop before the relaunch,
         // so the MCP dev loop can inspect the artifacts and drive the basedir relaunch itself.

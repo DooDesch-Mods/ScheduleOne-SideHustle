@@ -562,7 +562,7 @@ namespace SideHustle.Sync
             ResetSession();
 
             if (wasInGame) MultiplayerCoordinator.PendingHubReopen = true;   // the menu reloads; the hub reopens there
-            else Menu.Hub.ReopenAfterSession();
+            else { MultiplayerCoordinator.NoteReturnGamemode(null); Menu.Hub.ReopenAfterSession(); }   // vanilla: the list
         }
     }
 }

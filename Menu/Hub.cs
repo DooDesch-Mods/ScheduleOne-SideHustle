@@ -116,9 +116,29 @@ namespace SideHustle.Menu
                 if (CloseTopDialogIfAny()) return;   // a modal dialog closes on right-click instead of the screen
                 if (SyncRun.Active) { AskStopSyncDownload(); return; }   // leaving mid-download is a question, not a reflex
                 if (InstallActive) return;           // no backing out mid-install; the screen's Cancel is the only exit
+                if (TrySecondaryClick()) return;     // a row with its own right-click action (the solo shortcut's choice)
                 if (_back != null) _back();
                 else _cloneScreen.Close();
             }
+        }
+
+        // Rows on screen that do something on right-click, with their rect. Rebuilt by every ShowRows, cleared by a form.
+        private static readonly List<KeyValuePair<RectTransform, Action>> _secondaryTargets = new List<KeyValuePair<RectTransform, Action>>();
+
+        private static bool TrySecondaryClick()
+        {
+            foreach (var t in _secondaryTargets)
+            {
+                var rt = t.Key;
+                if (rt == null || !rt.gameObject.activeInHierarchy) continue;
+                var canvas = rt.GetComponentInParent<Canvas>();
+                Camera cam = canvas == null || canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : canvas.worldCamera;
+                if (!RectTransformUtility.RectangleContainsScreenPoint(rt, Input.mousePosition, cam)) continue;
+                try { t.Value(); }
+                catch (Exception e) { Core.Log?.Warning("[hub] row right-click failed: " + e.Message); }
+                return true;
+            }
+            return false;
         }
 
         // Above every menu screen's own ESC handler (they register at 0), so the question comes first.
@@ -260,6 +280,7 @@ namespace SideHustle.Menu
             public Sprite Icon;
             public Action OnClick;
             public bool Disabled;   // render greyed (e.g. Host/Join on a not-installed gamemode). OnClick is null then.
+            public Action OnSecondary;   // right-click on the row; null = right-click means Back as everywhere else
         }
 
         // Advertised not-installed-gamemode lobbies are queried ONCE when the menu scene loads (Prewarm) and cached,
@@ -378,13 +399,18 @@ namespace SideHustle.Menu
             {
                 GamemodeDescriptor desc = d;
                 string author = string.IsNullOrWhiteSpace(desc.Author) ? "" : "by " + desc.Author.Trim() + "   ";
+                // Last played solo: the row starts solo again and right-click opens the Host / Join choice. A player
+                // who always plays alone otherwise passes the same choice screen every single time.
+                bool soloAgain = desc.AllowsSingleplayer && desc.AllowsMultiplayer
+                                 && Preferences.GetLastMode(desc.Id) == Preferences.ModeSolo;
                 rows.Add(new Row
                 {
                     Name = desc.DisplayName,
                     Subtitle = desc.Description,
-                    Corner = author + SupportBadge(desc.Support),
+                    Corner = author + (soloAgain ? "Solo - right-click for lobbies" : SupportBadge(desc.Support)),
                     Icon = IconOf(desc),
-                    OnClick = () => OnSelectGamemode(desc)
+                    OnClick = soloAgain ? (Action)(() => LaunchSelected(desc)) : () => OnSelectGamemode(desc),
+                    OnSecondary = soloAgain ? (Action)(() => ShowModeChoice(desc)) : null
                 });
             }
 
@@ -577,6 +603,11 @@ namespace SideHustle.Menu
             var again = Preferences.GetHost(desc.Id);
             if (again != null)
                 rows.Add(new Row { Name = "Host again", Subtitle = HostAgainSummary(again), OnClick = () => HostAgain(desc) });
+            else
+            {
+                var defaults = DefaultHost(desc);
+                rows.Add(new Row { Name = "Host with defaults", Subtitle = HostAgainSummary(defaults), OnClick = () => HostWith(desc, defaults, "Host with defaults") });
+            }
             // Join goes straight to the browser: the mod policy is the host's decision (made on the host form), and a
             // client runs the gamemode host-authoritatively, so it keeps its own mods - no client-side mod gate here.
             rows.Add(new Row { Name = "Join a lobby", Subtitle = "Browse and join an open lobby.", OnClick = () => ShowBrowser(desc) });
@@ -591,8 +622,8 @@ namespace SideHustle.Menu
             return $"{Words.Plural(h.MaxPlayers, "player", "players")} - {(h.Visibility == 1 ? "private" : "public")}{name}";
         }
 
-        // Starts a session straight from the settings remembered for this gamemode: same players, visibility and lobby
-        // name, the gamemode's default preset, no password.
+        // Starts a session straight from the settings remembered for this gamemode: same players, visibility, lobby
+        // name and mod mode, the gamemode's default preset, no password.
         private static void HostAgain(GamemodeDescriptor desc)
         {
             var saved = Preferences.GetHost(desc.Id);
@@ -602,11 +633,26 @@ namespace SideHustle.Menu
                 ShowHostConfig(desc);
                 return;
             }
+            HostWith(desc, saved, "Host again");
+        }
+
+        // What the host form would start with for a first host: up to 4 players, public, the default lobby name and
+        // the gamemode's own mod-mode default.
+        private static Preferences.RememberedHost DefaultHost(GamemodeDescriptor desc) => new Preferences.RememberedHost
+        {
+            MaxPlayers = Mathf.Min(4, Mathf.Max(2, LobbyCaps.MaxClients())),
+            Visibility = 0,
+            LobbyName = HostConfigView.DefaultLobbyName(desc),
+        };
+
+        private static void HostWith(GamemodeDescriptor desc, Preferences.RememberedHost saved, string label)
+        {
             _mpDesc = desc;
             int players = Mathf.Clamp(saved.MaxPlayers >= 2 ? saved.MaxPlayers : 4, 2, Mathf.Max(2, LobbyCaps.MaxClients()));
             var plan = desc.Policy != null ? Mods.ModPolicyResolver.Resolve(desc) : null;
             bool hasPolicy = plan != null && plan.HasChanges;
             int policyMode = (hasPolicy && !plan.Blocked && desc.DefaultRequiredModsOnly) ? 1 : 0;
+            if (hasPolicy && !plan.Blocked && saved.PolicyMode >= 0) policyMode = saved.PolicyMode;
             var opts = new HostOptions
             {
                 MaxPlayers = players,
@@ -616,7 +662,7 @@ namespace SideHustle.Menu
                 ModeLabel = modeLabel,
                 DiscordCode = DiscordInvite.IsCode(saved.DiscordCode) ? saved.DiscordCode : null,
             };
-            Core.Log?.Msg($"[hub] Host again '{desc.Id}': {players} players, {(opts.Visibility == LobbyVisibility.Private ? "private" : "public")}.");
+            Core.Log?.Msg($"[hub] {label} '{desc.Id}': {players} players, {(opts.Visibility == LobbyVisibility.Private ? "private" : "public")}, mod mode {policyMode}.");
             StartHostConfigured(desc, opts, policyMode, plan);
         }
 
@@ -645,6 +691,7 @@ namespace SideHustle.Menu
         {
             const float formH = FormHeight;
             _gamemodeListShowing = false;   // a form view is up, not the gamemode row list
+            _secondaryTargets.Clear();
             var rootRt = _clone.GetComponent<RectTransform>();
             if (rootRt != null) rootRt.sizeDelta = new Vector2(PanelWidth, PanelHeight);
 
@@ -715,6 +762,7 @@ namespace SideHustle.Menu
         {
             if (_clone == null) return;
             ClearFormHost();
+            _secondaryTargets.Clear();
             _gamemodeListShowing = title == "Choose a gamemode";   // tracked so a late advertised query can refresh it
             try
             {
@@ -747,6 +795,8 @@ namespace SideHustle.Menu
                     {
                         RepurposeRow(slot, rows[i], slotH);
                         slot.gameObject.SetActive(true);
+                        var srt = slot as RectTransform;
+                        if (rows[i].OnSecondary != null && srt != null) _secondaryTargets.Add(new KeyValuePair<RectTransform, Action>(srt, rows[i].OnSecondary));
                     }
                     else
                     {
@@ -963,7 +1013,7 @@ namespace SideHustle.Menu
             if (!string.IsNullOrEmpty(hostPayload))
             {
                 CloseHubScreen();
-                if (!MultiplayerCoordinator.StartHost(desc, DecodeHostIntent(hostPayload))) ShowRefusal(MultiplayerCoordinator.LastRefusal);
+                if (!MultiplayerCoordinator.StartHost(desc, DecodeHostIntent(hostPayload))) ShowRefusal(MultiplayerCoordinator.LastRefusal, desc);
                 return;
             }
             OnSelectGamemode(desc);
@@ -1019,10 +1069,11 @@ namespace SideHustle.Menu
         internal static void LaunchSelected(GamemodeDescriptor desc)
         {
             Preferences.RecordLaunch(desc.Id);
+            Preferences.SetLastMode(desc.Id, Preferences.ModeSolo);
             if (desc.Surface == GamemodeSurface.World)
             {
                 CloseHubScreen();
-                if (!MultiplayerCoordinator.StartWorldSingleplayer(desc)) ShowRefusal(MultiplayerCoordinator.LastRefusal);
+                if (!MultiplayerCoordinator.StartWorldSingleplayer(desc)) ShowRefusal(MultiplayerCoordinator.LastRefusal, desc);
             }
             else
             {
@@ -1042,8 +1093,9 @@ namespace SideHustle.Menu
                 return;
             }
             Preferences.RecordLaunch(desc.Id);
+            Preferences.SetLastMode(desc.Id, Preferences.ModeLobby);
             CloseHubScreen();
-            if (!MultiplayerCoordinator.StartHost(desc, opts)) ShowRefusal(MultiplayerCoordinator.LastRefusal);
+            if (!MultiplayerCoordinator.StartHost(desc, opts)) ShowRefusal(MultiplayerCoordinator.LastRefusal, desc);
         }
 
         // --- restart countdown (Required-mods-only host) ---
@@ -1053,6 +1105,7 @@ namespace SideHustle.Menu
             _rcOnRestart = () =>
             {
                 Preferences.RecordLaunch(desc.Id);
+                Preferences.SetLastMode(desc.Id, Preferences.ModeLobby);
                 Mods.ModSwitcher.ApplyPolicyAndRestart(desc, plan, EncodeHostIntent(opts));
             };
             _rcBack = () => ShowHostConfig(desc);
@@ -1089,15 +1142,40 @@ namespace SideHustle.Menu
             var back = _rcBack;
             _rcOnRestart = null;
             _rcBack = null;
-            RestartCountdownClose();
-            if (a == null) { Core.Log?.Warning("[hub] restart countdown fired with no restart action."); return; }
-            CommittedRestart.ForHost(a, back);
+            if (a == null) { RestartCountdownClose(); Core.Log?.Warning("[hub] restart countdown fired with no restart action."); return; }
+            // The prompt stays up and says "Restarting..." until the process quits: one overlay for one restart, and the
+            // screen never goes blank in a way that looks like a crash. The relaunch runs a frame later so that text is drawn.
+            if (_rcLabel != null) Safe.Try("updating the restart prompt", () => _rcLabel.text = "Restarting...");
+            _rcFire = a;
+            _rcFireBack = back;
+            _rcFireFrames = 2;
         }
 
-        private static void RestartCountdownCancel() { _rcOnRestart = null; _rcBack = null; RestartCountdownClose(); }   // stay on the host form
+        private static Action _rcFire;
+        private static Action _rcFireBack;
+        private static int _rcFireFrames;
+
+        private static void RestartCountdownCancel() { _rcOnRestart = null; _rcBack = null; _rcFire = null; RestartCountdownClose(); }   // stay on the host form
 
         private static void TickRestartCountdown()
         {
+            if (_rcFire != null && --_rcFireFrames <= 0)
+            {
+                var fire = _rcFire; var back = _rcFireBack;
+                _rcFire = null; _rcFireBack = null;
+                try { fire(); }
+                catch (Exception e) { Core.Log?.Error("[hub] the restart failed: " + e); }
+                // The relaunch is synchronous: in flight means the process is quitting and "Restarting..." stays up.
+                // Otherwise it did not start, and the host gets the form back.
+                if (!Mods.ModSwitcher.RelaunchInFlight)
+                {
+                    RestartCountdownClose();
+                    Core.Log?.Warning("[hub] the restart did not start; back to the host form.");
+                    back?.Invoke();
+                }
+                return;
+            }
+            if (_rcFire != null) return;   // "Restarting..." is showing; the countdown is over
             if (_rcScrim == null) return;
             _rcRemaining -= Time.unscaledDeltaTime;
             int secs = Mathf.Max(0, Mathf.CeilToInt(_rcRemaining));
@@ -1174,8 +1252,9 @@ namespace SideHustle.Menu
         private static void JoinDirect(GamemodeDescriptor desc, LobbyRow row)
         {
             Preferences.RecordLaunch(desc.Id);
+            Preferences.SetLastMode(desc.Id, Preferences.ModeLobby);
             CloseHubScreen();
-            if (!MultiplayerCoordinator.StartJoin(desc, row)) ShowRefusal(MultiplayerCoordinator.LastRefusal);
+            if (!MultiplayerCoordinator.StartJoin(desc, row)) ShowRefusal(MultiplayerCoordinator.LastRefusal, desc);
         }
 
         /// <summary>Close the gamemode screen without reopening the home menu (used when a session is launching).</summary>
@@ -1187,8 +1266,9 @@ namespace SideHustle.Menu
         /// <summary>Reopen the gamemode list after a session that did NOT reload the scene (MenuSpace multiplayer).</summary>
         /// <summary>A start call that refused before anything happened: the hub was already closed for the launch, so
         /// put it back and say why.</summary>
-        internal static void ShowRefusal(string why)
+        internal static void ShowRefusal(string why, GamemodeDescriptor desc = null)
         {
+            if (desc != null) MultiplayerCoordinator.NoteReturnGamemode(desc.Id);
             string text = string.IsNullOrEmpty(why) ? "The lobby could not start." : why;
             Core.Log?.Warning("[hub] session start refused: " + text);
             RejoinNotice.Hide();
@@ -1202,10 +1282,32 @@ namespace SideHustle.Menu
             try
             {
                 EnsureClone();
-                ShowGamemodeList();
+                ShowReturnPage(MultiplayerCoordinator.TakeReturnGamemode());
                 if (_cloneScreen != null) _cloneScreen.Open();
             }
             catch (Exception e) { Core.Log?.Warning("[hub] reopen failed: " + e.Message); }
+        }
+
+        /// <summary>The hub after a session that reloaded the menu scene (World gamemodes, vanilla co-op).</summary>
+        internal static void OpenScreenAfterSession()
+        {
+            OpenScreen();
+            if (_cloneScreen != null && _cloneScreen.IsOpen) ShowReturnPage(MultiplayerCoordinator.TakeReturnGamemode());
+        }
+
+        // After a session: that gamemode's mode choice, so a rematch is one click. The list for a singleplayer-only
+        // gamemode (its row already starts it), a vanilla session or a gamemode that is gone.
+        private static void ShowReturnPage(string gamemodeId)
+        {
+            var desc = string.IsNullOrEmpty(gamemodeId) ? null : API.Registered.FirstOrDefault(d => d.Id == gamemodeId);
+            if (desc != null && desc.AllowsMultiplayer)
+            {
+                Core.Log?.Msg($"[hub] back from '{desc.Id}'; showing its page.");
+                ShowModeChoice(desc);
+                return;
+            }
+            if (!string.IsNullOrEmpty(gamemodeId) && desc == null) Core.Log?.Msg($"[hub] '{gamemodeId}' is no longer registered; showing the list.");
+            ShowGamemodeList();
         }
 
         private static void LaunchSingleplayer(GamemodeDescriptor desc)
@@ -1231,7 +1333,7 @@ namespace SideHustle.Menu
             SessionEvents.Exit(ctx);   // OnExitToHub once per session, then SessionEnded
 
             EnsureClone();
-            ShowGamemodeList();
+            ShowReturnPage(ctx?.Descriptor?.Id);
             if (_cloneScreen != null) _cloneScreen.Open();
             _activeCtx = null;
         }

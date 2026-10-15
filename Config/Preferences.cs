@@ -366,7 +366,7 @@ namespace SideHustle.Config
             public string LobbyName = "";
             public bool Enforce = true;     // vanilla only
             public string DiscordCode = "";
-            public int PolicyMode;          // gamemodes only: 0 = keep all mods, 1 = required mods only
+            public int PolicyMode = -1;     // gamemodes only: -1 = never chosen, 0 = keep all mods, 1 = required mods only
             public string Save = "";        // vanilla only: the save slot number last hosted
         }
 

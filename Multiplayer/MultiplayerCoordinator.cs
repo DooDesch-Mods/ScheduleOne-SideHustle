@@ -41,6 +41,12 @@ namespace SideHustle.Multiplayer
         /// <summary>Set when a session ended via a full scene reload; Core reopens the hub on the next Menu init.</summary>
         internal static bool PendingHubReopen;
 
+        // The gamemode the session that just ended belonged to. The hub reopens on that gamemode's page, so a rematch
+        // is one click instead of two. Null after a vanilla session or a refusal with no gamemode behind it.
+        private static string _returnGamemodeId;
+        internal static void NoteReturnGamemode(string id) => _returnGamemodeId = id;
+        internal static string TakeReturnGamemode() { var id = _returnGamemodeId; _returnGamemodeId = null; return id; }
+
         internal static bool IsBusy => _state != State.Idle;
 
         /// <summary>Why the last Start call returned false, in words a player can read. Empty after a successful start.</summary>
@@ -305,6 +311,7 @@ namespace SideHustle.Multiplayer
         internal static void ReturnFromSession(LaunchContext ctx)
         {
             Core.Log?.Msg($"[mp] returning from '{ctx?.Descriptor?.Id ?? _desc?.Id}'.");
+            _returnGamemodeId = ctx?.Descriptor?.Id ?? _desc?.Id;
             bool wasInGame = false;
             try
             {
@@ -405,6 +412,7 @@ namespace SideHustle.Multiplayer
         {
             _backAtMenuFor = 0f;
             Core.Log?.Warning("[mp] aborting session: " + reason);
+            _returnGamemodeId = _desc?.Id ?? _ctx?.Descriptor?.Id;
             // Tell the player too, not just the log. Shown once they are back in the menu - right here there is
             // nothing to draw on, and the scene reload below would destroy it anyway.
             Menu.SessionNotice.Set(reason);
