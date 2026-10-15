@@ -49,7 +49,7 @@ namespace SideHustle.Debugging
         private static bool SubmitString(string args)
         {
             try { return !Handle((args ?? "").Trim().Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries)); }
-            catch { return true; }
+            catch (Exception e) { Core.Log?.Error("[dev] console command failed: " + e); return true; }
         }
 
         private static bool SubmitList(Il2CppSystem.Collections.Generic.List<string> args)
@@ -61,7 +61,7 @@ namespace SideHustle.Debugging
                 for (int i = 0; i < args.Count; i++) parts[i] = args[i];
                 return !Handle(parts);
             }
-            catch { return true; }
+            catch (Exception e) { Core.Log?.Error("[dev] console command failed: " + e); return true; }
         }
 
         private static readonly string[][] Listing =
@@ -285,7 +285,7 @@ namespace SideHustle.Debugging
         private static string LateDir()
         {
             try { return System.IO.Path.Combine(MelonLoader.Utils.MelonEnvironment.ModsDirectory, "_late"); }
-            catch { return ""; }
+            catch (Exception e) { Core.Log?.Warning("[dev] could not resolve the Mods folder: " + e.Message); return ""; }
         }
 
         /// <summary>
@@ -438,7 +438,7 @@ namespace SideHustle.Debugging
 
         private static ulong LocalId()
         {
-            try { return SteamUser.GetSteamID().m_SteamID; } catch { return 0UL; }
+            try { return SteamUser.GetSteamID().m_SteamID; } catch (Exception e) { Core.Log?.Warning("[dev] could not read our Steam id: " + e.Message); return 0UL; }
         }
     }
 }

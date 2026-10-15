@@ -31,14 +31,14 @@ namespace SideHustle.Phone
 
         internal static bool IsHost
         {
-            get { try { return LobbyCoordinator.IsInLobby && LobbyCoordinator.IsHost; } catch { return false; } }
+            get { try { return LobbyCoordinator.IsInLobby && LobbyCoordinator.IsHost; } catch (Exception e) { Menu.Safe.Report("asking whether we host the lobby", e); return false; } }
         }
 
         /// <summary>In a lobby at all, host or not. The app's three states are "hosting", "in someone else's
         /// session" and "nothing running", and only this tells the last two apart.</summary>
         internal static bool InLobby
         {
-            get { try { return LobbyCoordinator.IsInLobby; } catch { return false; } }
+            get { try { return LobbyCoordinator.IsInLobby; } catch (Exception e) { Menu.Safe.Report("asking whether we are in a lobby", e); return false; } }
         }
 
         private static CSteamID Sid => new CSteamID(LobbyCoordinator.CurrentLobbyId);
@@ -46,7 +46,7 @@ namespace SideHustle.Phone
         private static string Read(string key)
         {
             try { return SteamMatchmaking.GetLobbyData(Sid, key) ?? ""; }
-            catch { return ""; }
+            catch (Exception e) { Menu.Safe.Report("reading lobby key " + key, e); return ""; }
         }
 
         /// <summary>
@@ -91,7 +91,7 @@ namespace SideHustle.Phone
                     int real = SteamMatchmaking.GetLobbyMemberLimit(Sid);
                     if (real >= 2) return real;
                 }
-                catch { /* fall through to the advertised value */ }
+                catch (Exception e) { Menu.Safe.Report("reading the lobby seat limit (using the advertised value)", e); }
                 int.TryParse(Read(LobbyCoordinator.KeyMax), out int advertised);
                 return advertised >= 2 ? advertised : 4;
             }
@@ -99,14 +99,14 @@ namespace SideHustle.Phone
 
         internal static int Members
         {
-            get { try { return Math.Max(1, LobbyCoordinator.MemberCount); } catch { return 1; } }
+            get { try { return Math.Max(1, LobbyCoordinator.MemberCount); } catch (Exception e) { Menu.Safe.Report("counting lobby members", e); return 1; } }
         }
 
         /// <summary>The most seats this session can hand out: whatever FullHouse raised the transport to when the
         /// lobby was created. Going past it advertises a seat that cannot be filled.</summary>
         internal static int SeatCeiling
         {
-            get { try { return Math.Max(2, LobbyCaps.MaxClients()); } catch { return 4; } }
+            get { try { return Math.Max(2, LobbyCaps.MaxClients()); } catch (Exception e) { Menu.Safe.Report("reading the seat ceiling", e); return 4; } }
         }
 
         internal static bool SetLobbyName(string name)
@@ -255,8 +255,8 @@ namespace SideHustle.Phone
                 CSteamID sid = Sid;
                 if (sid.m_SteamID == 0UL) return list;
                 ulong owner = 0UL, me = 0UL;
-                try { owner = SteamMatchmaking.GetLobbyOwner(sid).m_SteamID; } catch { }
-                try { me = SteamUser.GetSteamID().m_SteamID; } catch { }
+                try { owner = SteamMatchmaking.GetLobbyOwner(sid).m_SteamID; } catch (Exception e) { Menu.Safe.Report("reading the lobby owner", e); }
+                try { me = SteamUser.GetSteamID().m_SteamID; } catch (Exception e) { Menu.Safe.Report("reading our own Steam id", e); }
 
                 int n = SteamMatchmaking.GetNumLobbyMembers(sid);
                 for (int i = 0; i < n; i++)
@@ -264,7 +264,7 @@ namespace SideHustle.Phone
                     CSteamID m = SteamMatchmaking.GetLobbyMemberByIndex(sid, i);
                     if (m.m_SteamID == 0UL) continue;
                     string name = "";
-                    try { name = SteamFriends.GetFriendPersonaName(m); } catch { }
+                    try { name = SteamFriends.GetFriendPersonaName(m); } catch (Exception e) { Menu.Safe.Report("reading a member name", e); }
                     list.Add(new Member
                     {
                         SteamId = m.m_SteamID,
@@ -295,7 +295,7 @@ namespace SideHustle.Phone
                 string advertised = Read(LobbyCoordinator.KeyHostName);
                 if (!string.IsNullOrWhiteSpace(advertised)) return advertised;
                 try { return SteamFriends.GetFriendPersonaName(SteamMatchmaking.GetLobbyOwner(Sid)); }
-                catch { return ""; }
+                catch (Exception e) { Menu.Safe.Report("reading the host name", e); return ""; }
             }
         }
 

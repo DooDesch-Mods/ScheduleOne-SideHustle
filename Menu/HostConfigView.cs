@@ -47,7 +47,7 @@ namespace SideHustle.Menu
                 applyingPreset = true;
                 if (vals != null)
                     foreach (var kv in vals)
-                        if (setters.TryGetValue(kv.Key, out var set)) { try { set(kv.Value); } catch { } }
+                        if (setters.TryGetValue(kv.Key, out var set)) { try { set(kv.Value); } catch (Exception e) { Core.Log?.Warning($"[hub] could not apply preset value {kv.Key}: {e.Message}"); } }
                 applyingPreset = false;
                 settingsDirty = false;   // selecting a preset is a clean baseline
             };

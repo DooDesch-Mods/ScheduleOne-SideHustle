@@ -214,12 +214,13 @@ namespace SideHustle.Phone
                 : "-/" + ChatRelay.Revision;
             if (now == _pushed) return;
             _pushed = now;
-            try { _app.Emit("lobby.changed", now); } catch { /* the page will catch up on its next open */ }
+            // The page catches up on its next open, so a missed push only delays the update.
+            Menu.Safe.Try("telling the Lobby app the session changed", () => _app.Emit("lobby.changed", now));
 
             // The badge is the number a player sees without opening anything, so it carries the same count the
             // Chat tab shows. Set on every change rather than tracked: the framework remembers it across a phone
             // rebuild, and re-setting the same value costs nothing.
-            try { _app.Badge(ChatRelay.UnreadCount); } catch { }
+            Menu.Safe.Try("updating the Lobby app badge", () => _app.Badge(ChatRelay.UnreadCount));
 
             NotifyIfUnseen();
         }
@@ -241,7 +242,8 @@ namespace SideHustle.Phone
             string text = ChatRelay.LastText(from);
             if (string.IsNullOrEmpty(text)) return;
 
-            try { _app.Notify(ChatRelay.NameOf(from), text); } catch { /* no phone to draw on yet */ }
+            // No phone to draw on yet is a normal early state; the message stays in the Chat tab.
+            Menu.Safe.Try("notifying the host of a message", () => _app.Notify(ChatRelay.NameOf(from), text));
         }
     }
 }
