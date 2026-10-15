@@ -264,8 +264,8 @@ namespace SideHustle.Menu
 
         private static Row BuildVanillaRow() => new Row
         {
-            Name = "Vanilla Co-op",
-            Subtitle = "Host your own save publicly or browse open vanilla lobbies - mods sync on join.",
+            Name = "Vanilla co-op",
+            Subtitle = "Host a save or join a lobby - mods sync on join.",
             Corner = "Sync",
             OnClick = ShowVanillaChoice
         };
@@ -279,19 +279,19 @@ namespace SideHustle.Menu
             {
                 new Row
                 {
-                    Name = "Host a save",
-                    Subtitle = "Load one of your savegames and open it as a public lobby.",
+                    Name = "Host a lobby",
+                    Subtitle = "Open one of your saves as a lobby.",
                     OnClick = ShowVanillaSavePicker
                 },
                 new Row
                 {
                     Name = "Join a lobby",
-                    Subtitle = "Browse public vanilla lobbies other Side Hustle hosts are running.",
+                    Subtitle = "Browse open lobbies.",
                     OnClick = ShowVanillaBrowser
                 },
                 new Row { Name = "Back", Subtitle = "Back to the gamemode list.", OnClick = ShowGamemodeList }
             };
-            ShowRows("Vanilla Co-op", rows, aliasForGamemodeId: "vanilla");
+            ShowRows("Vanilla co-op", rows, aliasForGamemodeId: "vanilla");
         }
 
         private static void ShowVanillaSavePicker()
@@ -335,12 +335,12 @@ namespace SideHustle.Menu
                 rows.Insert(0, new Row
                 {
                     Name = "New game",
-                    Subtitle = "Create a fresh save and host it right away.",
+                    Subtitle = "Create a save and host it.",
                     Corner = "New",
                     OnClick = PromptNewGame
                 });
-            rows.Add(new Row { Name = "Back", Subtitle = "Back to Vanilla Co-op.", OnClick = ShowVanillaChoice });
-            ShowRows("Host a save", rows);
+            rows.Add(new Row { Name = "Back", Subtitle = "Back to Vanilla co-op.", OnClick = ShowVanillaChoice });
+            ShowRows("Host a lobby", rows);
         }
 
         // Name the organisation (like the vanilla New Game setup screen), then create + host a fresh save.
@@ -349,7 +349,7 @@ namespace SideHustle.Menu
             var root = DialogRoot();
             if (root == null) return;
             DooDesch.UI.Components.PromptDialog(root, "New game",
-                "Name your organisation - a fresh save is created and hosted as a public lobby.",
+                "Name your organisation.",
                 "Organisation name", "Create and host",
                 name =>
                 {
@@ -363,9 +363,9 @@ namespace SideHustle.Menu
         {
             if (FirstFreeSaveSlot() < 0)
             {
-                ShowRows("Host a save", new List<Row>
+                ShowRows("Host a lobby", new List<Row>
                 {
-                    new Row { Name = "All save slots are full", Subtitle = "Delete a save in the main menu first, then create a new game.", Disabled = true },
+                    new Row { Name = "All save slots are full", Subtitle = "Delete a save in the main menu first.", Disabled = true },
                     new Row { Name = "Back", Subtitle = "Back to your saves.", OnClick = ShowVanillaSavePicker }
                 });
                 return;
@@ -414,7 +414,7 @@ namespace SideHustle.Menu
                     var h = CreateFormHost("SH_VanillaHost");
                     if (plan == null)
                     {
-                        ProfilesViews.BuildInstalling(h, "Couldn't prepare your mod list. Go back and try again.", ShowVanillaSavePicker);
+                        ProfilesViews.BuildInstalling(h, "Couldn't prepare your mod list.", ShowVanillaSavePicker);
                         return;
                     }
                     VanillaHostView.Build(h, plan, prefsCats, LobbyCaps.MaxClients(),
@@ -433,7 +433,7 @@ namespace SideHustle.Menu
                                     Core.Log?.Error(slot < 0 ? "[sync] new game: no free save slot." : $"[sync] new game: creating the save in slot {slot + 1} failed.");
                                     ProfilesViews.BuildInstalling(CreateFormHost("SH_VanillaHost"),
                                         slot < 0 ? "All save slots are full. Delete one to start a new game."
-                                                 : "Couldn't create the new save. Try again or pick another slot.", ShowVanillaSavePicker);
+                                                 : "Couldn't create the new save.", ShowVanillaSavePicker);
                                     return;
                                 }
                             }
@@ -462,7 +462,7 @@ namespace SideHustle.Menu
             InvalidateJoinChecks();   // back on the list: the lobby being read is no longer the one being joined
             _back = ShowVanillaChoice;
             ClearFormHost();
-            SetTmp(_clone.transform, "Title", "Join a vanilla lobby");
+            SetTmp(_clone.transform, "Title", "Join a lobby");
 
             var host = CreateFormHost("SH_VanillaBrowser");
             JoinBrowserView.Build(host, new JoinBrowserView.Options
@@ -502,9 +502,9 @@ namespace SideHustle.Menu
             // Keep the card's secondary line short (it already leads with the player count, and BuildCard appends a
             // "Locked" flag): just the save name plus a compact synced-only marker. The full published mod breakdown
             // is shown on the sync-consent screen after the player picks the lobby. No "Vanilla Co-op" label - the
-            // screen title above every card already says "Join a vanilla lobby".
+            // screen title above every card already says "Join a lobby".
             string extra = $"save '{r.Org}'";
-            if (r.Enforced) extra += "  ·  synced-only";
+            if (r.Enforced) extra += "  ·  synced players only";
             return new LobbyRow
             {
                 LobbyId = r.LobbyId,
@@ -553,10 +553,9 @@ namespace SideHustle.Menu
                 if (gate != null)
                 {
                     DooDesch.UI.Components.ConfirmDialog(gate, "Not accepting joiners",
-                        $"{(string.IsNullOrEmpty(row.HostName) ? "This host" : row.HostName)}'s lobby is listed, but it never told the game it is ready for players - "
-                        + "that happens when a lobby is opened after the host was already playing, on a build older than Side Hustle 2.3.0. "
-                        + "Joining would install their mods, restart your game and then leave you in the menu.\n\n"
-                        + "Ask them to unpublish and publish again, or try anyway if they only just finished loading.",
+                        $"{(string.IsNullOrEmpty(row.HostName) ? "This host" : row.HostName)}'s lobby never told the game it is ready for players. "
+                        + "Joining would install their mods, restart your game and leave you in the menu.\n\n"
+                        + "Ask the host to unpublish and publish again, or try anyway if they just finished loading.",
                         "Try anyway", () => StartVanillaJoinChecked(row));
                     return;
                 }
@@ -643,7 +642,7 @@ namespace SideHustle.Menu
             Core.Log?.Msg("[sync] Steam manifest unavailable; trying the backend fallback...");
             ShowRows("Reading the host's mods...", new List<Row>
             {
-                new Row { Name = "Reading the host's mod list (backend)...", Subtitle = "Steam couldn't share it - using the fallback.", Disabled = true },
+                new Row { Name = "Reading the host's mod list...", Subtitle = "Steam couldn't share it, trying another way.", Disabled = true },
                 new Row { Name = "Cancel", Subtitle = "Back to the lobby list.", OnClick = () => { InvalidateJoinChecks(); ShowVanillaBrowser(); } }
             });
             ChatPanel.Keep(row.OwnerSteamId, row.HostName, row.AcceptsMessages);
@@ -671,7 +670,7 @@ namespace SideHustle.Menu
         {
             ShowRows("Comparing mods...", new List<Row>
             {
-                new Row { Name = "Comparing the host's mods with yours...", Subtitle = "Hashing your installed mods.", Disabled = true }
+                new Row { Name = "Comparing the host's mods with yours...", Subtitle = "Checking your installed mods.", Disabled = true }
             });
             ChatPanel.Keep(row.OwnerSteamId, row.HostName, row.AcceptsMessages);
 
@@ -736,15 +735,15 @@ namespace SideHustle.Menu
                 {
                     Name = "Join without syncing",
                     Subtitle = row.Enforced
-                        ? "This host kicks unsynced clients - joining anyway will likely bounce you."
-                        : "Join with your current mods (gameplay may desync when mods differ).",
+                        ? "The host removes players who are not synced."
+                        : "Join with your current mods - gameplay may desync.",
                     Corner = "Join",
                     OnClick = () => { CloseHubScreen(); LobbyCoordinator.JoinLobby(row.LobbyId); }
                 },
                 new Row { Name = "Try again", Subtitle = "Read the host's mod list again.", OnClick = () => { InvalidateJoinChecks(); ShowVanillaSyncCheck(row); } },
                 new Row { Name = "Back", Subtitle = "Back to the lobby list.", OnClick = ShowVanillaBrowser }
             };
-            ShowRows(string.IsNullOrEmpty(row.LobbyName) ? "Vanilla lobby" : row.LobbyName, rows);
+            ShowRows(string.IsNullOrEmpty(row.LobbyName) ? "Lobby" : row.LobbyName, rows);
         }
 
         /// <summary>Consent given: download what's missing, build the session profile from the EXACT resolved

@@ -37,7 +37,7 @@ namespace SideHustle.Menu
             if (_clone == null || g == null) return;
             _back = () => ShowUninstalledChoice(g);
             ClearFormHost();
-            SetTmp(_clone.transform, "Title", "Join: " + g.Name);
+            SetTmp(_clone.transform, "Title", "Join " + g.Name);
             var host = CreateFormHost("SH_GhostBrowser");
             JoinBrowserView.Build(host, new JoinBrowserView.Options
             {
@@ -152,13 +152,13 @@ namespace SideHustle.Menu
                 new Row
                 {
                     Name = "This host can't install it for you",
-                    Subtitle = "The lobby doesn't advertise its mod files (older Side Hustle on the host).",
+                    Subtitle = "The host's Side Hustle is too old to share its mod files.",
                     Disabled = true
                 },
                 new Row
                 {
-                    Name = DownloadLink.IsAllowed(g.Url) ? "Download Mod" : "Find it on Nexus",
-                    Subtitle = canLookUp ? "Install it yourself, then join from the gamemode list." : "No trusted download link provided.",
+                    Name = DownloadLink.IsAllowed(g.Url) ? "Download the mod" : "Find it on Nexus",
+                    Subtitle = canLookUp ? "Install it yourself first." : "No trusted download link.",
                     OnClick = canLookUp
                         ? (Action)(() => DownloadLink.Open(DownloadLink.IsAllowed(g.Url) ? g.Url : DownloadLink.NexusUrl(g.Name)))
                         : null,
@@ -184,11 +184,11 @@ namespace SideHustle.Menu
             bool canLookUp = DownloadLink.IsAllowed(g.Url) || Sync.NexusLookup.CanLookUp(g.Name);
             var rows = new List<Row>
             {
-                new Row { Name = "The gamemode itself is still missing", Subtitle = "Nothing was installed, so joining would not work.", Disabled = true },
+                new Row { Name = "The gamemode itself is still missing", Subtitle = "Nothing was installed.", Disabled = true },
                 new Row
                 {
-                    Name = DownloadLink.IsAllowed(g.Url) ? "Download Mod" : "Find it on Nexus",
-                    Subtitle = canLookUp ? "Install it by hand, then join from the gamemode list." : "No trusted download link provided.",
+                    Name = DownloadLink.IsAllowed(g.Url) ? "Download the mod" : "Find it on Nexus",
+                    Subtitle = canLookUp ? "Install it by hand first." : "No trusted download link.",
                     OnClick = canLookUp
                         ? (Action)(() => DownloadLink.Open(DownloadLink.IsAllowed(g.Url) ? g.Url : DownloadLink.NexusUrl(g.Name)))
                         : null,
@@ -206,7 +206,7 @@ namespace SideHustle.Menu
                 foreach (var r in reasons)
                 {
                     if (string.IsNullOrWhiteSpace(r)) continue;
-                    rows.Insert(at++, new Row { Name = r, Subtitle = "Could not be fetched automatically.", Disabled = true });
+                    rows.Insert(at++, new Row { Name = r, Subtitle = "Could not be downloaded.", Disabled = true });
                     if (at > 4) break;   // a wall of rows stops being read; the log carries the full list
                 }
             }
@@ -249,8 +249,7 @@ namespace SideHustle.Menu
                 onSyncJoin: () => GhostSyncAndJoin(g, row, manifest, diff, mhash, () => ShowGhostConsent(g, row, manifest, diff, mhash)),
                 onPlainJoin: null,
                 onBack: () => ShowGhostBrowser(g),
-                enforcedNote: $"You don't have {g.Name} yet - Side Hustle installs it into a separate session profile, "
-                              + "restarts, and joins the lobby. Your own mods stay untouched.");
+                enforcedNote: $"You don't have {g.Name} yet. Side Hustle installs it, restarts and joins the lobby - your own mods stay untouched.");
         }
 
         /// <summary>
@@ -322,7 +321,7 @@ namespace SideHustle.Menu
                 // own files. Joining beats refusing - the comparison is a safeguard, not something the session needs.
                 Core.Log?.Msg("[mp] join: no mod list on the lobby after " + JoinManifestAttempts +
                               " tries - joining without a comparison. " + VanillaLobby.DescribeReadFailure(row.LobbyId));
-                ShowToast("Mod check skipped - the host's mod list wasn't available.", DooDesch.UI.Severity.Warning);
+                ShowToast("Mod check skipped: no mod list from the host.", DooDesch.UI.Severity.Warning);
                 joinAnyway();
                 return;
             }
@@ -554,7 +553,7 @@ namespace SideHustle.Menu
             {
                 if (attempt < RejoinDataAttempts)
                 {
-                    RejoinNotice.Update($"Looking for the session... attempt {attempt + 1} of {RejoinDataAttempts}");
+                    RejoinNotice.Update($"Looking for the lobby... attempt {attempt + 1} of {RejoinDataAttempts}");
                     try { Il2CppSteamworks.SteamMatchmaking.RequestLobbyData(new Il2CppSteamworks.CSteamID(lobbyId)); }
                     catch (Exception e) { Core.Log?.Warning("[mp] lobby data re-request failed: " + e.Message); }
                     System.Threading.Tasks.Task.Run(async () =>
@@ -585,7 +584,7 @@ namespace SideHustle.Menu
             if (!string.IsNullOrEmpty(wantHash) && liveHash != wantHash)
             {
                 Core.Log?.Warning($"[mp] lobby {lobbyId} now advertises a different mod set - not joining with the old one.");
-                ShowInstalledButLobbyGone(desc, $"{desc.DisplayName} is installed - the host changed their mods, pick the session again.");
+                ShowInstalledButLobbyGone(desc, $"{desc.DisplayName} is installed, but the host changed their mods.");
                 return;
             }
 
@@ -618,7 +617,7 @@ namespace SideHustle.Menu
                 if (_cloneScreen == null) return;
                 if (!_cloneScreen.IsOpen) { ShowGamemodeList(); _cloneScreen.Open(); }
                 OpenGamemode(desc);
-                ShowToastSafe(message ?? $"{desc.DisplayName} is installed - that session has closed, pick another one.");
+                ShowToastSafe(message ?? $"{desc.DisplayName} is installed, but that lobby has closed.");
             }
             catch (Exception e) { Core.Log?.Warning("[mp] could not show the post-install screen: " + e.Message); }
         }
