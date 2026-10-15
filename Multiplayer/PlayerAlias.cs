@@ -11,10 +11,10 @@ namespace SideHustle.Multiplayer
     ///
     /// The vanilla client names itself in <c>Player.OnStartClient</c>: it sets <c>PlayerName</c> from
     /// <c>SteamFriends.GetPersonaName()</c> and pushes it via the owner-only ServerRpc
-    /// <c>Player.SendPlayerNameData(name, steamId)</c> (declared <c>RunLocally</c>), whose relay
-    /// (<c>ReceivePlayerNameData</c>) sets the replicated <c>PlayerName</c>, the overhead nametag and the map POI
+    /// <c>Player.SetPlayerNameAndId_Server(name, steamId)</c> (declared <c>RunLocally</c>), whose relay
+    /// (<c>SetPlayerNameAndId_Client</c>) sets the replicated <c>PlayerName</c>, the overhead nametag and the map POI
     /// on every peer including the caller. We simply let that run, then in a POSTFIX on <c>OnStartClient</c>
-    /// re-push the chosen alias with a second <c>SendPlayerNameData(alias, steamId)</c> call. The second call wins,
+    /// re-push the chosen alias with a second <c>SetPlayerNameAndId_Server(alias, steamId)</c> call. The second call wins,
     /// updating the local owner's own <c>PlayerName</c> (what mods like PropHunt read) and every remote peer.
     ///
     /// We re-send rather than rewrite the outgoing argument in a prefix because a Harmony <c>ref string</c> write
@@ -82,14 +82,14 @@ namespace SideHustle.Multiplayer
             {
                 if (!Active || string.IsNullOrEmpty(_alias) || __instance == null || !__instance.IsOwner) return;
 
-                // SendPlayerNameData takes the id as a STRING since 0.4.6f11. It must stay the numeric Steam id:
+                // SetPlayerNameAndId_Server (SendPlayerNameData before 0.4.7) takes the id as a STRING since 0.4.6f11. It must stay the numeric Steam id:
                 // the host's friend-check parses it (PlatformFriends.IsLocalPlayerFriendsWith -> ulong.Parse).
                 string id = null;
                 try { id = __instance.PlayerCode; } catch { }
                 if (string.IsNullOrEmpty(id) || id == "0") { try { id = SteamUser.GetSteamID().ToString(); } catch { } }
                 if (string.IsNullOrEmpty(id) || id == "0") return;   // can't identify the local player yet - don't push a bogus id
 
-                __instance.SendPlayerNameData(_alias, id);
+                __instance.SetPlayerNameAndId_Server(_alias, id);
             }
             catch (Exception e) { Core.Log?.Warning("[mp] alias apply failed: " + e.Message); }
         }

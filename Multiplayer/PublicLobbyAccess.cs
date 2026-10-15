@@ -9,7 +9,7 @@ namespace SideHustle.Multiplayer
     /// Lets players who are NOT Steam friends of the host join a Side Hustle-hosted lobby.
     ///
     /// Vanilla Schedule I kicks every non-friend: when a joining client sends its name to the host, the server RPC
-    /// <c>Player.RpcLogic___SendPlayerNameData</c> asks <c>PlatformFriends.IsLocalPlayerFriendsWith(id)</c> and, for
+    /// <c>Player.RpcLogic___SetPlayerNameAndId_Server</c> asks <c>PlatformFriends.IsLocalPlayerFriendsWith(id)</c> and, for
     /// anyone who is not a friend, calls <c>Owner.Kick("Not friends with host")</c> a few seconds after the connection
     /// is up. That makes public lobbies useless for anyone outside the host's friends list (the connection establishes
     /// over Steam relay, world data even starts streaming, then the host drops it).
