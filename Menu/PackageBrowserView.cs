@@ -120,7 +120,7 @@ namespace SideHustle.Menu
                         prt.anchorMin = new Vector2(0, 1); prt.anchorMax = new Vector2(0, 1); prt.pivot = new Vector2(0, 1);
                         prt.sizeDelta = new Vector2(PillW, 18f); prt.anchoredPosition = new Vector2(TextLeft, -33f);
                         var pl = UIFactory.Text("t", "Modpack", pill.transform, Theme.Caption, TextAnchor.MiddleCenter, FontStyle.Bold);
-                        pl.color = Color.white; pl.raycastTarget = false;
+                        pl.color = Theme.TextPrimary; pl.raycastTarget = false;
                         var plrt = pl.rectTransform; plrt.anchorMin = Vector2.zero; plrt.anchorMax = Vector2.one; plrt.offsetMin = Vector2.zero; plrt.offsetMax = Vector2.zero;
                         metaLeft = TextLeft + PillW + 8f;
                     }
