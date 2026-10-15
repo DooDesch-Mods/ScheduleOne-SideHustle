@@ -13,6 +13,9 @@ namespace SideHustle.Internal
         /// <summary>Installed by the Hub. Restores the menu and re-shows the gamemode list (MenuSpace singleplayer).</summary>
         internal static Action<LaunchContext> ReturnHandler;
 
+        /// <summary>Handoff key that tells the next normal launch which gamemode page to reopen.</summary>
+        internal const string ReopenGamemodeToken = "ReopenGamemode";
+
         private static bool _returning;   // makes ReturnToHub idempotent (a double call must not double-trigger)
 
         internal static void RequestReturn(LaunchContext ctx)
@@ -42,6 +45,13 @@ namespace SideHustle.Internal
                         }
                     }
                     catch (Exception e) { Core.Log?.Warning("policy-return cleanup threw: " + e.Message); }
+                    // The restart lands in the real game folder, so the token goes there: the next launch opens this
+                    // gamemode's page instead of the bare main menu.
+                    string id = ctx?.Descriptor?.Id;
+                    if (!string.IsNullOrEmpty(id))
+                        SideHustle.Sync.PendingHandoff.Write(SideHustle.Mods.AltBase.GameRoot(),
+                            new System.Collections.Generic.Dictionary<string, string> { [ReopenGamemodeToken] = id });
+                    else Core.Log?.Msg("[hub] no gamemode id on the ending session; the hub will not reopen after the restart.");
                     SideHustle.Mods.ModSwitcher.RestoreAndRestart();
                     return;
                 }

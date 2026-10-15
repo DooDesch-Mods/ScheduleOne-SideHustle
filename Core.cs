@@ -28,6 +28,7 @@ namespace SideHustle
         private string _continueHost;   // encoded host options to host directly after a Host-triggered policy restart
         private string _vanillaJoinPayload;   // encoded lobby+mhash to auto-rejoin after a mod-sync restart
         private string _gamemodeJoinPayload;  // encoded lobby+gamemode+mhash to join after installing that gamemode
+        private string _reopenGamemodeId;     // a gamemode whose hub page to open after the restore-to-full restart
         private bool _restoreRequested;       // RestoreAndRestart was asked for once this run; never again on a re-init
         private bool _restoreRepeatLogged;
 
@@ -118,6 +119,7 @@ namespace SideHustle
                 // did not, and losing them means the restart happens and the player is left in the menu with no lobby.
                 // Restored into Preferences so every read below (and the staleness exemption) works unchanged.
                 RestorePendingTokens(policySession);
+                if (!policySession && !namedProfileSession) TakeReopenToken();
 
                 // A pending vanilla-sync rejoin means this session base is a SYNC profile, built from the HOST's bytes
                 // on purpose. It must never be measured against the local install: a host running a different build of
@@ -248,6 +250,27 @@ namespace SideHustle
         /// whose config some other mod had already broken. The file this reads is ours alone and is deleted as it is
         /// read, so a token can never fire twice.
         /// </summary>
+        /// <summary>
+        /// A gamemode session that ran in its own mod profile ends with a restart back to the full mod set, and that
+        /// restart used to leave the player on the bare main menu. The session's last act writes the gamemode id beside
+        /// the real game folder; this launch picks it up and opens that gamemode's page again, so a rematch is one click.
+        /// </summary>
+        private void TakeReopenToken()
+        {
+            var tokens = Sync.PendingHandoff.TakeAll();
+            if (!tokens.TryGetValue(Internal.HubBridge.ReopenGamemodeToken, out var id) || id.Length == 0) return;
+            _reopenGamemodeId = id;
+            _reopenHubFrames = 90;
+            Log.Msg($"[hub] back on the full mod set after '{id}'; reopening its page.");
+        }
+
+        private static void ReopenGamemode(string id)
+        {
+            var desc = API.Registered.FirstOrDefault(d => d.Id == id);
+            if (desc == null) Log.Warning($"[hub] '{id}' is not installed in this mod set; showing the gamemode list instead.");
+            Hub.OpenGamemode(desc);   // null opens the list
+        }
+
         private static void RestorePendingTokens(bool policySession)
         {
             if (!policySession) return;
@@ -291,6 +314,7 @@ namespace SideHustle
                 _vanillaJoinPayload = null;
                 _gamemodeJoinPayload = null;
                 _continueId = null;
+                _reopenGamemodeId = null;
                 _continueHost = null;
                 Menu.RejoinNotice.Hide();   // a rejoin that never fired must not leave its notice on the world
                 _runtimeNoticeFrames = 0;
@@ -368,6 +392,7 @@ namespace SideHustle
                     if (!string.IsNullOrEmpty(_vanillaJoinPayload)) { var p = _vanillaJoinPayload; _vanillaJoinPayload = null; Sync.SyncCoordinator.ContinueJoin(p); }
                     else if (!string.IsNullOrEmpty(_gamemodeJoinPayload)) { var p = _gamemodeJoinPayload; _gamemodeJoinPayload = null; Hub.ContinueGamemodeJoin(p); }
                     else if (!string.IsNullOrEmpty(_continueId)) { var id = _continueId; var host = _continueHost; _continueId = null; _continueHost = null; Hub.ContinueGamemode(id, host); }
+                    else if (!string.IsNullOrEmpty(_reopenGamemodeId)) { var id = _reopenGamemodeId; _reopenGamemodeId = null; ReopenGamemode(id); }
                     else Hub.OpenScreen();
                 }
                 if (_runtimeNoticeFrames > 0 && --_runtimeNoticeFrames == 0)
