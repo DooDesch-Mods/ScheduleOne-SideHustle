@@ -93,7 +93,8 @@ namespace SideHustle.Sync
         /// the host's hash, and the caller already routes such a mod to the manual checklist with a direct link.
         /// In practice it is never even called, because <see cref="CanAutoFetch"/> is false in this build.
         /// </summary>
-        internal static Task<byte[]> TryFetchAsync(string url, string version, string sha256, CancellationToken ct)
+        internal static Task<byte[]> TryFetchAsync(string url, string version, string sha256, CancellationToken ct,
+            Action<string> failed = null, Action<long, long> onBytes = null)
         {
             Core.Log?.Msg($"[sync] '{url}': this build does not download from GitHub - using the manual link.");
             return Task.FromResult<byte[]>(null);
@@ -136,7 +137,7 @@ namespace SideHustle.Sync
                     list.Add(r);
                 }
             }
-            catch { /* malformed body: empty list */ }
+            catch (Exception e) { Core.Log?.Warning("[sync] GitHub release list could not be parsed: " + e.Message); }
             return list;
         }
 
@@ -159,24 +160,71 @@ namespace SideHustle.Sync
 
         /// <summary>Fetch the repo's releases and return the exact manifest bytes (the DLL whose SHA256 equals
         /// <paramref name="sha256"/>), or null - the caller falls back to the manual flow.</summary>
-        internal static async Task<byte[]> TryFetchAsync(string url, string version, string sha256, CancellationToken ct)
+        internal static async Task<byte[]> TryFetchAsync(string url, string version, string sha256, CancellationToken ct,
+            Action<string> failed = null, Action<long, long> onBytes = null)
         {
-            if (string.IsNullOrEmpty(sha256) || !TryParseRepo(url, out var owner, out var repo)) return null;
+            if (string.IsNullOrEmpty(sha256) || !TryParseRepo(url, out var owner, out var repo))
+            {
+                Core.Log?.Warning($"[sync] GitHub fetch skipped for '{url}': no hash to match or not a repository link.");
+                return null;
+            }
+
+            // Once GitHub has said "rate limited" every further anonymous call fails the same way until the quota
+            // returns, so the rest of this run goes straight to the manual link instead of asking again.
+            if (_rateLimitedUntil > DateTime.Now)
+            {
+                string why = RateLimitText(_rateLimitedUntil);
+                Core.Log?.Warning($"[sync] GitHub fetch for {owner}/{repo} skipped: {why}");
+                failed?.Invoke(why);
+                return null;
+            }
+
             string api = $"https://api.github.com/repos/{Uri.EscapeDataString(owner)}/{Uri.EscapeDataString(repo)}/releases?per_page=20";
-            var body = await ThunderstoreClient.DownloadBytesAsync(api, ct).ConfigureAwait(false);
-            if (body == null) return null;
-            var assets = PickAssets(ParseReleases(System.Text.Encoding.UTF8.GetString(body)), version);
+            var listing = await ThunderstoreClient.FetchAsync(api, ct).ConfigureAwait(false);
+            if (listing.Bytes == null)
+            {
+                Fail(listing, $"releases of {owner}/{repo}", failed);
+                return null;
+            }
+            var assets = PickAssets(ParseReleases(System.Text.Encoding.UTF8.GetString(listing.Bytes)), version);
+            if (assets.Count == 0)
+                Core.Log?.Warning($"[sync] {owner}/{repo}: the release for '{version}' has no usable .dll/.zip asset.");
             foreach (var a in assets)
             {
                 ct.ThrowIfCancellationRequested();
-                var bytes = await ThunderstoreClient.DownloadBytesAsync(a.Url, ct).ConfigureAwait(false);
-                if (bytes == null) continue;
+                var asset = await ThunderstoreClient.FetchAsync(a.Url, ct, MaxAssetBytes, onBytes).ConfigureAwait(false);
+                if (asset.Bytes == null)
+                {
+                    Fail(asset, $"asset '{a.Name}' of {owner}/{repo}", failed);
+                    if (asset.RateLimited) return null;
+                    continue;
+                }
                 var hit = a.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)
-                    ? ScanZip(bytes, sha256)
-                    : Sha256(bytes).Equals(sha256, StringComparison.OrdinalIgnoreCase) ? bytes : null;
+                    ? ScanZip(asset.Bytes, sha256)
+                    : Sha256(asset.Bytes).Equals(sha256, StringComparison.OrdinalIgnoreCase) ? asset.Bytes : null;
                 if (hit != null) return hit;
             }
             return null;
+        }
+
+        private static DateTime _rateLimitedUntil;
+
+        private static string RateLimitText(DateTime resetAt) =>
+            $"GitHub's request limit is used up (back at {resetAt:HH:mm}) - download it by hand";
+
+        private static void Fail(ThunderstoreClient.HttpFetch f, string what, Action<string> failed)
+        {
+            if (f.RateLimited)
+            {
+                // Without a reset header assume the common anonymous window of one hour.
+                _rateLimitedUntil = f.RateLimitReset ?? DateTime.Now.AddMinutes(60);
+                string why = RateLimitText(_rateLimitedUntil);
+                Core.Log?.Warning($"[sync] GitHub rate limit reached while fetching {what}: {why}");
+                failed?.Invoke(why);
+                return;
+            }
+            Core.Log?.Warning($"[sync] GitHub fetch of {what} failed: {f.Error}");
+            failed?.Invoke(f.Status == 404 ? "GitHub has no such release" : $"GitHub fetch failed ({f.Error})");
         }
 
         // Every .dll inside the archive, tested against the wanted hash.
@@ -195,7 +243,7 @@ namespace SideHustle.Sync
                     if (Sha256(bytes).Equals(sha256, StringComparison.OrdinalIgnoreCase)) return bytes;
                 }
             }
-            catch { /* corrupt archive: no match */ }
+            catch (Exception e) { Core.Log?.Warning("[sync] a GitHub release archive could not be read: " + e.Message); }
             return null;
         }
 

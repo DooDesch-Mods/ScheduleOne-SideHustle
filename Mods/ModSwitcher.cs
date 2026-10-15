@@ -16,6 +16,9 @@ namespace SideHustle.Mods
     {
         private const ulong SteamAppId = 3164500;
 
+        /// <summary>How long the relaunch helper waits for the game process to exit before relaunching regardless.</summary>
+        private const int MaxWaitSeconds = 60;
+
         // Set once a relaunch is committed; a second click (the menu keeps ticking while the process quits) is ignored.
         private static bool _inFlight;
 
@@ -257,12 +260,21 @@ namespace SideHustle.Mods
                 bool steamEmu = File.Exists(Path.Combine(root, "steam_appid.txt"));
 
                 // Wait for THIS process (by pid) to exit - matching by image name would also see a second running
-                // instance (the other player in a local two-instance test) and wait forever.
+                // instance (the other player in a local two-instance test) and wait forever. The wait itself is
+                // capped: a game that hangs while quitting must not leave the helper waiting for ever, so after
+                // MaxWaitSeconds it relaunches anyway and says so in sh_relaunch.log beside it.
                 int pid = System.Diagnostics.Process.GetCurrentProcess().Id;
                 var sb = new System.Text.StringBuilder();
-                sb.Append("@echo off\r\n:wait\r\n");
+                sb.Append("@echo off\r\nset /a WAITED=0\r\n:wait\r\n");
                 sb.Append("tasklist /FI \"PID eq " + pid + "\" 2>NUL | find \"" + pid + "\" >NUL\r\n");
-                sb.Append("if not errorlevel 1 ( timeout /t 1 /nobreak >NUL & goto wait )\r\n");
+                sb.Append("if errorlevel 1 goto go\r\n");
+                sb.Append("set /a WAITED+=1\r\n");
+                sb.Append("if %WAITED% GEQ " + MaxWaitSeconds + " goto timedout\r\n");
+                sb.Append("timeout /t 1 /nobreak >NUL\r\n");
+                sb.Append("goto wait\r\n");
+                sb.Append(":timedout\r\n");
+                sb.Append("echo %date% %time% game process " + pid + " still running after " + MaxWaitSeconds + " s; relaunching anyway>>\"%~dp0sh_relaunch.log\"\r\n");
+                sb.Append(":go\r\n");
                 if (steamEmu)
                 {
                     sb.Append("cd /d \"" + root + "\"\r\n");

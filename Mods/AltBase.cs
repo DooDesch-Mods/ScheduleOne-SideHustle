@@ -76,7 +76,11 @@ namespace SideHustle.Mods
         internal static string CurrentBase()
         {
             try { return MelonLoader.Utils.MelonEnvironment.MelonBaseDirectory; }
-            catch { return GameRoot(); }
+            catch (Exception e)
+            {
+                WarnOnce("current-base", "could not read MelonLoader's base directory; using the game folder: " + e.Message);
+                return GameRoot();
+            }
         }
 
         /// <summary>True when the running process booted into a NAMED profile's isolated base (under profiles\),
@@ -95,7 +99,11 @@ namespace SideHustle.Mods
                 return p.StartsWith(pre + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
                        || p.Equals(pre, StringComparison.OrdinalIgnoreCase);
             }
-            catch { return false; }
+            catch (Exception e)
+            {
+                WarnOnce("named-session", "could not tell whether this is a named-profile session (treated as no): " + e.Message);
+                return false;
+            }
         }
 
         /// <summary>True when the running process was launched into an alt base (a policy session is live).</summary>
@@ -108,7 +116,11 @@ namespace SideHustle.Mods
                 if (string.IsNullOrEmpty(cur) || string.IsNullOrEmpty(real)) return false;
                 return !PathsEqual(cur, real);
             }
-            catch { return false; }
+            catch (Exception e)
+            {
+                WarnOnce("alt-session", "could not tell whether this is a profile session (treated as no): " + e.Message);
+                return false;
+            }
         }
 
         /// <summary>
@@ -149,7 +161,7 @@ namespace SideHustle.Mods
             catch (Exception e)
             {
                 Core.Log?.Error("[modpolicy] alt-base skeleton failed: " + e);
-                try { Teardown(altPath); } catch { /* ignore */ }
+                Teardown(altPath);   // logs its own failures
                 return false;
             }
         }
@@ -182,7 +194,7 @@ namespace SideHustle.Mods
             catch (Exception e)
             {
                 Core.Log?.Error("[modpolicy] alt-base build failed: " + e);
-                try { Teardown(altPath); } catch { /* ignore */ }
+                Teardown(altPath);
                 return false;
             }
         }
@@ -248,7 +260,7 @@ namespace SideHustle.Mods
             catch (Exception e)
             {
                 Core.Log?.Error("[profiles] isolated base build failed: " + e);
-                try { Teardown(altPath); } catch { /* ignore */ }
+                Teardown(altPath);
                 return false;
             }
         }
@@ -425,7 +437,10 @@ namespace SideHustle.Mods
                                              .Where(IsReparsePoint)
                                              .OrderByDescending(p => p.Length))   // deepest first
                 {
-                    RunCmd($"rmdir \"{dir}\"");
+                    // rmdir on a junction removes the link only. A failure leaves the link, and the check below then
+                    // refuses to delete recursively.
+                    int code = RunCmd($"rmdir \"{dir}\"", out string detail);
+                    if (code != 0) Core.Log?.Warning($"[modpolicy] could not remove the junction '{dir}' (exit {code}): {detail}");
                 }
 
                 // Refuse a recursive delete if any reparse point survived (would risk following it into a real target).
@@ -441,15 +456,26 @@ namespace SideHustle.Mods
                 // hardlink never removes the original file. Anything we cannot delete now is left in place (it costs
                 // ~nothing - it shares bytes with the real mod) and is swept on a later launch when it is not loaded.
                 bool allGone = true;
+                int locked = 0;
                 foreach (var f in Directory.GetFiles(altPath, "*", SearchOption.AllDirectories))
                 {
                     try { File.SetAttributes(f, FileAttributes.Normal); File.Delete(f); }
-                    catch { allGone = false; }   // locked (loaded DLL) - leave it, sweep later
+                    catch { allGone = false; locked++; }   // locked (loaded DLL) - leave it, sweep later
                 }
+                int dirsLeft = 0;
                 foreach (var dir in Directory.GetDirectories(altPath, "*", SearchOption.AllDirectories)
                                              .OrderByDescending(p => p.Length))   // deepest first
-                { try { Directory.Delete(dir, false); } catch { allGone = false; } }
-                if (allGone) { try { Directory.Delete(altPath, false); } catch { /* a race left something; the next sweep gets it */ } }
+                {
+                    try { Directory.Delete(dir, false); }
+                    catch { allGone = false; dirsLeft++; }
+                }
+                if (locked > 0 || dirsLeft > 0)
+                    Core.Log?.Msg($"[modpolicy] alt base '{altPath}': {locked} file(s) and {dirsLeft} folder(s) are in use and stay until a later sweep.");
+                if (allGone)
+                {
+                    try { Directory.Delete(altPath, false); }
+                    catch (Exception e) { Core.Log?.Msg($"[modpolicy] alt base '{altPath}' was not empty after the teardown; the next sweep removes it: {e.Message}"); }
+                }
             }
             catch (Exception e) { Core.Log?.Warning("[modpolicy] alt-base teardown: " + e.Message); }
         }
@@ -457,7 +483,11 @@ namespace SideHustle.Mods
         private static bool SameSize(string a, string b)
         {
             try { return new FileInfo(a).Length == new FileInfo(b).Length; }
-            catch { return false; }
+            catch (Exception e)
+            {
+                WarnOnce("size:" + a, $"could not compare the sizes of '{a}' and '{b}' (treated as different): {e.Message}");
+                return false;
+            }
         }
 
         /// <summary>Remove every leftover SESSION profile (call from a normal session). Named profiles (profiles\)
@@ -480,7 +510,8 @@ namespace SideHustle.Mods
                             if (keep != null && PathsEqual(s, keep)) continue;
                             Teardown(s);
                         }
-                        try { if (!Directory.EnumerateFileSystemEntries(d).Any()) Directory.Delete(d); } catch { /* ignore */ }
+                        try { if (!Directory.EnumerateFileSystemEntries(d).Any()) Directory.Delete(d); }
+                        catch (Exception e) { WarnOnce("sweep:" + d, $"could not remove the empty session folder '{d}': {e.Message}"); }
                         continue;
                     }
                     // Legacy top-level session profile (pre-2.0 layout): "<id>-<8-hex-nonce>".
@@ -488,7 +519,8 @@ namespace SideHustle.Mods
                     if (keep != null && PathsEqual(d, keep)) continue;
                     Teardown(d);
                 }
-                try { if (!Directory.EnumerateFileSystemEntries(bases).Any()) Directory.Delete(bases); } catch { /* ignore */ }
+                try { if (!Directory.EnumerateFileSystemEntries(bases).Any()) Directory.Delete(bases); }
+                catch (Exception e) { WarnOnce("sweep:" + bases, $"could not remove the empty profile folder '{bases}': {e.Message}"); }
             }
             catch (Exception e) { Core.Log?.Warning("[modpolicy] sweep: " + e.Message); }
         }
@@ -523,7 +555,11 @@ namespace SideHustle.Mods
                 }
                 return false;
             }
-            catch { return false; }
+            catch (Exception e)
+            {
+                Core.Log?.Warning("[modpolicy] could not check whether this profile is out of date (treated as current): " + e.Message);
+                return false;
+            }
         }
 
         private static bool ContentEquals(string a, string b)
@@ -538,22 +574,52 @@ namespace SideHustle.Mods
                     return ha.AsSpan().SequenceEqual(hb);
                 }
             }
-            catch { return false; }   // unreadable -> treat as changed (safer to rebuild)
+            catch (Exception e)
+            {
+                // Unreadable: treated as changed (safer to rebuild).
+                WarnOnce("content:" + a, $"could not compare '{a}' with '{b}' (treated as changed): {e.Message}");
+                return false;
+            }
         }
 
         // --- win32 link helpers (mklink is a cmd builtin; no admin needed for /J junctions or /H hardlinks) ---
 
-        private static bool MakeJunction(string link, string target) => RunCmd($"mklink /J \"{link}\" \"{target}\"") == 0 && Directory.Exists(link);
-        private static bool MakeHardLink(string link, string target) => RunCmd($"mklink /H \"{link}\" \"{target}\"") == 0 && File.Exists(link);
+        private static bool MakeJunction(string link, string target)
+        {
+            int code = RunCmd($"mklink /J \"{link}\" \"{target}\"", out string detail);
+            bool ok = code == 0 && Directory.Exists(link);
+            if (!ok) Core.Log?.Warning($"[modpolicy] mklink /J '{link}' -> '{target}' failed (exit {code}): {detail}");
+            return ok;
+        }
 
+        private static bool MakeHardLink(string link, string target)
+        {
+            int code = RunCmd($"mklink /H \"{link}\" \"{target}\"", out string detail);
+            bool ok = code == 0 && File.Exists(link);
+            // Expected across volumes and on non-NTFS: the caller copies instead.
+            if (!ok) Core.Log?.Msg($"[modpolicy] mklink /H '{Path.GetFileName(link)}' failed (exit {code}): {detail}; copying instead.");
+            return ok;
+        }
+
+        /// <summary>Whether a folder is a junction or symlink. A folder that cannot be inspected counts as one, so no
+        /// caller recurses into something it could not look at.</summary>
         private static bool IsReparsePoint(string path)
         {
             try { return (new DirectoryInfo(path).Attributes & FileAttributes.ReparsePoint) != 0; }
-            catch { return false; }
+            catch (Exception e)
+            {
+                WarnOnce("reparse:" + path, $"could not inspect '{path}'; treating it as a link and not descending into it: {e.Message}");
+                return true;
+            }
         }
 
-        private static int RunCmd(string command)
+        private static int RunCmd(string command) => RunCmd(command, out _);
+
+        /// <summary>Run a cmd builtin. Returns its exit code, or -1 when it did not start or did not finish; the
+        /// output (stderr then stdout) or the failure reason comes back in <paramref name="detail"/>.</summary>
+        private static int RunCmd(string command, out string detail)
         {
+            detail = "";
             try
             {
                 var psi = new ProcessStartInfo("cmd.exe", "/c " + command)
@@ -565,18 +631,45 @@ namespace SideHustle.Mods
                 };
                 using (var p = Process.Start(psi))
                 {
-                    if (p == null) return -1;
-                    p.WaitForExit(15000);
-                    return p.HasExited ? p.ExitCode : -1;
+                    if (p == null) { detail = "cmd.exe did not start"; return -1; }
+                    // Both streams are read while waiting, or a noisy failure fills the pipe and the wait times out.
+                    var err = p.StandardError.ReadToEndAsync();
+                    var output = p.StandardOutput.ReadToEndAsync();
+                    if (!p.WaitForExit(15000))
+                    {
+                        detail = "did not finish within 15 s";
+                        try { p.Kill(); }
+                        catch (Exception e) { detail += " (and could not be stopped: " + e.Message + ")"; }
+                        return -1;
+                    }
+                    detail = ((err.Wait(1000) ? err.Result : "") + " " + (output.Wait(1000) ? output.Result : "")).Trim();
+                    return p.ExitCode;
                 }
             }
-            catch { return -1; }
+            catch (Exception e)
+            {
+                detail = e.GetType().Name + ": " + e.Message;
+                return -1;
+            }
         }
 
         private static bool PathsEqual(string a, string b)
         {
             try { return string.Equals(Path.GetFullPath(a).TrimEnd('\\', '/'), Path.GetFullPath(b).TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase); }
-            catch { return string.Equals(a, b, StringComparison.OrdinalIgnoreCase); }
+            catch (Exception e)
+            {
+                WarnOnce("path:" + a, $"could not normalise '{a}' / '{b}'; comparing the text: {e.Message}");
+                return string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        private static readonly HashSet<string> _warned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>These probes run repeatedly (menu loads, sweeps); a problem with one path is logged once.</summary>
+        private static void WarnOnce(string key, string message)
+        {
+            if (_warned.Count >= 200 || !_warned.Add(key)) return;
+            Core.Log?.Warning("[modpolicy] " + message);
         }
     }
 }

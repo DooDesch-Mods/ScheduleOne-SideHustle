@@ -60,14 +60,11 @@ namespace SideHustle.Multiplayer
             try
             {
                 _harmony = new HarmonyLib.Harmony("doodesch.sidehustle.playeralias");
-                var target = AccessTools.Method(typeof(Player), "OnStartClient");
-                if (target != null)
-                {
-                    _harmony.Patch(target, postfix: new HarmonyMethod(
-                        typeof(PlayerAlias).GetMethod(nameof(OnStartClientPostfix), AccessTools.all)));
-                    Core.Log?.Msg("[mp] player alias installed (custom display name in Side Hustle sessions).");
-                }
-                else Core.Log?.Warning("[mp] Player.OnStartClient not found - custom display name unavailable.");
+                var target = Internal.GameTargets.PlayerOnStartClient.Value;
+                if (target == null) return;   // GameTargets logged the missing target
+                _harmony.Patch(target, postfix: new HarmonyMethod(
+                    typeof(PlayerAlias).GetMethod(nameof(OnStartClientPostfix), AccessTools.all)));
+                Core.Log?.Msg("[mp] player alias installed (custom display name in Side Hustle sessions).");
             }
             catch (Exception e) { Core.Log?.Warning("[mp] player-alias patch install failed: " + e.Message); }
         }
@@ -85,11 +82,21 @@ namespace SideHustle.Multiplayer
                 // SetPlayerNameAndId_Server (SendPlayerNameData before 0.4.7) takes the id as a STRING since 0.4.6f11. It must stay the numeric Steam id:
                 // the host's friend-check parses it (PlatformFriends.IsLocalPlayerFriendsWith -> ulong.Parse).
                 string id = null;
-                try { id = __instance.PlayerCode; } catch { }
-                if (string.IsNullOrEmpty(id) || id == "0") { try { id = SteamUser.GetSteamID().ToString(); } catch { } }
-                if (string.IsNullOrEmpty(id) || id == "0") return;   // can't identify the local player yet - don't push a bogus id
+                try { id = __instance.PlayerCode; }
+                catch (Exception e) { Core.Log?.Warning("[mp] alias: PlayerCode unreadable, trying Steam: " + e.Message); }
+                if (string.IsNullOrEmpty(id) || id == "0")
+                {
+                    try { id = SteamUser.GetSteamID().ToString(); }
+                    catch (Exception e) { Core.Log?.Warning("[mp] alias: Steam id unreadable: " + e.Message); }
+                }
+                if (string.IsNullOrEmpty(id) || id == "0")
+                {
+                    Core.Log?.Warning("[mp] alias not applied: the local player has no Steam id yet.");   // don't push a bogus id
+                    return;
+                }
 
                 __instance.SetPlayerNameAndId_Server(_alias, id);
+                Core.Log?.Msg("[mp] alias pushed to the session: \"" + _alias + "\".");
             }
             catch (Exception e) { Core.Log?.Warning("[mp] alias apply failed: " + e.Message); }
         }

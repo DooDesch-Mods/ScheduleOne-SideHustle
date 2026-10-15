@@ -49,7 +49,7 @@ namespace SideHustle.Sync
                             if (SecretNeedles.Any(n => k.Contains(n))) { secret = true; break; }
                         }
                     }
-                    catch { /* ignore */ }
+                    catch (Exception e) { Core.Log?.Warning($"[sync] could not scan the settings of '{id}' for secrets (its settings are treated as not secret): {e.Message}"); }
 
                     // FullHouse is Side Hustle's embedded bigger-lobby engine, not a third-party mod - name it clearly
                     // so hosts don't wonder what it is, and always sync it so everyone agrees on the max lobby size.

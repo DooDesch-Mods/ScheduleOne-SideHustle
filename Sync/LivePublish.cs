@@ -28,6 +28,7 @@ namespace SideHustle.Sync
         private static bool _published;
         private static TsIndex _index;
         private static bool _indexRequested;
+        private static bool _canPublishWarned;
 
         internal static void Install()
         {
@@ -36,11 +37,10 @@ namespace SideHustle.Sync
             try
             {
                 _harmony = new HarmonyLib.Harmony("doodesch.sidehustle.livepublish");
-                var lateUpdate = AccessTools.Method(typeof(LobbyInterface), "LateUpdate");
+                var lateUpdate = Internal.GameTargets.LobbyInterfaceLateUpdate.Value;
                 if (lateUpdate != null)
                     _harmony.Patch(lateUpdate, postfix: new HarmonyMethod(
                         typeof(LivePublish).GetMethod(nameof(LateUpdatePostfix), AccessTools.all)));
-                else Core.Log?.Warning("[sync] LobbyInterface.LateUpdate not found - no live-publish button.");
             }
             catch (Exception e) { Core.Log?.Warning("[sync] live-publish install failed: " + e.Message); }
         }
@@ -69,8 +69,13 @@ namespace SideHustle.Sync
                     if (_label != null) _label.text = _published ? "Unpublish" : "Publish (Sync)";
                 }
             }
-            catch { }
+            catch (Exception e)
+            {
+                if (!_lateUpdateWarned) { _lateUpdateWarned = true; Core.Log?.Warning("[sync] live-publish button update failed: " + e.Message); }
+            }
         }
+
+        private static bool _lateUpdateWarned;
 
         private static void EnsureButton(LobbyInterface panel)
         {
@@ -123,7 +128,11 @@ namespace SideHustle.Sync
                     var lobby = PersistentSingleton<Lobby>.Instance;
                     return lobby != null && lobby.IsInLobby && lobby.IsHost;
                 }
-                catch { return false; }
+                catch (Exception e)
+                {
+                    if (!_canPublishWarned) { _canPublishWarned = true; Core.Log?.Warning("[sync] live-publish eligibility check failed: " + e.Message); }
+                    return false;
+                }
             }
         }
 
@@ -136,7 +145,11 @@ namespace SideHustle.Sync
             try
             {
                 var lobby = PersistentSingleton<Lobby>.Instance;
-                if (lobby == null || !lobby.IsInLobby || !lobby.IsHost) return;
+                if (lobby == null || !lobby.IsInLobby || !lobby.IsHost)
+                {
+                    Core.Log?.Warning("[sync] publish toggle ignored: not hosting a lobby.");
+                    return;
+                }
 
                 if (_published)
                 {
@@ -157,7 +170,7 @@ namespace SideHustle.Sync
                     System.Threading.Tasks.Task.Run(async () =>
                     {
                         try { _index = await Profiles.ThunderstoreClient.GetIndexAsync(Profiles.ProfileEngine.GameRoot, false, System.Threading.CancellationToken.None); }
-                        catch { }
+                        catch (Exception e) { Core.Log?.Warning("[sync] Thunderstore index unavailable for the live-publish plan; sources stay unresolved: " + e.Message); }
                     });
                 }
 
@@ -165,7 +178,8 @@ namespace SideHustle.Sync
                 int cap = LobbyCaps.MaxClients();
                 var opts = new HostOptions { MaxPlayers = Mathf.Max(2, cap), Visibility = LobbyVisibility.Public };
                 string org = "";
-                try { org = SteamFriends.GetPersonaName(); } catch { }
+                try { org = SteamFriends.GetPersonaName(); }
+                catch (Exception e) { Core.Log?.Warning("[sync] Steam persona name unreadable for the live-publish title: " + e.Message); }
                 bool ok = VanillaLobby.Tag(opts, plan.Manifest.ToCanonicalText(), "", false, org + "'s game",
                     $"{plan.AutoCount + plan.GhCount}/{plan.LinkCount}/{plan.DroppedCount}");
                 if (!ok) { Core.Log?.Warning("[sync] could not publish the lobby."); return; }
@@ -184,8 +198,12 @@ namespace SideHustle.Sync
                 // unpublish - the world stays loaded, so the keys stay honest and a Steam invite keeps working.
                 try
                 {
-                    lobby.SetLobbyData("host_loading", "false");
-                    lobby.SetLobbyData("ready", "true");
+                    // Through Steam directly (the game's Lobby wrapper returns nothing), so a refused write is seen.
+                    var sid = new CSteamID(Multiplayer.LobbyCoordinator.CurrentLobbyId);
+                    bool loadingOff = SteamMatchmaking.SetLobbyData(sid, "host_loading", "false");
+                    bool readyOn = SteamMatchmaking.SetLobbyData(sid, "ready", "true");
+                    if (loadingOff && readyOn) Core.Log?.Msg("[sync] lobby marked ready to join.");
+                    else Core.Log?.Warning($"[sync] Steam refused the ready flags on the live-published lobby (host_loading={loadingOff}, ready={readyOn}) - joiners may stay in the menu.");
                     lobby.SendLobbyMessage("ready");
                 }
                 catch (Exception e) { Core.Log?.Warning("[sync] could not mark the lobby ready to join: " + e.Message); }

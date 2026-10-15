@@ -72,21 +72,35 @@ namespace SideHustle.Boot
 
         private static readonly List<string> _deferred = new List<string>();
 
+        /// <summary>The boot plugin's logger, kept for the helpers below that have no logger parameter.</summary>
+        private static MelonLogger.Instance _log;
+
         internal static bool Enabled { get; private set; }
 
         /// <summary>Take the Mods folder out of the scan and load the few that must run. Called from
         /// OnPreModsLoaded, the last moment before MelonLoader reads the folder.</summary>
         internal static void Arm(MelonLogger.Instance log)
         {
+            _log = log;
             Enabled = ReadPreference();
             _keepExtra = ReadKeepList();   // read even when off, so the entry exists to be edited
             if (!Enabled) return;
 
             string modsDir = MelonEnvironment.ModsDirectory;
-            if (string.IsNullOrEmpty(modsDir) || !Directory.Exists(modsDir)) { Enabled = false; return; }
+            if (string.IsNullOrEmpty(modsDir) || !Directory.Exists(modsDir))
+            {
+                log.Warning($"[gate] the Mods folder was not found ('{modsDir}'); loading your mods normally.");
+                Enabled = false;
+                return;
+            }
 
             var found = Collect(modsDir);
-            if (found.Count == 0) { Enabled = false; return; }
+            if (found.Count == 0)
+            {
+                log.Warning($"[gate] no mod DLLs found in '{modsDir}'; the gate is not armed.");
+                Enabled = false;
+                return;
+            }
 
             try
             {
@@ -162,10 +176,17 @@ namespace SideHustle.Boot
             try
             {
                 var asm = MelonAssembly.LoadMelonAssembly(file);
-                if (asm?.LoadedMelons == null) return false;
+                if (asm?.LoadedMelons == null)
+                {
+                    log.Warning("[gate] " + Path.GetFileName(file) + " carries no melon; it will not run.");
+                    return false;
+                }
                 bool any = false;
                 foreach (var melon in asm.LoadedMelons)
+                {
                     if (melon.Register()) any = true;
+                    else log.Warning($"[gate] {Path.GetFileName(file)}: {melon.Info?.Name} loaded but did not register.");
+                }
                 return any;
             }
             catch (Exception e)
@@ -201,6 +222,17 @@ namespace SideHustle.Boot
             }
 
             var identities = UniqueIdentities(found, log);
+
+            // A name on the always-load list that no file answers to loads nothing and says nothing: a typo, a
+            // renamed download or a mod that was removed. Once per entry, at arm time.
+            foreach (string wanted in _keepExtra)
+            {
+                bool matched = false;
+                foreach (string file in found)
+                    if (Names(file, wanted, identities)) { matched = true; break; }
+                if (!matched)
+                    log.Warning($"[gate] AlwaysLoadMods lists '{wanted}', but no mod in the Mods folder matches it.");
+            }
 
             var keep = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var queue = new Queue<string>();
@@ -327,7 +359,11 @@ namespace SideHustle.Boot
                                     if (one.Value is string s && s.Length > 0) facts.DeclaredDependencies.Add(s);
                 }
             }
-            catch { /* unreadable: no identity, no edges, and it keeps its place */ }
+            catch (Exception e)
+            {
+                // Unreadable: no identity, no edges, and it keeps its place. Cached below, so this logs once per file.
+                _log?.Warning($"[gate] could not read {Path.GetFileName(file)} for its dependencies: {e.Message}");
+            }
             _facts[file] = facts;
             return facts;
         }
@@ -475,7 +511,11 @@ namespace SideHustle.Boot
                 }
                 return names.ToArray();
             }
-            catch { return Array.Empty<string>(); }
+            catch (Exception e)
+            {
+                _log?.Warning("[gate] could not read the AlwaysLoadMods list; only the built-in entries stay loaded: " + e.Message);
+                return Array.Empty<string>();
+            }
         }
 
         /// <summary>
@@ -499,7 +539,11 @@ namespace SideHustle.Boot
                     files.AddRange(Directory.GetFiles(sub, "*.dll", SearchOption.TopDirectoryOnly));
                 }
             }
-            catch { /* an unreadable folder means the gate does not apply */ }
+            catch (Exception e)
+            {
+                // An unreadable folder means the gate does not apply (no files found -> not armed).
+                _log?.Warning($"[gate] could not list the Mods folder '{modsDir}': {e.Message}");
+            }
             return files;
         }
 
@@ -523,7 +567,11 @@ namespace SideHustle.Boot
                                 + "Fewer restarts when joining, but a mod that needs to patch the game early may stop working.");
                 return entry.Value;
             }
-            catch { return false; }
+            catch (Exception e)
+            {
+                _log?.Warning("[gate] could not read the DeferModsUntilLobby switch; loading your mods normally: " + e.Message);
+                return false;
+            }
         }
     }
 }

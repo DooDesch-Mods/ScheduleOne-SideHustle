@@ -55,7 +55,11 @@ namespace SideHustle.Profiles
                     }
                 }
             }
-            catch { _map = null; }
+            catch (Exception e)
+            {
+                Core.Log?.Warning("[profiles] modmap.json is unreadable; starting with no confirmed mappings: " + e.Message);
+                _map = null;
+            }
             return _map ??= new Dictionary<string, ModMapEntry>(StringComparer.OrdinalIgnoreCase);
         }
 
@@ -68,7 +72,7 @@ namespace SideHustle.Profiles
                 Directory.CreateDirectory(Path.GetDirectoryName(p));
                 File.WriteAllText(p, JsonSerializer.Serialize(Map(), JsonOpts));
             }
-            catch { /* best-effort */ }
+            catch (Exception e) { Core.Log?.Warning("[profiles] could not save modmap.json: " + e.Message); }
         }
 
         /// <summary>The CONFIRMED package for a DLL, or null (suggestions are never returned here).</summary>

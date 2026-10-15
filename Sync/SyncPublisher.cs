@@ -63,8 +63,10 @@ namespace SideHustle.Sync
         private static SyncManifest NewManifestHeader()
         {
             string game = "", sh = "";
-            try { game = UnityEngine.Application.version; } catch { /* ignore */ }
-            try { sh = typeof(Core).Assembly.GetName().Version?.ToString(3) ?? ""; } catch { /* ignore */ }
+            try { game = UnityEngine.Application.version; }
+            catch (Exception e) { Core.Log?.Warning("[sync] could not read the game version for the mod list: " + e.Message); }
+            try { sh = typeof(Core).Assembly.GetName().Version?.ToString(3) ?? ""; }
+            catch (Exception e) { Core.Log?.Warning("[sync] could not read the Side Hustle version for the mod list: " + e.Message); }
             return new SyncManifest
             {
                 GameVersion = game,
@@ -75,7 +77,12 @@ namespace SideHustle.Sync
 
         private static string SafeMelonVersion()
         {
-            try { return MelonLoader.Properties.BuildInfo.Version ?? ""; } catch { return ""; }
+            try { return MelonLoader.Properties.BuildInfo.Version ?? ""; }
+            catch (Exception e)
+            {
+                Core.Log?.Warning("[sync] could not read the MelonLoader version for the mod list: " + e.Message);
+                return "";
+            }
         }
 
         // Side Hustle AND its S1API layer are the sync infrastructure itself: a joiner must already have them to
@@ -104,7 +111,11 @@ namespace SideHustle.Sync
                     return "nx:" + m.DownloadLink;
                 return "";
             }
-            catch { return ""; }
+            catch (Exception e)
+            {
+                Core.Log?.Warning($"[sync] could not work out a download source for '{m.File}' (listed without one): {e.Message}");
+                return "";
+            }
         }
 
         private static string Norm(string s) =>

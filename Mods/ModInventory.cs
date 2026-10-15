@@ -26,31 +26,80 @@ namespace SideHustle.Mods
     /// </summary>
     internal static class ModInventory
     {
-        internal static string GameRoot() { try { return Directory.GetParent(Application.dataPath).FullName; } catch { return null; } }
+        private static readonly HashSet<string> _warned = new HashSet<string>(StringComparer.Ordinal);
+
+        /// <summary>These probes run on every menu load and per mod; a given problem is logged once.</summary>
+        private static void WarnOnce(string key, string message)
+        {
+            if (_warned.Count >= 200 || !_warned.Add(key)) return;
+            Core.Log?.Warning("[mods] " + message);
+        }
+
+        internal static string GameRoot()
+        {
+            try { return Directory.GetParent(Application.dataPath).FullName; }
+            catch (Exception e)
+            {
+                WarnOnce("gameroot", "could not find the game folder: " + e.Message);
+                return null;
+            }
+        }
 
         /// <summary>The Mods folder the running process actually loaded from (= the alt Mods during a policy session,
         /// the real Mods otherwise), so the policy resolver's "available" set always matches the loaded set.</summary>
         internal static string ModsPath()
         {
-            try { var d = MelonLoader.Utils.MelonEnvironment.ModsDirectory; if (!string.IsNullOrEmpty(d)) return d; } catch { /* fall back */ }
+            try { var d = MelonLoader.Utils.MelonEnvironment.ModsDirectory; if (!string.IsNullOrEmpty(d)) return d; }
+            catch (Exception e) { WarnOnce("modspath", "MelonLoader would not name its Mods folder; using <game>/Mods: " + e.Message); }
             var r = GameRoot(); return r == null ? null : Path.Combine(r, "Mods");
         }
 
         internal static IEnumerable<MelonMod> Melons()
         {
-            try { return MelonMod.RegisteredMelons; } catch { return new List<MelonMod>(); }
+            try { return MelonMod.RegisteredMelons; }
+            catch (Exception e)
+            {
+                WarnOnce("melons", "could not list the loaded mods (treated as none): " + e.Message);
+                return new List<MelonMod>();
+            }
         }
 
-        internal static string NameOf(MelonMod m) { try { return m.Info?.Name ?? m.GetType().Name; } catch { return m.GetType().Name; } }
+        internal static string NameOf(MelonMod m)
+        {
+            try { return m.Info?.Name ?? m.GetType().Name; }
+            catch (Exception e)
+            {
+                WarnOnce("name:" + m.GetType().Name, $"could not read the name of {m.GetType().Name}: {e.Message}");
+                return m.GetType().Name;
+            }
+        }
 
-        internal static string VersionOf(MelonMod m) { try { return m.Info?.Version ?? ""; } catch { return ""; } }
+        internal static string VersionOf(MelonMod m)
+        {
+            try { return m.Info?.Version ?? ""; }
+            catch (Exception e)
+            {
+                WarnOnce("ver:" + m.GetType().Name, $"could not read the version of {m.GetType().Name}: {e.Message}");
+                return "";
+            }
+        }
 
-        internal static string DownloadLinkOf(MelonMod m) { try { return m.Info?.DownloadLink ?? ""; } catch { return ""; } }
+        internal static string DownloadLinkOf(MelonMod m)
+        {
+            try { return m.Info?.DownloadLink ?? ""; }
+            catch (Exception e)
+            {
+                WarnOnce("link:" + m.GetType().Name, $"could not read the download link of {m.GetType().Name}: {e.Message}");
+                return "";
+            }
+        }
 
         internal static string FileOf(MelonMod m)
         {
-            try { var l = m.MelonAssembly?.Location; if (!string.IsNullOrEmpty(l)) return Path.GetFileName(l); } catch { /* ignore */ }
-            try { var l = m.GetType().Assembly.Location; if (!string.IsNullOrEmpty(l)) return Path.GetFileName(l); } catch { /* ignore */ }
+            try { var l = m.MelonAssembly?.Location; if (!string.IsNullOrEmpty(l)) return Path.GetFileName(l); }
+            catch (Exception e) { WarnOnce("file1:" + m.GetType().Name, $"could not read the file of {m.GetType().Name} from MelonLoader (trying the assembly): {e.Message}"); }
+            try { var l = m.GetType().Assembly.Location; if (!string.IsNullOrEmpty(l)) return Path.GetFileName(l); }
+            catch (Exception e) { WarnOnce("file2:" + m.GetType().Name, $"could not read the file of {m.GetType().Name} from its assembly (the mod is left out of the list): {e.Message}"); }
             return null;
         }
 
@@ -72,7 +121,7 @@ namespace SideHustle.Mods
                         Assembly = m.GetType().Assembly
                     });
                 }
-                catch { /* ignore */ }
+                catch (Exception e) { WarnOnce("loaded:" + m.GetType().Name, $"{m.GetType().Name} could not be listed: {e.Message}"); }
             }
             return list;
         }
@@ -91,7 +140,7 @@ namespace SideHustle.Mods
                     res.Add(n.Substring(0, n.Length - ".disabled".Length));
                 }
             }
-            catch { /* ignore */ }
+            catch (Exception e) { WarnOnce("available", "could not list the files in the Mods folder (the list may be incomplete): " + e.Message); }
             return res.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         }
 
@@ -106,7 +155,11 @@ namespace SideHustle.Mods
                 using var s = File.OpenRead(path);
                 return Convert.ToHexString(sha.ComputeHash(s)).ToLowerInvariant();
             }
-            catch { return null; }
+            catch (Exception e)
+            {
+                WarnOnce("sha:" + path, $"could not hash '{path}': {e.Message}");
+                return null;
+            }
         }
 
         internal static bool IsDisabledOnDisk(string dllFile)
@@ -116,7 +169,11 @@ namespace SideHustle.Mods
                 var dir = ModsPath(); if (dir == null) return false;
                 return File.Exists(Path.Combine(dir, dllFile + ".disabled")) && !File.Exists(Path.Combine(dir, dllFile));
             }
-            catch { return false; }
+            catch (Exception e)
+            {
+                WarnOnce("disabled:" + dllFile, $"could not check whether {dllFile} is disabled (treated as enabled): {e.Message}");
+                return false;
+            }
         }
 
         // --- token resolution ---
@@ -178,7 +235,7 @@ namespace SideHustle.Mods
                 // Records use '|' and fields use ':' - both illegal in Windows file names, so a DLL name cannot collide.
                 Preferences.ModNameMap = string.Join("|", map.Select(kv => kv.Key + ":" + kv.Value));
             }
-            catch { /* best-effort */ }
+            catch (Exception e) { WarnOnce("namemap-refresh", "could not refresh the saved mod-name map (disabled mods may not resolve by name): " + e.Message); }
         }
 
         internal static Dictionary<string, string> LoadNameMap()
@@ -194,7 +251,7 @@ namespace SideHustle.Mods
                     if (i > 0) map[part.Substring(0, i)] = part.Substring(i + 1);
                 }
             }
-            catch { /* ignore */ }
+            catch (Exception e) { WarnOnce("namemap-load", "the saved mod-name map is unreadable and is ignored: " + e.Message); }
             return map;
         }
     }
