@@ -154,6 +154,10 @@
     <EmbeddedResource Include="Assets/menu/*" Exclude="Assets/menu/preview.html;Assets/menu/s1-mock.js">
       <LogicalName>SideHustle.Assets.menu.%(Filename)%(Extension)</LogicalName>
     </EmbeddedResource>
+    <!-- The Debug Stub gamemode draws Side Hustle's package icon, so the hub's icon path has a real picture. -->
+    <EmbeddedResource Include="thunderstore/icon.png" Condition="'$(Configuration)' == 'Debug'">
+      <LogicalName>SideHustle.Dev.stub-icon.png</LogicalName>
+    </EmbeddedResource>
     <!-- The full-screen hub page. preview.html, s1-mock.js and preview/ are the browser stand-in, not shipped. -->
     <EmbeddedResource Include="Assets/hub/*" Exclude="Assets/hub/preview.html;Assets/hub/s1-mock.js">
       <LogicalName>SideHustle.Assets.hub.%(Filename)%(Extension)</LogicalName>

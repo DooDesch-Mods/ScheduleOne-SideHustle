@@ -538,7 +538,10 @@ namespace SideHustle.Menu
                 GamemodeId = "debug.testmode",
                 GamemodeName = "Test Gamemode (debug)",
                 DownloadUrl = "https://thunderstore.io/c/schedule-i/",
-                Members = 3
+                HostName = "DebugHost",
+                LobbyName = "DebugHost's lobby",
+                Members = 3,
+                MaxPlayers = 6
             });
             return seeded;
         }
@@ -998,10 +1001,44 @@ namespace SideHustle.Menu
             // No tint, no hover and no pointer target on a row that does nothing.
             bool inert = onClick == null;
             b.transition = inert ? Selectable.Transition.None : _nativeTransitions[id];
+            if (!inert) SoftenRowTint(b, id);
             if (b.targetGraphic != null) b.targetGraphic.raycastTarget = !inert;
             Action cb = onClick;
             b.onClick.AddListener((UnityAction)(() => { try { cb?.Invoke(); } catch (Exception e) { Core.Log?.Warning("[hub] row click failed: " + e.Message); } }));
             b.interactable = cb != null;
+        }
+
+        private static readonly Dictionary<int, Color> _nativeNormalTints = new Dictionary<int, Color>();
+
+        // The save-slot prefab tints a hovered or selected row pure white, which suits its own dark labels. The rows
+        // carry light labels, so hover and selection lift the row's own colour a little instead.
+        private static void SoftenRowTint(Button b, int id)
+        {
+            try
+            {
+                if (b.transition != Selectable.Transition.ColorTint) return;
+                var cb = b.colors;
+                if (!_nativeNormalTints.TryGetValue(id, out Color normal)) _nativeNormalTints[id] = normal = cb.normalColor;
+                Color lift, press;
+                if (normal.a < 0.05f)
+                {
+                    // The tint graphic is an overlay that is invisible at rest: a faint white sheet marks the row.
+                    lift = new Color(1f, 1f, 1f, 0.10f);
+                    press = new Color(1f, 1f, 1f, 0.06f);
+                }
+                else
+                {
+                    lift = Color.Lerp(normal, Color.white, 0.18f);
+                    lift.a = normal.a;
+                    press = Color.Lerp(normal, Color.white, 0.10f);
+                    press.a = normal.a;
+                }
+                cb.highlightedColor = lift;
+                cb.selectedColor = lift;
+                cb.pressedColor = press;
+                b.colors = cb;
+            }
+            catch (Exception e) { Core.Log?.Warning("[hub] row hover tint stays vanilla white: " + e.Message); }
         }
 
         // --- selection / launch ---

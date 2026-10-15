@@ -25,6 +25,8 @@ namespace SideHustle.Dev
                 DisplayName = "Debug Stub",
                 Description = "Sample hybrid gamemode for testing the hub + host form.",
                 Author = "DooDesch",
+                // Side Hustle's own package icon, embedded for Debug builds only (see the csproj).
+                IconResource = "SideHustle.Dev.stub-icon.png",
                 Support = GamemodeSupport.Hybrid,
                 Surface = GamemodeSurface.MenuSpace,
                 OnLaunchSingleplayer = Launch,

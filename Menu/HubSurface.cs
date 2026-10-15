@@ -1213,7 +1213,7 @@ namespace SideHustle.Menu
             what = what ?? "";
             Core.Log?.Msg($"[hub3] classic screen: {what}.");
             if (what == "settings") { ShowSettings(); return ""; }
-            if (what == "profiles") { OpenProfilesScreen(); return ""; }
+            if (what == "profiles") { OpenProfilesFromHub(); return ""; }
             if (what == "vanillasaves") { ShowVanillaSavePicker(); return ""; }
             const string hostForm = "hostform:";
             if (what.StartsWith(hostForm, StringComparison.Ordinal))

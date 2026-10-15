@@ -63,6 +63,7 @@ namespace SideHustle
 
             // The live-publish button (pause-menu lobby panel) patch - inert until a co-op host is eligible.
             Sync.LivePublish.Install();
+            Menu.HubLobbyWidget.Install();
 
             // The host's in-game lobby controls, as a phone app. Registering is load-order proof and a no-op when
             // Sideload is absent, so it goes here unconditionally rather than behind a check.

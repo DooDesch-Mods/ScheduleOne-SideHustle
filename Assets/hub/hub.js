@@ -21,10 +21,16 @@ const el = (tag, cls, text) => {
 // The browser preview serves runtime pictures from a folder; in the game they come from the mod as s1://name.
 const pic = name => (window.S1_PREVIEW ? window.S1_PREVIEW.img(name) : 's1://' + name);
 
-function icon(name, cls) {
-  const img = el('img', cls ? 'icon ' + cls : 'icon');
-  if (name) img.setAttribute('src', pic(name));
-  return img;
+// A gamemode without a picture gets its initials on the tile instead of an empty box.
+function icon(name, label) {
+  if (name) {
+    const img = el('img', 'icon');
+    img.setAttribute('src', pic(name));
+    return img;
+  }
+  const words = String(label || '').replace(/\(.*?\)/g, ' ').split(/[^A-Za-z0-9]+/).filter(w => w);
+  const letters = words.length > 1 ? words[0][0] + words[1][0] : words.length ? words[0].slice(0, 2) : '?';
+  return el('div', 'icon mono', letters.toUpperCase());
 }
 
 // The engine hands the field's text on the event; a browser keeps it on the element.
@@ -104,6 +110,7 @@ function renderTop() {
   const ver = document.getElementById('ver');
   ver.textContent = steam === 'error' ? 'Steam is not answering'
     : steam === 'loading' && live === 0 ? 'Looking for lobbies...'
+    : live === 0 ? 'No open lobbies'
     : live === 1 ? '1 lobby live' : live + ' lobbies live';
   ver.className = live > 0 ? 'ver' : 'ver off';
 
@@ -225,7 +232,7 @@ function buildFeature(v, cont) {
 // The last gamemode session, one click from running again.
 function buildContinue(c) {
   const box = el('div', 'glass cont');
-  box.appendChild(icon(c.icon));
+  box.appendChild(icon(c.icon, c.name));
   const t = el('div', 't');
   const line = el('div', 'line');
   line.appendChild(el('div', 'k', 'CONTINUE'));
@@ -244,7 +251,7 @@ function buildTile(m) {
   box.addEventListener('click', () => { ui.sel = ui.sel === m.id ? null : m.id; render(); });
 
   const head = el('div', 'head');
-  head.appendChild(icon(m.icon));
+  head.appendChild(icon(m.icon, m.name));
   const t = el('div', 't');
   t.appendChild(el('div', 'nm', m.name));
   t.appendChild(el('div', 'sub', m.sub));
@@ -305,7 +312,7 @@ function buildForm(f) {
   const box = el('div', 'glass detail');
 
   const head = el('div', 'dhead');
-  head.appendChild(icon(f.icon));
+  head.appendChild(icon(f.icon, f.name));
   const t = el('div', 't');
   t.appendChild(el('div', 'nm', f.name));
   t.appendChild(el('div', 'sub', f.author ? 'by ' + f.author : 'Host a lobby'));
@@ -478,6 +485,18 @@ function chipData() {
   return [...counts.values()].sort((a, b) => (b.id === 'vanilla') - (a.id === 'vanilla') || b.n - a.n || a.name.localeCompare(b.name));
 }
 
+// One search field for the page's lifetime. A dropped input leaves its native text field behind as an empty
+// grey bar at the top of the screen, so a rebuilt board takes the same field over.
+let searchField = null;
+function searchBox() {
+  if (searchField) return searchField;
+  searchField = el('input', 'search');
+  searchField.setAttribute('placeholder', 'Search host or gamemode');
+  searchField.value = ui.search;
+  searchField.addEventListener('input', e => { ui.search = valueOf(e); syncRows(); renderPass(); });
+  return searchField;
+}
+
 function buildBoard(main, chips) {
   main.replaceChildren();
   rows.clear();
@@ -492,11 +511,7 @@ function buildBoard(main, chips) {
     ttl.appendChild(live);
   }
   ttl.appendChild(el('div', 'sp'));
-  const search = el('input', 'search');
-  search.setAttribute('placeholder', 'Search host or gamemode');
-  search.value = ui.search;
-  search.addEventListener('input', e => { ui.search = valueOf(e); syncRows(); renderPass(); });
-  ttl.appendChild(search);
+  ttl.appendChild(searchBox());
   board.appendChild(ttl);
 
   const row = el('div', 'chips');
@@ -570,7 +585,7 @@ function buildEmpty() {
 function buildRow(l) {
   const node = el('div', ui.lobby === l.id ? 'r sel' : 'r');
   node.addEventListener('click', () => selectLobby(l.id));
-  node.appendChild(icon(l.icon));
+  node.appendChild(icon(l.icon, l.modeName));
   const c1 = el('div', 'c1');
   const nm = el('div', 'nm', l.modeName);
   const sub = el('div', 'sub', l.name || l.host);
@@ -600,8 +615,12 @@ function updateRow(r, l, first) {
   r.c4.textContent = l.stateText;
   r.c4.className = 'c4 ' + stateClass(l.state);
   r.c3.replaceChildren();
-  if (l.max <= 12) {
-    for (let i = 0; i < l.max; i++) r.c3.appendChild(el('div', i < l.members ? 'seat' : 'seat e'));
+  // Without a seat limit only the taken seats are drawn.
+  const seats = l.max > 0 ? l.max : l.members;
+  if (seats <= 12) {
+    for (let i = 0; i < seats; i++) r.c3.appendChild(el('div', i < l.members ? 'seat' : 'seat e'));
+  } else if (l.max <= 0) {
+    r.c3.appendChild(el('div', 'seatn', String(l.members)));
   } else {
     r.c3.appendChild(el('div', 'seatn', l.members + ' of ' + l.max));
   }
@@ -631,7 +650,7 @@ function renderPass() {
   if (!l) return;
   const pass = el('div', 'pass');
   pass.appendChild(seg('GAMEMODE', l.modeName));
-  pass.appendChild(seg('HOST', l.host || '-'));
+  pass.appendChild(seg('HOST', l.host || 'Unknown'));
   pass.appendChild(seg('SEATS', l.max > 0 ? l.members + ' of ' + l.max : String(l.members)));
   const w = seg('BEFORE YOU JOIN', l.before);
   w.className = 'seg w';
