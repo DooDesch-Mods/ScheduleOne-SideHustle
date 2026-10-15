@@ -28,6 +28,8 @@ namespace SideHustle
         private string _continueHost;   // encoded host options to host directly after a Host-triggered policy restart
         private string _vanillaJoinPayload;   // encoded lobby+mhash to auto-rejoin after a mod-sync restart
         private string _gamemodeJoinPayload;  // encoded lobby+gamemode+mhash to join after installing that gamemode
+        private bool _restoreRequested;       // RestoreAndRestart was asked for once this run; never again on a re-init
+        private bool _restoreRepeatLogged;
 
         public override void OnInitializeMelon()
         {
@@ -67,7 +69,8 @@ namespace SideHustle
             Multiplayer.ClientExitGuard.Install();
 
             // Keep ticking when the window is unfocused, so a post-restart auto-continue still fires.
-            try { UnityEngine.Application.runInBackground = true; } catch { /* ignore */ }
+            try { UnityEngine.Application.runInBackground = true; }
+            catch (Exception e) { Log.Warning("could not keep the game ticking in the background (a post-restart auto-continue may wait for focus): " + e.Message); }
 
 #if DEBUG
             Dev.StubGamemode.Register();
@@ -77,7 +80,8 @@ namespace SideHustle
             // Version read from the assembly, never typed twice: a hardcoded string here silently lies about which
             // build a player is running the moment a release forgets to update it.
             string version = "";
-            try { version = typeof(Core).Assembly.GetName().Version?.ToString(3) ?? ""; } catch { /* ignore */ }
+            try { version = typeof(Core).Assembly.GetName().Version?.ToString(3) ?? ""; }
+            catch (Exception e) { Log.Warning("could not read the Side Hustle version from the assembly: " + e.Message); }
             Log.Msg($"Side Hustle {version} ready - {API.Registered.Count} gamemode(s) registered so far.");
         }
 
@@ -136,9 +140,21 @@ namespace SideHustle
                 // mods. This guarantees a profile is never silently out of date with what's installed.
                 if (policySession && !syncJoinPending && Mods.AltBase.ProfileIsStale())
                 {
-                    Log.Warning("[modpolicy] this gamemode profile is out of date with your installed mods - restoring your full set so it rebuilds fresh.");
-                    Mods.ModSwitcher.RestoreAndRestart();
-                    return;
+                    // Asked ONCE per run. The Menu scene initializes several times in one menu load, and a restore that
+                    // could not start (no helper, no game folder) used to be retried - and re-logged - on each of them.
+                    if (!_restoreRequested)
+                    {
+                        _restoreRequested = true;
+                        Log.Warning("[modpolicy] this gamemode profile is out of date with your installed mods - restoring your full set so it rebuilds fresh.");
+                        Mods.ModSwitcher.RestoreAndRestart();
+                        return;
+                    }
+                    // The restore did not take (the game is still here): carry on in this profile instead of freezing.
+                    if (!_restoreRepeatLogged)
+                    {
+                        _restoreRepeatLogged = true;
+                        Log.Warning("[modpolicy] the restore of your full mod set was already requested this run and has not taken effect; not asking again, continuing in this profile.");
+                    }
                 }
 
                 if (!policySession && !namedProfileSession)
@@ -287,7 +303,8 @@ namespace SideHustle
         /// until the backend's ~90s TTL swept it, so the lobby browser showed a lobby nobody could join.</summary>
         public override void OnApplicationQuit()
         {
-            try { Sync.VanillaLobby.UnpublishDirectoryBlocking(); } catch { /* shutting down */ }
+            try { Sync.VanillaLobby.UnpublishDirectoryBlocking(); }
+            catch (Exception e) { Log?.Warning("[sync] could not withdraw the web listing on quit (it expires on its own): " + e.Message); }
         }
 
         /// <summary>
