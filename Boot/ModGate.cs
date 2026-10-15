@@ -52,6 +52,24 @@ namespace SideHustle.Boot
             "Sideload.dll",
         };
 
+        /// <summary>
+        /// Mods that CREATE a lobby, and so cannot be made to wait for one.
+        ///
+        /// The whole premise of the gate is that a lobby decides what runs. A mod whose job is to bring the lobby
+        /// into existence sits on the wrong side of that sentence: hold it back and nothing ever starts a lobby, so
+        /// it is never released, so nothing ever starts a lobby. The instance sits in the main menu for ever and the
+        /// mod writes nothing to the log while it does, which is why this read for months as a broken LocalLobby
+        /// rather than as a deadlock here (DooDesch-Mods/ScheduleOne-SideHustle#25).
+        ///
+        /// Named rather than detected, because there is nothing to detect: a lobby provider is a third-party mod
+        /// that has never heard of Side Hustle and declares no reference to it. <see cref="ReadKeepList"/> is how a
+        /// player adds one this list has not heard of.
+        /// </summary>
+        private static readonly string[] LobbyProviders =
+        {
+            "LocalLobby",
+        };
+
         private static readonly List<string> _deferred = new List<string>();
 
         internal static bool Enabled { get; private set; }
@@ -182,10 +200,17 @@ namespace SideHustle.Boot
                 if (asmName != null && !byAssemblyName.ContainsKey(asmName)) byAssemblyName[asmName] = file;
             }
 
+            var identities = UniqueIdentities(found, log);
+
             var keep = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var queue = new Queue<string>();
             foreach (string file in found)
-                if (IsAlwaysLoad(file) && keep.Add(file)) queue.Enqueue(file);
+            {
+                string why = WhyAlwaysLoad(file, identities);
+                if (why == null || !keep.Add(file)) continue;
+                queue.Enqueue(file);
+                if (why.Length > 0) log.Msg($"[gate] keeping {Path.GetFileName(file)} - {why}.");
+            }
 
             while (queue.Count > 0)
             {
@@ -341,14 +366,83 @@ namespace SideHustle.Boot
 
         private static List<string> ReferencesOf(string file) => Facts(file).References;
 
-        private static bool IsAlwaysLoad(string file)
+        /// <summary>
+        /// Why this file loads at startup, or <c>null</c> when it does not. An empty string means "because it is
+        /// part of the hub", which needs no line in the log.
+        /// </summary>
+        private static string WhyAlwaysLoad(string file, Dictionary<string, string> identities)
         {
-            string name = Path.GetFileName(file);
             foreach (string keep in AlwaysLoad)
-                if (string.Equals(name, keep, StringComparison.OrdinalIgnoreCase)) return true;
+                if (Names(file, keep, identities)) return string.Empty;
+            foreach (string keep in LobbyProviders)
+                if (Names(file, keep, identities)) return "it is what starts a lobby, so it cannot wait for one";
             foreach (string keep in _keepExtra)
-                if (string.Equals(name, keep, StringComparison.OrdinalIgnoreCase)) return true;
-            return false;
+                if (Names(file, keep, identities)) return "you put it on the always-load list";
+            return null;
+        }
+
+        /// <summary>
+        /// Does this file answer to that name - as a file, or as an identity only one file in the folder carries.
+        ///
+        /// The file name alone was not enough. The same mod ships as <c>LocalLobby.dll</c> and as
+        /// <c>LocalLobby-IL2CPP.dll</c> depending on where it came from, and a player who renames a download gets a
+        /// list entry that silently matches nothing.
+        ///
+        /// But an assembly or display name is only USUALLY unique, and a folder holding a mod twice - the current
+        /// build and last week's, renamed - would answer to it twice and load both. So the two halves are not equal:
+        /// a file name matches on its own, an identity only when <see cref="UniqueIdentities"/> found exactly one
+        /// file wearing it. Matching by file name is what this method did before identities existed, so nothing that
+        /// worked yesterday can start being ambiguous today.
+        /// </summary>
+        private static bool Names(string file, string wanted, Dictionary<string, string> identities)
+        {
+            if (string.IsNullOrEmpty(wanted)) return false;
+
+            string bare = wanted.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+                ? wanted.Substring(0, wanted.Length - 4)
+                : wanted;
+
+            if (string.Equals(Path.GetFileNameWithoutExtension(file), bare, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return identities != null
+                && identities.TryGetValue(bare, out string only)
+                && only != null
+                && string.Equals(only, file, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Assembly and Melon names to the ONE file carrying each - or to <c>null</c> where several do, which is the
+        /// whole point of building it.
+        ///
+        /// A name two files answer to cannot decide which of them the allowlist meant, and guessing there loads a mod
+        /// twice or loads the wrong build of it into somebody's lobby for the rest of the session. Ambiguity says so
+        /// in the log and then counts for nothing; the file name still matches on its own, so the player has a way
+        /// out that needs no explanation.
+        /// </summary>
+        private static Dictionary<string, string> UniqueIdentities(List<string> found, MelonLogger.Instance log)
+        {
+            var byIdentity = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var ambiguous = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (string file in found)
+            {
+                var facts = Facts(file);
+                foreach (string identity in new[] { facts.AssemblyName, facts.MelonName })
+                {
+                    if (string.IsNullOrEmpty(identity)) continue;
+                    if (!byIdentity.TryGetValue(identity, out string first)) { byIdentity[identity] = file; continue; }
+                    if (first == null || string.Equals(first, file, StringComparison.OrdinalIgnoreCase)) continue;
+
+                    byIdentity[identity] = null;
+                    if (ambiguous.Add(identity))
+                        log.Warning($"[gate] \"{identity}\" is worn by more than one file ("
+                                    + Path.GetFileName(first) + ", " + Path.GetFileName(file)
+                                    + "), so the always-load list will not match on that name. Name the file instead.");
+                }
+            }
+
+            return byIdentity;
         }
 
         /// <summary>
