@@ -546,11 +546,50 @@ namespace SideHustle.Menu
             if (desc.AllowsSingleplayer)
                 rows.Add(new Row { Name = "Singleplayer", Subtitle = "Play on your own.", OnClick = () => LaunchSelected(desc) });
             rows.Add(new Row { Name = "Host", Subtitle = "Configure and open a session.", OnClick = () => ShowHostConfig(desc) });
+            var again = Preferences.GetHost(desc.Id);
+            if (again != null)
+                rows.Add(new Row { Name = "Host again", Subtitle = HostAgainSummary(again), OnClick = () => HostAgain(desc) });
             // Join goes straight to the browser: the mod policy is the host's decision (made on the host form), and a
             // client runs the gamemode host-authoritatively, so it keeps its own mods - no client-side mod gate here.
             rows.Add(new Row { Name = "Join", Subtitle = "Browse and join an open session.", OnClick = () => ShowBrowser(desc) });
             rows.Add(new Row { Name = "Back", Subtitle = "Back to the gamemode list.", OnClick = ShowGamemodeList });
             ShowRows(desc.DisplayName, rows, desc.Id);   // desc.Id -> the "Your name" strip binds to THIS gamemode's alias
+        }
+
+        // "3 players - public - Dennis Lobby", the remembered settings a Host again row would reuse.
+        private static string HostAgainSummary(Preferences.RememberedHost h)
+        {
+            string name = string.IsNullOrWhiteSpace(h.LobbyName) ? "" : " - " + h.LobbyName.Trim();
+            return $"{h.MaxPlayers} players - {(h.Visibility == 1 ? "private" : "public")}{name}";
+        }
+
+        // Starts a session straight from the settings remembered for this gamemode: same players, visibility and lobby
+        // name, the gamemode's default preset, no password.
+        private static void HostAgain(GamemodeDescriptor desc)
+        {
+            var saved = Preferences.GetHost(desc.Id);
+            if (saved == null)
+            {
+                Core.Log?.Warning($"[hub] Host again for '{desc.Id}' but nothing is remembered; opening the host form.");
+                ShowHostConfig(desc);
+                return;
+            }
+            _mpDesc = desc;
+            int players = Mathf.Clamp(saved.MaxPlayers >= 2 ? saved.MaxPlayers : 4, 2, Mathf.Max(2, LobbyCaps.MaxClients()));
+            var plan = desc.Policy != null ? Mods.ModPolicyResolver.Resolve(desc) : null;
+            bool hasPolicy = plan != null && plan.HasChanges;
+            int policyMode = (hasPolicy && !plan.Blocked && desc.DefaultRequiredModsOnly) ? 1 : 0;
+            var opts = new HostOptions
+            {
+                MaxPlayers = players,
+                Visibility = saved.Visibility == 1 ? LobbyVisibility.Private : LobbyVisibility.Public,
+                ConfigBlob = HostConfigView.DefaultConfig(desc, players, out var modeLabel),
+                LobbyName = string.IsNullOrWhiteSpace(saved.LobbyName) ? null : saved.LobbyName,
+                ModeLabel = modeLabel,
+                DiscordCode = DiscordInvite.IsCode(saved.DiscordCode) ? saved.DiscordCode : null,
+            };
+            Core.Log?.Msg($"[hub] Host again '{desc.Id}': {players} players, {(opts.Visibility == LobbyVisibility.Private ? "private" : "public")}.");
+            StartHostConfigured(desc, opts, policyMode, plan);
         }
 
         // The Host-config screen: a custom form (player count, visibility/password, optional mod policy, and the
@@ -1025,7 +1064,8 @@ namespace SideHustle.Menu
             new KeyValuePair<string, string>("pw", o.Password ?? ""),
             new KeyValuePair<string, string>("cfg", o.ConfigBlob ?? ""),
             new KeyValuePair<string, string>("name", o.LobbyName ?? ""),
-            new KeyValuePair<string, string>("mode", o.ModeLabel ?? "")
+            new KeyValuePair<string, string>("mode", o.ModeLabel ?? ""),
+            new KeyValuePair<string, string>("dc", o.DiscordCode ?? "")
         });
 
         private static HostOptions DecodeHostIntent(string s)
@@ -1039,7 +1079,8 @@ namespace SideHustle.Menu
                 Password = m.TryGetValue("pw", out var pw) && pw.Length > 0 ? pw : null,
                 ConfigBlob = m.TryGetValue("cfg", out var c) && c.Length > 0 ? c : null,
                 LobbyName = m.TryGetValue("name", out var n) && n.Length > 0 ? n : null,
-                ModeLabel = m.TryGetValue("mode", out var md) && md.Length > 0 ? md : null
+                ModeLabel = m.TryGetValue("mode", out var md) && md.Length > 0 ? md : null,
+                DiscordCode = m.TryGetValue("dc", out var dc) && DiscordInvite.IsCode(dc) ? dc : null
             };
         }
 

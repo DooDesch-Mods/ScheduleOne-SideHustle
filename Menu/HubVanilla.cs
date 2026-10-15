@@ -400,7 +400,8 @@ namespace SideHustle.Menu
             if (_clone == null) return;
             _back = ShowVanillaSavePicker;
             ClearFormHost();
-            SetTmp(_clone.transform, "Title", "Host publicly");
+            var rememberedVis = SideHustle.Config.Preferences.GetHost(SideHustle.Config.Preferences.VanillaHostKey)?.Visibility ?? 0;
+            SetTmp(_clone.transform, "Title", VanillaHostView.HostLabel(rememberedVis));
             var host = CreateFormHost("SH_VanillaHost", 560f);
 
             // The mod list needs the Thunderstore index (source resolution) + a hash of every mod DLL - both off
@@ -430,6 +431,7 @@ namespace SideHustle.Menu
                         return;
                     }
                     VanillaHostView.Build(h, plan, prefsCats, LobbyCaps.MaxClients(),
+                        setTitle: title => { if (_clone != null) SetTmp(_clone.transform, "Title", title); },
                         onBack: ShowVanillaSavePicker,
                         onHost: (opts, enforce, syncedCats) =>
                         {

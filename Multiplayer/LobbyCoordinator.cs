@@ -131,6 +131,7 @@ namespace SideHustle.Multiplayer
                     SteamMatchmaking.SetLobbyData(sid, KeyConfig, opts.ConfigBlob);
                 SteamMatchmaking.SetLobbyData(sid, KeyBuild, BuildIdOf(desc));
                 SteamMatchmaking.SetLobbyData(sid, KeyRuntime, ThisRuntime);
+                if (!string.IsNullOrEmpty(opts.DiscordCode)) Menu.DiscordInvite.Publish(sid.m_SteamID, opts.DiscordCode);
 
                 // Whether this host can be asked a question before somebody commits to joining. The World guard is
                 // load-bearing: a MenuSpace gamemode never loads a save, so its host has no phone to answer on and
