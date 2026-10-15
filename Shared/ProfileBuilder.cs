@@ -37,7 +37,7 @@ namespace SideHustle.Shared
                     size = new FileInfo(i.SourcePath).Length;
                     hash = Sha256OfFile(i.SourcePath) ?? "?";
                 }
-                catch { /* keep "?" */ }
+                catch (Exception e) { SharedLog.WarnOnce("fp:" + i.SourcePath, $"could not read '{i.SourcePath}' for the profile fingerprint (counted as changed): {e.Message}"); }
                 lines.Add(i.FileName.ToLowerInvariant() + "|" + size + "|" + hash);
             }
             lines.Sort(StringComparer.Ordinal);
@@ -62,7 +62,7 @@ namespace SideHustle.Shared
                 {
                     if (wanted.Contains(Path.GetFileName(f))) continue;
                     try { File.SetAttributes(f, FileAttributes.Normal); File.Delete(f); }
-                    catch { log?.Invoke($"stale '{Path.GetFileName(f)}' is locked; left in place."); }
+                    catch (Exception e) { log?.Invoke($"stale '{Path.GetFileName(f)}' could not be removed ({e.Message}); left in place."); }
                 }
 
                 bool allOk = true;
@@ -104,19 +104,31 @@ namespace SideHustle.Shared
                 using var s = File.OpenRead(path);
                 return Convert.ToHexString(sha.ComputeHash(s)).ToLowerInvariant();
             }
-            catch { return null; }
+            catch (Exception e)
+            {
+                SharedLog.WarnOnce("sha:" + path, $"could not hash '{path}': {e.Message}");
+                return null;
+            }
         }
 
         private static bool SameSize(string a, string b)
         {
             try { return new FileInfo(a).Length == new FileInfo(b).Length; }
-            catch { return false; }
+            catch (Exception e)
+            {
+                SharedLog.WarnOnce("size:" + a, $"could not compare the sizes of '{a}' and '{b}' (treated as different): {e.Message}");
+                return false;
+            }
         }
 
         private static bool PathsEqual(string a, string b)
         {
             try { return string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase); }
-            catch { return string.Equals(a, b, StringComparison.OrdinalIgnoreCase); }
+            catch (Exception e)
+            {
+                SharedLog.WarnOnce("path:" + a, $"could not normalise '{a}' / '{b}'; comparing the text: {e.Message}");
+                return string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+            }
         }
 
         private static bool MakeHardLink(string link, string target)
@@ -131,11 +143,33 @@ namespace SideHustle.Shared
                     RedirectStandardError = true
                 };
                 using var p = Process.Start(psi);
-                if (p == null) return false;
-                p.WaitForExit(15000);
-                return p.HasExited && p.ExitCode == 0 && File.Exists(link);
+                if (p == null)
+                {
+                    SharedLog.WarnOnce("mklink-start", "cmd.exe did not start for mklink; copying files instead of linking them.");
+                    return false;
+                }
+                // Read both streams before waiting, or a chatty failure fills the pipe and the wait runs into its timeout.
+                var errTask = p.StandardError.ReadToEndAsync();
+                var outTask = p.StandardOutput.ReadToEndAsync();
+                if (!p.WaitForExit(15000))
+                {
+                    SharedLog.WarnOnce("mklink-timeout", $"mklink for '{Path.GetFileName(link)}' did not finish in 15 s; copying instead.");
+                    return false;
+                }
+                bool ok = p.ExitCode == 0 && File.Exists(link);
+                if (!ok)
+                {
+                    string detail = (errTask.Wait(1000) ? errTask.Result : "") + (outTask.Wait(1000) ? outTask.Result : "");
+                    // Expected across volumes and on non-NTFS: the caller falls back to a copy.
+                    SharedLog.WarnOnce("mklink-fail", $"mklink /H failed for '{Path.GetFileName(link)}' (exit {p.ExitCode}: {detail.Trim()}); copying instead of linking.");
+                }
+                return ok;
             }
-            catch { return false; }
+            catch (Exception e)
+            {
+                SharedLog.WarnOnce("mklink-throw", $"mklink threw ({e.Message}); copying files instead of linking them.");
+                return false;
+            }
         }
     }
 }

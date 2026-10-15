@@ -55,6 +55,8 @@ namespace SideHustle
             // Keep the boot-time profile picker (a MelonPlugin, shipped embedded) installed and current.
             Profiles.BootInstaller.EnsureInstalled();
             Profiles.ThunderstoreClient.Log = s => Log?.Warning("[profiles] " + s);
+            Shared.SharedLog.Warn = s => Log?.Warning("[shared] " + s);
+            Shared.SharedLog.Info = s => Log?.Msg("[shared] " + s);
             Sync.NexusLookup.Log = s => Log?.Msg("[nexus] " + s);
 
             // The live-publish button (pause-menu lobby panel) patch - inert until a co-op host is eligible.

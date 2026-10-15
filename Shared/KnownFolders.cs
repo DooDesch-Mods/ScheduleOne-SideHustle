@@ -23,13 +23,13 @@ namespace SideHustle.Shared
                     finally { Marshal.FreeCoTaskMem(ptr); }
                 }
             }
-            catch { /* shell unavailable - fall back below */ }
+            catch (Exception e) { SharedLog.WarnOnce("downloads-shell", "the shell would not name the Downloads folder; using the profile folder: " + e.Message); }
             try
             {
                 string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
                 if (!string.IsNullOrEmpty(home)) return Path.Combine(home, "Downloads");
             }
-            catch { /* no profile dir either */ }
+            catch (Exception e) { SharedLog.WarnOnce("downloads-profile", "no profile folder to derive Downloads from: " + e.Message); }
             return null;
         }
 
