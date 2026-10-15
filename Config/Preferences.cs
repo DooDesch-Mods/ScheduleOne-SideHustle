@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using MelonLoader;
+using SideHustle.Multiplayer;
 
 namespace SideHustle.Config
 {
@@ -40,6 +41,11 @@ namespace SideHustle.Config
         private static MelonPreferences_Entry<bool> _acceptStrangerMessages;
         private static MelonPreferences_Entry<bool> _menuPanel;
         private static MelonPreferences_Entry<bool> _joinChatPanel;
+        private static MelonPreferences_Entry<string> _hostConfigs;
+        private static MelonPreferences_Entry<bool> _browserHideFull;
+        private static MelonPreferences_Entry<bool> _browserHideLocked;
+        private static MelonPreferences_Entry<bool> _browserHideOtherVersion;
+        private static MelonPreferences_Entry<bool> _browserSortByName;
 
         internal static void Initialize()
         {
@@ -97,6 +103,19 @@ namespace SideHustle.Config
             _lastSessionError = _category.CreateEntry("LastSessionError", "", "Last session error (internal)",
                 "Internal: why the last session ended badly, shown once in the menu and cleared when acknowledged. Persisted because half the ways a session dies end in a restart. Managed automatically.");
 
+            _hostConfigs = _category.CreateEntry("HostConfigs", "", "Remembered host settings (internal)",
+                "Internal: the player count, visibility, lobby name and mod requirement last used for each gamemode and for " +
+                "vanilla co-op, so the host form starts filled in. Passwords are never stored. Managed automatically.");
+
+            _browserHideFull = _category.CreateEntry("BrowserHideFull", false, "Lobby browser: hide full lobbies",
+                "Internal: the lobby browser's Hide full switch. Managed automatically.");
+            _browserHideLocked = _category.CreateEntry("BrowserHideLocked", false, "Lobby browser: hide locked lobbies",
+                "Internal: the lobby browser's Hide locked switch. Managed automatically.");
+            _browserHideOtherVersion = _category.CreateEntry("BrowserHideOtherVersion", false, "Lobby browser: hide other game versions",
+                "Internal: the lobby browser's Hide other game version switch. Managed automatically.");
+            _browserSortByName = _category.CreateEntry("BrowserSortByName", false, "Lobby browser: sort by name",
+                "Internal: the lobby browser's sort order (off = most players first). Managed automatically.");
+
             _aliases = _category.CreateEntry("Aliases", "", "Display names (internal)",
                 "Internal: your chosen display name for each gamemode, shown to other players instead of your Steam " +
                 "name during that gamemode's session. Set it on the gamemode's Host/Join screen. Managed automatically.");
@@ -105,10 +124,18 @@ namespace SideHustle.Config
         internal static bool Enabled => _enabled?.Value ?? true;
 
         /// <summary>Whether the menu also lists not-installed gamemodes that currently have live public lobbies.</summary>
-        internal static bool ShowUninstalledGamemodes => _showUninstalled?.Value ?? true;
+        internal static bool ShowUninstalledGamemodes
+        {
+            get => _showUninstalled?.Value ?? true;
+            set { if (_showUninstalled != null) _showUninstalled.Value = value; }
+        }
 
         /// <summary>Whether clicking Continue / a save slot prompts to host it as a public Side Hustle lobby.</summary>
-        internal static bool AskHostOnContinue => _askHostOnContinue?.Value ?? true;
+        internal static bool AskHostOnContinue
+        {
+            get => _askHostOnContinue?.Value ?? true;
+            set { if (_askHostOnContinue != null) _askHostOnContinue.Value = value; }
+        }
 
         /// <summary>Whether a stranger who cannot join this host's lobby may send them a short message. The one
         /// switch that turns the whole relay off - a host who does not want to be reached should not have to mute
@@ -116,19 +143,23 @@ namespace SideHustle.Config
         internal static bool AcceptStrangerMessages
         {
             get => _acceptStrangerMessages?.Value ?? true;
-            set { if (_acceptStrangerMessages != null) { _acceptStrangerMessages.Value = value; Save(); } }
+            set { if (_acceptStrangerMessages != null) _acceptStrangerMessages.Value = value; }
         }
 
-        /// <summary>Whether the main menu carries the Side Hustle state column. Read-only on purpose: this is the
-        /// player's answer, and the one thing that used to write it - an older Sideload - is a condition that can
-        /// change under a config value that cannot.</summary>
-        internal static bool MenuPanel => _menuPanel?.Value ?? true;
+        /// <summary>Whether the main menu carries the Side Hustle state column. Only the player's own switch writes
+        /// it: an older Sideload is a condition that can change under a config value that cannot, so the state
+        /// panel decides on its own whether it can draw and leaves this alone.</summary>
+        internal static bool MenuPanel
+        {
+            get => _menuPanel?.Value ?? true;
+            set { if (_menuPanel != null) _menuPanel.Value = value; }
+        }
 
         /// <summary>Whether the join screens carry the ask-the-host chat column.</summary>
         internal static bool JoinChatPanel
         {
             get => _joinChatPanel?.Value ?? true;
-            set { if (_joinChatPanel != null) { _joinChatPanel.Value = value; Save(); } }
+            set { if (_joinChatPanel != null) _joinChatPanel.Value = value; }
         }
 
         /// <summary>Your chosen display name for a given gamemode ("" = use the real Steam persona name). Stored
@@ -158,7 +189,6 @@ namespace SideHustle.Config
                 sb.Append(kv.Key).Append(AliasPairSep).Append(kv.Value);
             }
             _aliases.Value = sb.ToString();
-            Save();
         }
 
         // gamemodeId -> alias, encoded on one line as "id=alias|id2=alias2". Both delimiters are stripped from
@@ -178,7 +208,14 @@ namespace SideHustle.Config
             return map;
         }
 
-        private static void Save() { try { MelonPreferences.Save(); } catch { /* best-effort */ } }
+        // Only the tokens a relaunch must find on the other side still flush at once. Everything else is set on the
+        // entry alone and MelonLoader writes it at shutdown: a Save fires every mod's preference listeners, and a
+        // player toggling a switch should not run them.
+        private static void Save()
+        {
+            try { MelonPreferences.Save(); }
+            catch (System.Exception e) { Core.Log?.Warning("[prefs] could not write the preferences: " + e.Message); }
+        }
 
         /// <summary>Mod name -> DLL file map (delimited), used by the mod policy to resolve disabled mods.</summary>
         internal static string ModNameMap
@@ -266,7 +303,103 @@ namespace SideHustle.Config
             list.Insert(0, id);
             if (list.Count > RecentMax) list = list.Take(RecentMax).ToList();
             _recent.Value = string.Join(",", list);
-            try { MelonPreferences.Save(); } catch { /* best-effort */ }
         }
+
+        // --- the gate (read by SideHustle.Boot before any mod loads, so changes apply on the next start) ---
+
+        private const string GateDeferId = "DeferModsUntilLobby";
+        private const string GateKeepId = "AlwaysLoadMods";
+
+        private static MelonPreferences_Entry<T> GateEntry<T>(string id)
+        {
+            try { return _category?.GetEntry<T>(id); }
+            catch (System.Exception e)
+            {
+                Core.Log?.Warning($"[prefs] gate entry '{id}' unreadable: {e.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>Whether mods wait for a lobby instead of loading at startup. The entry is created by the boot
+        /// plugin; null here means it has not run, which reads as off.</summary>
+        internal static bool DeferModsUntilLobby
+        {
+            get => GateEntry<bool>(GateDeferId)?.Value ?? false;
+            set
+            {
+                var e = GateEntry<bool>(GateDeferId);
+                if (e == null) { Core.Log?.Warning("[prefs] the mod gate entry does not exist yet; the switch was not saved."); return; }
+                e.Value = value;
+            }
+        }
+
+        /// <summary>Comma-separated file names that load at startup even when the rest waits.</summary>
+        internal static string AlwaysLoadMods
+        {
+            get => GateEntry<string>(GateKeepId)?.Value ?? "";
+            set
+            {
+                var e = GateEntry<string>(GateKeepId);
+                if (e == null) { Core.Log?.Warning("[prefs] the always-load entry does not exist yet; the list was not saved."); return; }
+                e.Value = value ?? "";
+            }
+        }
+
+        // --- lobby browser filters ---
+
+        internal static bool BrowserHideFull { get => _browserHideFull?.Value ?? false; set { if (_browserHideFull != null) _browserHideFull.Value = value; } }
+        internal static bool BrowserHideLocked { get => _browserHideLocked?.Value ?? false; set { if (_browserHideLocked != null) _browserHideLocked.Value = value; } }
+        internal static bool BrowserHideOtherVersion { get => _browserHideOtherVersion?.Value ?? false; set { if (_browserHideOtherVersion != null) _browserHideOtherVersion.Value = value; } }
+        internal static bool BrowserSortByName { get => _browserSortByName?.Value ?? false; set { if (_browserSortByName != null) _browserSortByName.Value = value; } }
+
+        // --- remembered host settings ---
+
+        /// <summary>What the host form starts with for one gamemode (its id) or "vanilla". The password is never part
+        /// of it.</summary>
+        internal sealed class RememberedHost
+        {
+            public int MaxPlayers;
+            public int Visibility;          // 0 = public, 1 = private
+            public string LobbyName = "";
+            public bool Enforce = true;     // vanilla only
+            public string DiscordCode = "";
+        }
+
+        /// <summary>The key for vanilla co-op in <see cref="GetHost"/>.</summary>
+        internal const string VanillaHostKey = "vanilla";
+
+        internal static RememberedHost GetHost(string key)
+        {
+            if (string.IsNullOrEmpty(key)) return null;
+            if (!DecodeHosts().TryGetValue(key, out var raw) || string.IsNullOrEmpty(raw)) return null;
+            var f = ConfigCodec.Decode(raw);
+            var h = new RememberedHost();
+            if (f.TryGetValue("max", out var mx) && int.TryParse(mx, out int max)) h.MaxPlayers = max;
+            if (f.TryGetValue("vis", out var v)) h.Visibility = v == "1" ? 1 : 0;
+            if (f.TryGetValue("name", out var n)) h.LobbyName = n ?? "";
+            if (f.TryGetValue("enf", out var e)) h.Enforce = e != "0";
+            if (f.TryGetValue("dc", out var dc)) h.DiscordCode = dc ?? "";
+            return h;
+        }
+
+        internal static bool HasHost(string key) => GetHost(key) != null;
+
+        internal static void SetHost(string key, RememberedHost h)
+        {
+            if (_hostConfigs == null || string.IsNullOrEmpty(key) || h == null) return;
+            var map = DecodeHosts();
+            map[key] = ConfigCodec.Encode(new[]
+            {
+                new KeyValuePair<string, string>("max", h.MaxPlayers.ToString()),
+                new KeyValuePair<string, string>("vis", h.Visibility == 1 ? "1" : "0"),
+                new KeyValuePair<string, string>("name", h.LobbyName ?? ""),
+                new KeyValuePair<string, string>("enf", h.Enforce ? "1" : "0"),
+                new KeyValuePair<string, string>("dc", h.DiscordCode ?? ""),
+            });
+            _hostConfigs.Value = ConfigCodec.Encode(map);
+            Core.Log?.Msg($"[prefs] remembered the host settings for '{key}'.");
+        }
+
+        private static Dictionary<string, string> DecodeHosts() => ConfigCodec.Decode(_hostConfigs?.Value);
     }
 }
