@@ -78,7 +78,7 @@ namespace SideHustle.Phone
 
         /// <summary>True for a lobby a gamemode started (it carries the gamemode id). Those lobbies ship the
         /// gamemode's own mod set to joiners, so the vanilla mod-set requirement does not apply to them.</summary>
-        internal static bool GamemodeLobby => !string.IsNullOrEmpty(Read(LobbyCoordinator.KeyGamemode));
+        internal static bool GamemodeLobby => LobbyCoordinator.IsGamemodeLobby(LobbyCoordinator.CurrentLobbyId);
 
         /// <summary>The Discord invite code the lobby carries, or "".</summary>
         internal static string DiscordCode

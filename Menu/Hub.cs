@@ -934,7 +934,7 @@ namespace SideHustle.Menu
             if (!string.IsNullOrEmpty(hostPayload))
             {
                 CloseHubScreen();
-                MultiplayerCoordinator.StartHost(desc, DecodeHostIntent(hostPayload));
+                if (!MultiplayerCoordinator.StartHost(desc, DecodeHostIntent(hostPayload))) ShowRefusal(MultiplayerCoordinator.LastRefusal);
                 return;
             }
             OnSelectGamemode(desc);
@@ -993,7 +993,7 @@ namespace SideHustle.Menu
             if (desc.Surface == GamemodeSurface.World)
             {
                 CloseHubScreen();
-                MultiplayerCoordinator.StartWorldSingleplayer(desc);
+                if (!MultiplayerCoordinator.StartWorldSingleplayer(desc)) ShowRefusal(MultiplayerCoordinator.LastRefusal);
             }
             else
             {
@@ -1014,7 +1014,7 @@ namespace SideHustle.Menu
             }
             Preferences.RecordLaunch(desc.Id);
             CloseHubScreen();
-            MultiplayerCoordinator.StartHost(desc, opts);
+            if (!MultiplayerCoordinator.StartHost(desc, opts)) ShowRefusal(MultiplayerCoordinator.LastRefusal);
         }
 
         // --- restart countdown (Required-mods-only host) ---
@@ -1146,7 +1146,7 @@ namespace SideHustle.Menu
         {
             Preferences.RecordLaunch(desc.Id);
             CloseHubScreen();
-            MultiplayerCoordinator.StartJoin(desc, row);
+            if (!MultiplayerCoordinator.StartJoin(desc, row)) ShowRefusal(MultiplayerCoordinator.LastRefusal);
         }
 
         /// <summary>Close the gamemode screen without reopening the home menu (used when a session is launching).</summary>
@@ -1156,6 +1156,18 @@ namespace SideHustle.Menu
         }
 
         /// <summary>Reopen the gamemode list after a session that did NOT reload the scene (MenuSpace multiplayer).</summary>
+        /// <summary>A start call that refused before anything happened: the hub was already closed for the launch, so
+        /// put it back and say why.</summary>
+        internal static void ShowRefusal(string why)
+        {
+            string text = string.IsNullOrEmpty(why) ? "The session could not start." : why;
+            Core.Log?.Warning("[hub] session start refused: " + text);
+            RejoinNotice.Hide();
+            ReopenAfterSession();
+            try { DooDesch.UI.Toast.Init(DialogRootStatic()); DooDesch.UI.Toast.Show(text, DooDesch.UI.Severity.Warning); }
+            catch (Exception e) { Core.Log?.Warning("[hub] could not show the refusal toast: " + e.Message); }
+        }
+
         internal static void ReopenAfterSession()
         {
             try

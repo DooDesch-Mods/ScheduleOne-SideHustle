@@ -187,8 +187,8 @@ namespace SideHustle.Phone
                 .Add("max", LobbyControls.MaxPlayers)
                 .Add("ceiling", LobbyControls.SeatCeiling)
                 .Add("enforce", LobbyControls.Enforcing)
-                // A lobby a gamemode started: the mod-set requirement is not offered there (SyncGate.CanEnforce /
-                // LobbyCoordinator.IsGamemodeLobby are the shared answer once merged).
+                // A lobby a gamemode started: the mod-set requirement is not offered there (SyncGate.CanEnforce refuses
+                // it for the same lobbies).
                 .Add("gamemode", LobbyControls.GamemodeLobby)
                 .Add("discord", LobbyControls.DiscordCode)
                 // Whether a joiner can read this session's mod list: "ok" when the lobby advertises the hash they

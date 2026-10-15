@@ -47,8 +47,9 @@ namespace SideHustle.Menu
                 {
                     if (plan == null) return;
                     Core.Log?.Msg($"[selftest] vanillahost: plan auto={plan.AutoCount} gh={plan.GhCount} link={plan.LinkCount} dropped={plan.DroppedCount}");
-                    SyncCoordinator.StartHostVanilla(save, new HostOptions { MaxPlayers = 4 },
-                        plan.Manifest.ToCanonicalText(), "", $"{plan.AutoCount + plan.GhCount}/{plan.LinkCount}/{plan.DroppedCount}", false);
+                    if (!SyncCoordinator.StartHostVanilla(save, new HostOptions { MaxPlayers = 4 },
+                        plan.Manifest.ToCanonicalText(), "", $"{plan.AutoCount + plan.GhCount}/{plan.LinkCount}/{plan.DroppedCount}", false))
+                        Core.Log?.Warning("[selftest] vanillahost refused: " + SyncCoordinator.LastRefusal);
                 });
             });
         }
@@ -439,9 +440,10 @@ namespace SideHustle.Menu
                             if (target == null) return;
                             string prefsText = PrefsCatalog.BuildOverlay(syncedCats);
                             CloseHubScreen();
-                            SyncCoordinator.StartHostVanilla(target, opts,
+                            if (!SyncCoordinator.StartHostVanilla(target, opts,
                                 plan.Manifest.ToCanonicalText(), prefsText,
-                                $"{plan.AutoCount + plan.GhCount}/{plan.LinkCount}/{plan.DroppedCount}", enforce);
+                                $"{plan.AutoCount + plan.GhCount}/{plan.LinkCount}/{plan.DroppedCount}", enforce))
+                                ShowRefusal(SyncCoordinator.LastRefusal);
                         });
                 });
             });
@@ -690,7 +692,7 @@ namespace SideHustle.Menu
                         // through the coordinator so the synced handshake (sh_sync member data) is still set -
                         // otherwise an enforcing host's gate would kick us after the grace period for never syncing.
                         CloseHubScreen();
-                        SyncCoordinator.StartInPlaceJoin(row.LobbyId, mhash);
+                        if (!SyncCoordinator.StartInPlaceJoin(row.LobbyId, mhash)) ShowRefusal(SyncCoordinator.LastRefusal);
                         return;
                     }
                     if (nothingToFetch && TrustStore.IsTrusted(row.OwnerSteamId, mhash))
@@ -861,7 +863,7 @@ namespace SideHustle.Menu
                     {
                         Mods.LateLoader.LoadSet(wanted, "'" + (row.LobbyName ?? row.HostName) + "'");
                         CloseHubScreen();
-                        SyncCoordinator.StartInPlaceJoin(row.LobbyId, mhash);
+                        if (!SyncCoordinator.StartInPlaceJoin(row.LobbyId, mhash)) ShowRefusal(SyncCoordinator.LastRefusal);
                         return;
                     }
                     if (clash != null)

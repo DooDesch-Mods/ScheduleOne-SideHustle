@@ -594,7 +594,7 @@ namespace SideHustle.Menu
             // check and the game's loading screen is covered too.
             RejoinNotice.Update($"Joining {desc.DisplayName} - loading the world...");
             CloseHubScreen();
-            MultiplayerCoordinator.StartJoin(desc, new LobbyRow
+            bool started = MultiplayerCoordinator.StartJoin(desc, new LobbyRow
             {
                 LobbyId = lobbyId,
                 GamemodeId = desc.Id,
@@ -604,6 +604,7 @@ namespace SideHustle.Menu
                 MaxPlayers = info.MaxPlayers,
                 BuildId = info.BuildId,
             });
+            if (!started) ShowRefusal(MultiplayerCoordinator.LastRefusal);
         }
 
         // The install worked but the session is not there anymore: land on this gamemode's own screen, so the player
