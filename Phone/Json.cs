@@ -50,6 +50,14 @@ namespace SideHustle.Phone
             return this;
         }
 
+        internal Json AddNull(string key)
+        {
+            Comma();
+            Key(key);
+            _sb.Append("null");
+            return this;
+        }
+
         /// <summary>Nest an object or array under a key. The nested builder must not be used afterwards.</summary>
         internal Json Add(string key, Json value)
         {

@@ -437,7 +437,7 @@ namespace SideHustle.Menu
         private static float ParseFloat(string s, float fallback) =>
             float.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : fallback;
 
-        private static string Sanitize(string s) =>
+        internal static string Sanitize(string s) =>
             string.IsNullOrEmpty(s) ? "" : s.Replace(";", " ").Replace("=", " ").Replace("\n", " ").Replace("\r", " ").Trim();
     }
 }

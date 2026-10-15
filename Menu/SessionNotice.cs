@@ -44,6 +44,7 @@ namespace SideHustle.Menu
         internal static void Tick()
         {
             if (_showing) return;
+            if (Hub.HubHoldsSessionNotice) return;
             string reason;
             try { reason = Preferences.LastSessionError; }
             catch (Exception e) { Safe.Report("reading the stored session error", e); return; }

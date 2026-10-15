@@ -45,6 +45,24 @@ namespace SideHustle.Menu
                 return;
             }
             if (_cloneScreen == null || !_cloneScreen.IsOpen) { Core.Log?.Warning("[dev] shrow: the hub is not open."); return; }
+            if (parts.Length > 2 && parts[1].Equals("press", StringComparison.OrdinalIgnoreCase))
+            {
+                // A form's footer button, found by its label: forms have no rows for "shrow <n>" to press.
+                string label = string.Join(" ", parts, 2, parts.Length - 2);
+                if (_formHost == null) { Core.Log?.Warning("[dev] shrow press: no form on show."); return; }
+                foreach (var b in _formHost.GetComponentsInChildren<UnityEngine.UI.Button>(true))
+                {
+                    var ui = b.GetComponentInChildren<UnityEngine.UI.Text>(true);
+                    var tmp = ui == null ? b.GetComponentInChildren<Il2CppTMPro.TMP_Text>(true) : null;
+                    string text = ui != null ? ui.text : tmp != null ? tmp.text : null;
+                    if (text == null || !text.Trim().Equals(label, StringComparison.OrdinalIgnoreCase)) continue;
+                    Core.Log?.Msg($"[dev] shrow: pressing '{text}'.");
+                    b.onClick.Invoke();
+                    return;
+                }
+                Core.Log?.Warning($"[dev] shrow press: no button labelled '{label}' in the form.");
+                return;
+            }
             if (parts.Length > 1 && parts[1].Equals("back", StringComparison.OrdinalIgnoreCase))
             {
                 Core.Log?.Msg("[dev] shrow: Back.");

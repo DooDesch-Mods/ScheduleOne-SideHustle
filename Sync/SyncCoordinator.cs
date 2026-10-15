@@ -47,6 +47,36 @@ namespace SideHustle.Sync
         private const float NeverStartedSeconds = 15f;
 
         internal static bool IsBusy => _state != State.Idle;
+
+        /// <summary>The state machine's current step by name, for a screen that follows a launch.</summary>
+        internal static string Phase => _state.ToString();
+
+        /// <summary>Counts every failure, so a watcher can tell "stopped by a failure" from "ended normally".</summary>
+        internal static int Aborts { get; private set; }
+
+        /// <summary>The reason of the last failure.</summary>
+        internal static string LastFailure { get; private set; } = "";
+
+        /// <summary>The player stopped a session that is still starting. Same way out as a failure, without the
+        /// notice that would report one.</summary>
+        internal static void Cancel()
+        {
+            switch (_state)
+            {
+                case State.HostCreatingLobby:
+                case State.HostBootingWorld:
+                    Abort("cancelled by the player", notice: false);
+                    break;
+                case State.ClientCheckingLobby:
+                case State.ClientJoining:
+                    Core.Log?.Msg("[sync] join cancelled by the player; leaving the lobby.");
+                    AbandonJoin();
+                    break;
+                default:
+                    Core.Log?.Msg($"[sync] cancel ignored in state {_state}.");
+                    break;
+            }
+        }
         internal static bool IsInSession => _state == State.InSession;
 
         /// <summary>Whether this process is holding a mod list it could advertise. False in someone else's session and
@@ -206,6 +236,8 @@ namespace SideHustle.Sync
         private static void RejoinFailed(string reason)
         {
             Core.Log?.Warning("[sync] rejoin failed: " + reason);
+            Aborts++;
+            LastFailure = "Couldn't join: " + reason;
             AbandonJoin();
             // Tell the player why, instead of a silent bounce back to the menu - their mods are already restored.
             Toast("Couldn't join: " + reason + ". Your mods are restored - try again.", DooDesch.UI.Severity.Warning);
@@ -545,10 +577,15 @@ namespace SideHustle.Sync
             _handshakeWritten = false;
         }
 
-        private static void Abort(string reason)
+        private static void Abort(string reason, bool notice = true)
         {
             Core.Log?.Warning("[sync] aborting: " + reason);
-            Menu.SessionNotice.Set(reason);   // the player gets the reason on the menu, not just the log
+            if (notice)
+            {
+                Aborts++;
+                LastFailure = reason;
+                Menu.SessionNotice.Set(reason);   // the player gets the reason on the menu, not just the log
+            }
 
             // A half-started load has to come down with the session, exactly as in the gamemode flow: the stalled
             // load, its loading screen and the Steam lobby membership are all still there after the state flips.

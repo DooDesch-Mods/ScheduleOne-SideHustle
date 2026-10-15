@@ -39,6 +39,9 @@ namespace SideHustle.Menu
         private const int WarmupFrames = 20;
 
         private static bool _injectedThisScene;
+
+        /// <summary>The entries are in place (or injection gave up) for this menu load.</summary>
+        internal static bool Injected => _injectedThisScene;
         private static bool _loggedStructure;
         private static int _retries;
 

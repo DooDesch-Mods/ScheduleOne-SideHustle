@@ -375,6 +375,13 @@ namespace SideHustle.Menu
                 if (plan == null)
                 {
                     Core.Log?.Error("[sync] host again: the mod list could not be prepared; not hosting.");
+                    if (_flow != null && _flow.Error == null && HubReady)
+                    {
+                        ClearFormHost();
+                        HubFlowFail("Couldn't prepare your mod list.");
+                        _hubView = true;
+                        return;
+                    }
                     if (inHub && _formHost != null && _formHost.name == "SH_VanillaHost")
                     {
                         ClearFormHost();
@@ -399,6 +406,7 @@ namespace SideHustle.Menu
             InvalidateJoinChecks();   // whatever join was being prepared, the player is somewhere else now
             _mpDesc = null;
             _back = ShowGamemodeList;
+            if (RouteToHub("play", null, false)) return;
             var rows = new List<Row>();
             var again = Preferences.GetHost(Preferences.VanillaHostKey);
             var againSave = RememberedVanillaSave(again);
@@ -585,6 +593,7 @@ namespace SideHustle.Menu
             if (_clone == null) return;
             InvalidateJoinChecks();   // back on the list: the lobby being read is no longer the one being joined
             _back = ShowVanillaChoice;
+            if (RouteToHub("lobbies", "vanilla", false)) return;
             ClearFormHost();
             SetTmp(_clone.transform, "Title", "Join a lobby");
 
@@ -769,6 +778,7 @@ namespace SideHustle.Menu
                 new Row { Name = "Reading the host's mod list...", Subtitle = "Steam couldn't share it, trying another way.", Disabled = true },
                 new Row { Name = "Cancel", Subtitle = "Back to the lobby list.", OnClick = () => { InvalidateJoinChecks(); ShowVanillaBrowser(); } }
             });
+            HubFlowWait("Mods compared", "Trying another way");
             ChatPanel.Keep(row.OwnerSteamId, row.HostName, row.AcceptsMessages);
             System.Threading.Tasks.Task.Run(async () =>
             {
@@ -796,6 +806,7 @@ namespace SideHustle.Menu
             {
                 new Row { Name = "Comparing the host's mods with yours...", Subtitle = "Checking your installed mods.", Disabled = true }
             });
+            HubFlowWait("Mods compared", "Comparing");
             ChatPanel.Keep(row.OwnerSteamId, row.HostName, row.AcceptsMessages);
 
             System.Threading.Tasks.Task.Run(() =>

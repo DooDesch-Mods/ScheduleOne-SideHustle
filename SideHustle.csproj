@@ -154,6 +154,10 @@
     <EmbeddedResource Include="Assets/menu/*" Exclude="Assets/menu/preview.html;Assets/menu/s1-mock.js">
       <LogicalName>SideHustle.Assets.menu.%(Filename)%(Extension)</LogicalName>
     </EmbeddedResource>
+    <!-- The full-screen hub page. preview.html, s1-mock.js and preview/ are the browser stand-in, not shipped. -->
+    <EmbeddedResource Include="Assets/hub/*" Exclude="Assets/hub/preview.html;Assets/hub/s1-mock.js">
+      <LogicalName>SideHustle.Assets.hub.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
   <!-- Mod loader references -->
