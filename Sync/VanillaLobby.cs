@@ -137,6 +137,7 @@ namespace SideHustle.Sync
                     string.IsNullOrEmpty(opts.LobbyName) ? LobbyCoordinator.LocalPersonaName() : opts.LobbyName);
                 Put(LobbyCoordinator.KeyRuntime, LobbyCoordinator.ThisRuntime);
                 Put(KeyEnforce, enforce ? "1" : "0");
+                if (!string.IsNullOrEmpty(opts.DiscordCode)) Put(Menu.DiscordInvite.Key, opts.DiscordCode);
 
                 // The hash goes in before the browser-card text and long before anything bulky. It is sixteen
                 // characters and it is the only thing that lets a joiner accept the backend copy of the mod list, so

@@ -46,9 +46,16 @@ namespace SideHustle.Menu
                 Core.Log?.Warning("[hub] refusing to open a download link that is not on a trusted host: " + url);
                 return;
             }
+            Launch(url);
+        }
+
+        /// <summary>Open a URL the caller built itself from validated parts, with no allowlist check - the Steam overlay
+        /// first, the external browser as a fallback. Never pass a URL that came off the network.</summary>
+        internal static void Launch(string url)
+        {
             if (TryOverlay(url)) return;
             try { Application.OpenURL(url); }
-            catch (Exception e) { Core.Log?.Warning("[hub] could not open download link: " + e.Message); }
+            catch (Exception e) { Core.Log?.Warning("[hub] could not open link: " + e.Message); }
         }
 
         /// <summary>A Nexus search URL for a mod NAME - the fallback for a manual/nx: mod whose exact download page we
@@ -119,7 +126,11 @@ namespace SideHustle.Menu
                 var mi = typeof(SteamUtils).GetMethod("IsOverlayEnabled", BindingFlags.Public | BindingFlags.Static);
                 return mi != null && mi.Invoke(null, null) is bool ok && ok;
             }
-            catch { return false; }
+            catch (Exception e)
+            {
+                Core.Log?.Warning("[hub] could not ask Steam whether the overlay is on; using the external browser: " + e.Message);
+                return false;
+            }
         }
     }
 }

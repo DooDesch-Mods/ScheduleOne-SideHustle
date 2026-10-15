@@ -42,6 +42,8 @@ namespace SideHustle.Phone
                     .OnCall("lobby.setVisibility", v => LobbyControls.SetPublic(v == "pub") ? "ok" : "error")
                     .OnCall("lobby.setMax", v => SetMax(v))
                     .OnCall("lobby.setEnforce", v => SetEnforce(v == "1"))
+                    .OnCall("lobby.setDiscord", v => LobbyControls.SetDiscord(v))
+                    .OnCall("lobby.openDiscord", _ => LobbyControls.OpenDiscord())
                     .OnCall("lobby.republish", _ => Sync.SyncCoordinator.RepublishModList().Length > 0 ? "ok" : "error")
                     .OnCall("lobby.togglePublish", _ => TogglePublish())
                     .OnCall("lobby.players", _ => Players())
@@ -80,6 +82,7 @@ namespace SideHustle.Phone
         /// failure is a session that genuinely has no list to publish - somebody else's lobby.</summary>
         private static string SetEnforce(bool on)
         {
+            if (LobbyControls.GamemodeLobby) return "gamemode";
             if (LobbyControls.SetEnforce(on)) return "ok";
             return on ? "nolist" : "error";
         }
@@ -184,6 +187,10 @@ namespace SideHustle.Phone
                 .Add("max", LobbyControls.MaxPlayers)
                 .Add("ceiling", LobbyControls.SeatCeiling)
                 .Add("enforce", LobbyControls.Enforcing)
+                // A lobby a gamemode started: the mod-set requirement is not offered there (SyncGate.CanEnforce /
+                // LobbyCoordinator.IsGamemodeLobby are the shared answer once merged).
+                .Add("gamemode", LobbyControls.GamemodeLobby)
+                .Add("discord", LobbyControls.DiscordCode)
                 // Whether a joiner can read this session's mod list: "ok" when the lobby advertises the hash they
                 // check it against, "missing" when this session holds a list the lobby is not carrying, "none" when
                 // there is no list in this process to publish. The middle case is a session nobody can join, and it
@@ -210,16 +217,17 @@ namespace SideHustle.Phone
             // leaving is exactly what they want to see without poking at it.
             // Auch ausserhalb einer Lobby: eine Nachricht kann eintreffen, waehrend gar keine Sitzung laeuft.
             string now = LobbyControls.InLobby || ChatRelay.Revision > 0
-                ? $"{LobbyControls.IsHost}/{LobbyControls.Members}/{LobbyControls.MaxPlayers}/{LobbyControls.IsPublic}/{LobbyControls.HasPassword}/{LobbyControls.Enforcing}/{Sync.LivePublish.IsPublished}/{ChatRelay.Revision}"
+                ? $"{LobbyControls.IsHost}/{LobbyControls.Members}/{LobbyControls.MaxPlayers}/{LobbyControls.IsPublic}/{LobbyControls.HasPassword}/{LobbyControls.Enforcing}/{LobbyControls.GamemodeLobby}/{LobbyControls.DiscordCode}/{Sync.LivePublish.IsPublished}/{ChatRelay.Revision}"
                 : "-/" + ChatRelay.Revision;
             if (now == _pushed) return;
             _pushed = now;
-            try { _app.Emit("lobby.changed", now); } catch { /* the page will catch up on its next open */ }
+            // The page catches up on its next open, so a missed push only delays the update.
+            Menu.Safe.Try("telling the Lobby app the session changed", () => _app.Emit("lobby.changed", now));
 
             // The badge is the number a player sees without opening anything, so it carries the same count the
             // Chat tab shows. Set on every change rather than tracked: the framework remembers it across a phone
             // rebuild, and re-setting the same value costs nothing.
-            try { _app.Badge(ChatRelay.UnreadCount); } catch { }
+            Menu.Safe.Try("updating the Lobby app badge", () => _app.Badge(ChatRelay.UnreadCount));
 
             NotifyIfUnseen();
         }
@@ -241,7 +249,8 @@ namespace SideHustle.Phone
             string text = ChatRelay.LastText(from);
             if (string.IsNullOrEmpty(text)) return;
 
-            try { _app.Notify(ChatRelay.NameOf(from), text); } catch { /* no phone to draw on yet */ }
+            // No phone to draw on yet is a normal early state; the message stays in the Chat tab.
+            Menu.Safe.Try("notifying the host of a message", () => _app.Notify(ChatRelay.NameOf(from), text));
         }
     }
 }

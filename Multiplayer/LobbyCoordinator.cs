@@ -211,6 +211,7 @@ namespace SideHustle.Multiplayer
                 if (!string.IsNullOrEmpty(opts.ModeLabel)) w.Put(KeyMode, opts.ModeLabel);
                 w.Put(KeyBuild, BuildIdOf(desc));
                 w.Put(KeyRuntime, ThisRuntime);
+                if (Menu.DiscordInvite.IsCode(opts.DiscordCode)) w.Put(Menu.DiscordInvite.Key, opts.DiscordCode);
 
                 // Whether this host can be asked a question before somebody commits to joining. The World guard is
                 // load-bearing: a MenuSpace gamemode never loads a save, so its host has no phone to answer on and

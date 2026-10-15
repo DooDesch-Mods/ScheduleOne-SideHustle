@@ -42,7 +42,7 @@ namespace SideHustle.Menu
 
             // --- warnings first ---
             string localGame = "";
-            try { localGame = Application.version; } catch { /* ignore */ }
+            try { localGame = Application.version; } catch (Exception e) { Safe.Report("reading the game version", e); }
             if (!string.IsNullOrEmpty(manifest.GameVersion) && !string.IsNullOrEmpty(localGame)
                 && !string.Equals(manifest.GameVersion, localGame, StringComparison.OrdinalIgnoreCase))
                 Note(content, $"! Game version differs: host {manifest.GameVersion}, you {localGame}.", warn: true);

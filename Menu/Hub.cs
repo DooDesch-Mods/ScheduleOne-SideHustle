@@ -51,8 +51,7 @@ namespace SideHustle.Menu
         private static Text _rcLabel;
         private static float _rcRemaining;
         private static Action _rcOnRestart;
-        private static Action _rcPending;        // the committed restart, waiting for the notice to get a frame
-        private static float _rcPendingDelay;
+        private static Action _rcBack;           // the screen Cancel on the committed-restart notice returns to
         private static bool RestartCountdownActive => _rcScrim != null;
 
         // Rows are taller than the vanilla 70px save slots so each entry gets room to breathe; the name and subtitle
@@ -81,8 +80,9 @@ namespace SideHustle.Menu
         internal static void Teardown()
         {
             try { if (_clone != null) UnityEngine.Object.Destroy(_clone); }
-            catch { /* ignore */ }
-            try { DooDesch.UI.Toast.Clear(); } catch { /* scene objects already gone */ }
+            catch (Exception e) { Core.Log?.Warning("[hub] could not destroy the hub screen on teardown: " + e.Message); }
+            try { DooDesch.UI.Toast.Clear(); }
+            catch (Exception e) { Core.Log?.Warning("[hub] could not clear the toasts on teardown (scene objects already gone): " + e.Message); }
             _clone = null;
             _cloneScreen = null;
             _formHost = null;
@@ -92,21 +92,84 @@ namespace SideHustle.Menu
             _mpDesc = null;
         }
 
-        /// <summary>Per-frame (menu scene): right-click steps one view back, or closes the menu at the root. ESC is native.</summary>
+        /// <summary>Per-frame (menu scene): right-click steps one view back, or closes the menu at the root. ESC is native
+        /// except while a download or a pending restart owns the screen (see <see cref="OnGuardedExit"/>).</summary>
         internal static void TickInput()
         {
             TickRestartCountdown();   // keep counting even if the screen state changes underneath the prompt
             if (_chromeSweepFrames > 0) { _chromeSweepFrames--; StripSaveSlotChrome(); }
             SyncDownloadProgress.Tick();   // the sync bar counts VERIFIED mods, so it has to be polled
+            if (CommittedRestart.Pending)
+            {
+                if (Input.GetMouseButtonDown(1)) CommittedRestart.Cancel();   // the notice's own Cancel, on the mouse
+                return;
+            }
             if (_cloneScreen == null || !_cloneScreen.IsOpen) return;
+            JoinBrowserView.Tick();   // the open lobby browser's timeout, quiet refresh and live search
             if (RestartCountdownActive) return;   // modal: swallow right-click-back while the restart prompt is up
             if (Input.GetMouseButtonDown(1))
             {
                 if (CloseTopDialogIfAny()) return;   // a modal dialog closes on right-click instead of the screen
+                if (SyncRun.Active) { AskStopSyncDownload(); return; }   // leaving mid-download is a question, not a reflex
                 if (InstallActive) return;           // no backing out mid-install; the screen's Cancel is the only exit
                 if (_back != null) _back();
                 else _cloneScreen.Close();
             }
+        }
+
+        // Above every menu screen's own ESC handler (they register at 0), so the question comes first.
+        private const int ExitGuardPriority = 1000;
+
+        /// <summary>
+        /// Take ESC while a sync download runs or a restart can still be called off. The menu screen's native handler
+        /// would close the whole hub and leave the worker running; this asks instead. The wrapper that
+        /// <c>RegisterExitListener</c> builds marks the press as used, so nothing below sees it.
+        ///
+        /// The game clears its exit listeners on every scene change, so this is registered with each new clone.
+        /// </summary>
+        private static void RegisterExitGuard()
+        {
+            try
+            {
+                Il2CppScheduleOne.GameInput.RegisterExitListener(
+                    (Il2CppSystem.Action)OnGuardedExit,
+                    (Il2CppSystem.Func<bool>)(Func<bool>)(() => SyncRun.Active || CommittedRestart.Pending),
+                    ExitGuardPriority, false);
+            }
+            catch (Exception e) { Core.Log?.Warning("[hub] could not register the ESC guard for downloads: " + e.Message); }
+        }
+
+        private static void OnGuardedExit()
+        {
+            if (CommittedRestart.Pending) { CommittedRestart.Cancel(); return; }
+            if (CloseTopDialogIfAny()) return;
+            if (SyncRun.Active) AskStopSyncDownload();
+        }
+
+        // --- stopping a sync download ---
+
+        // Where Cancel / "Stop" lands: the screen the download was started from.
+        private static Action _syncBack;
+
+        private static void AskStopSyncDownload()
+        {
+            var root = DialogRoot();
+            if (root == null) { Core.Log?.Warning("[sync] no canvas to ask 'Stop the download?' on."); return; }
+            DooDesch.UI.Components.ConfirmDialog(root, "Stop the download?", "Finished downloads are kept.", "Stop",
+                () => StopSyncDownload("confirmed in the dialog"));
+        }
+
+        /// <summary>Cancel the running sync download and go back to the screen it came from. No restart.</summary>
+        private static void StopSyncDownload(string why)
+        {
+            if (!SyncRun.Cancel(why)) return;
+            SyncDownloadProgress.Clear();
+            _syncUi = null;
+            _installUi = null;
+            var back = _syncBack;
+            _syncBack = null;
+            try { (back ?? ShowGamemodeList)(); }
+            catch (Exception e) { Core.Log?.Warning("[sync] the screen after a cancelled download failed: " + e.Message); }
         }
 
         // --- open / clone ---
@@ -177,6 +240,7 @@ namespace SideHustle.Menu
                 // Run Awake once now (it self-deactivates and registers the ESC exit listener) so later Open() behaves.
                 _clone.SetActive(true);
                 PrewarmInputFont();   // build the Arial glyph atlas during this menu-open so the first text field on a choice screen renders without a one-time hitch
+                RegisterExitGuard();
                 Core.Log?.Msg("[hub] cloned NewGameScreen -> gamemode screen.");
             }
             catch (Exception e) { Core.Log?.Warning("[hub] EnsureClone failed: " + e); }
@@ -282,8 +346,12 @@ namespace SideHustle.Menu
             // One render: installed rows plus any ghost rows for not-installed gamemodes with live public lobbies,
             // taken from the cache the menu warmed on entry. No async second render, so the list never jumps.
             var rows = BuildGamemodeListRows();
-            if (Preferences.ShowUninstalledGamemodes && _advertisedCache != null)
-                rows.AddRange(BuildGhostRows(_advertisedCache));
+            if (Preferences.ShowUninstalledGamemodes)
+            {
+                if (_advertisedCache != null) rows.AddRange(BuildGhostRows(_advertisedCache));
+                rows.AddRange(BuildCatalogueRows(_advertisedCache));
+            }
+            rows.Add(new Row { Name = "Settings", Subtitle = "Menus, messages and when mods load.", OnClick = ShowSettings });
             ShowRows("Choose a gamemode", rows);
         }
 
@@ -328,29 +396,33 @@ namespace SideHustle.Menu
                     Name = waiting.Name,
                     Subtitle = "Click to start.",
                     Corner = by + (string.IsNullOrWhiteSpace(waiting.Version) ? "Ready" : waiting.Version),
-                    OnClick = () =>
-                    {
-                        // One click, not two. Loading the mod is a step the player did not ask for and should not
-                        // have to notice - it takes under a second and ends with the gamemode's own descriptor
-                        // registered, which is what they clicked for. Whatever is new in the registry afterwards
-                        // is it; matching by identity beats matching by name, which a mod is free to differ on.
-                        var before = new HashSet<string>(API.Registered.Select(d => d.Id));
-                        if (!Mods.GamemodeProbe.Load(waiting))
-                        {
-                            ShowRows("Choose a gamemode", new List<Row>
-                            {
-                                new Row { Name = waiting.Name + " could not be started", Subtitle = "The log says why.", Disabled = true },
-                                new Row { Name = "Back", Subtitle = "Back to the gamemode list.", OnClick = ShowGamemodeList }
-                            });
-                            return;
-                        }
-                        var fresh = API.Registered.FirstOrDefault(d => !before.Contains(d.Id));
-                        if (fresh != null) OnSelectGamemode(fresh);
-                        else ShowGamemodeList();   // loaded but registered nothing: show what there is
-                    }
+                    OnClick = () => StartWaitingGamemode(waiting)
                 });
             }
             return rows;
+        }
+
+        // One click, not two. Loading the mod is a step the player did not ask for and should not have to notice - it
+        // takes under a second and ends with the gamemode's own descriptor registered, which is what they clicked for.
+        // Whatever is new in the registry afterwards is it; matching by identity beats matching by name, which a mod is
+        // free to differ on.
+        private static void StartWaitingGamemode(Mods.GamemodeProbe.Candidate waiting)
+        {
+            var before = new HashSet<string>(API.Registered.Select(d => d.Id));
+            if (!Mods.GamemodeProbe.Load(waiting))
+            {
+                Core.Log?.Warning($"[hub] gamemode '{waiting.Name}' failed to load.");
+                ShowRows("Choose a gamemode", new List<Row>
+                {
+                    new Row { Name = waiting.Name + " could not be started", Subtitle = "The mod failed to load.", Disabled = true },
+                    new Row { Name = "Try again", Subtitle = "Load it again.", OnClick = () => StartWaitingGamemode(waiting) },
+                    new Row { Name = "Back", Subtitle = "Back to the gamemode list.", OnClick = ShowGamemodeList }
+                });
+                return;
+            }
+            var fresh = API.Registered.FirstOrDefault(d => !before.Contains(d.Id));
+            if (fresh != null) OnSelectGamemode(fresh);
+            else ShowGamemodeList();   // loaded but registered nothing: show what there is
         }
 
         // Group advertised public lobbies of NOT-installed gamemodes into one row each (name + live lobby/player count)
@@ -443,6 +515,7 @@ namespace SideHustle.Menu
             // lobby after the restart. Same two steps an installed player takes - pick a lobby, then join - only the
             // install runs in between. Hosting still needs the mod up front.
             bool canJoinAndInstall = g.Rows.Count > 0;
+            var catalogued = GamemodeCatalogue.Find(g.GamemodeId);
             var rows = new List<Row>
             {
                 new Row { Name = "Host", Subtitle = "Install the mod to host a session.", Disabled = true },
@@ -467,7 +540,26 @@ namespace SideHustle.Menu
                 },
                 new Row { Name = "Back", Subtitle = "Back to the gamemode list.", OnClick = ShowGamemodeList }
             };
+            if (catalogued != null)
+                rows.Insert(rows.Count - 1, new Row
+                {
+                    Name = "Install into a profile",
+                    Subtitle = "Adds " + catalogued.Name + " to one of your profiles.",
+                    OnClick = () => StartCatalogueInstall(catalogued, () => ShowUninstalledChoice(g))
+                });
             ShowRows(g.Name, rows);
+        }
+
+        // The in-game form for the preferences players otherwise edit in the config file.
+        private static void ShowSettings()
+        {
+            if (_clone == null) return;
+            _mpDesc = null;
+            _back = ShowGamemodeList;
+            ClearFormHost();
+            SetTmp(_clone.transform, "Title", "Settings");
+            var host = CreateFormHost("SH_Settings", 560f);
+            SettingsView.Build(host, ShowGamemodeList);
         }
 
         private static void ShowModeChoice(GamemodeDescriptor desc)
@@ -478,11 +570,50 @@ namespace SideHustle.Menu
             if (desc.AllowsSingleplayer)
                 rows.Add(new Row { Name = "Singleplayer", Subtitle = "Play on your own.", OnClick = () => LaunchSelected(desc) });
             rows.Add(new Row { Name = "Host", Subtitle = "Configure and open a session.", OnClick = () => ShowHostConfig(desc) });
+            var again = Preferences.GetHost(desc.Id);
+            if (again != null)
+                rows.Add(new Row { Name = "Host again", Subtitle = HostAgainSummary(again), OnClick = () => HostAgain(desc) });
             // Join goes straight to the browser: the mod policy is the host's decision (made on the host form), and a
             // client runs the gamemode host-authoritatively, so it keeps its own mods - no client-side mod gate here.
             rows.Add(new Row { Name = "Join", Subtitle = "Browse and join an open session.", OnClick = () => ShowBrowser(desc) });
             rows.Add(new Row { Name = "Back", Subtitle = "Back to the gamemode list.", OnClick = ShowGamemodeList });
             ShowRows(desc.DisplayName, rows, desc.Id);   // desc.Id -> the "Your name" strip binds to THIS gamemode's alias
+        }
+
+        // "3 players - public - Dennis Lobby", the remembered settings a Host again row would reuse.
+        private static string HostAgainSummary(Preferences.RememberedHost h)
+        {
+            string name = string.IsNullOrWhiteSpace(h.LobbyName) ? "" : " - " + h.LobbyName.Trim();
+            return $"{h.MaxPlayers} players - {(h.Visibility == 1 ? "private" : "public")}{name}";
+        }
+
+        // Starts a session straight from the settings remembered for this gamemode: same players, visibility and lobby
+        // name, the gamemode's default preset, no password.
+        private static void HostAgain(GamemodeDescriptor desc)
+        {
+            var saved = Preferences.GetHost(desc.Id);
+            if (saved == null)
+            {
+                Core.Log?.Warning($"[hub] Host again for '{desc.Id}' but nothing is remembered; opening the host form.");
+                ShowHostConfig(desc);
+                return;
+            }
+            _mpDesc = desc;
+            int players = Mathf.Clamp(saved.MaxPlayers >= 2 ? saved.MaxPlayers : 4, 2, Mathf.Max(2, LobbyCaps.MaxClients()));
+            var plan = desc.Policy != null ? Mods.ModPolicyResolver.Resolve(desc) : null;
+            bool hasPolicy = plan != null && plan.HasChanges;
+            int policyMode = (hasPolicy && !plan.Blocked && desc.DefaultRequiredModsOnly) ? 1 : 0;
+            var opts = new HostOptions
+            {
+                MaxPlayers = players,
+                Visibility = saved.Visibility == 1 ? LobbyVisibility.Private : LobbyVisibility.Public,
+                ConfigBlob = HostConfigView.DefaultConfig(desc, players, out var modeLabel),
+                LobbyName = string.IsNullOrWhiteSpace(saved.LobbyName) ? null : saved.LobbyName,
+                ModeLabel = modeLabel,
+                DiscordCode = DiscordInvite.IsCode(saved.DiscordCode) ? saved.DiscordCode : null,
+            };
+            Core.Log?.Msg($"[hub] Host again '{desc.Id}': {players} players, {(opts.Visibility == LobbyVisibility.Private ? "private" : "public")}.");
+            StartHostConfigured(desc, opts, policyMode, plan);
         }
 
         // The Host-config screen: a custom form (player count, visibility/password, optional mod policy, and the
@@ -535,13 +666,18 @@ namespace SideHustle.Menu
             SetTmp(_clone.transform, "Title", "Join: " + (desc.DisplayName ?? desc.Id));
 
             var host = CreateFormHost("SH_JoinBrowser", 560f);
-            var content = JoinBrowserView.Build(host, () => ShowModeChoice(desc), () => ShowBrowser(desc));
-            JoinBrowserView.SetStatus(content, "Searching for sessions...");
-            ServerBrowser.BeginQuery(desc.Id, results =>
+            JoinBrowserView.Build(host, new JoinBrowserView.Options
             {
-                // Only apply if this gamemode's browser is still the active view.
-                if (_cloneScreen != null && _cloneScreen.IsOpen && _mpDesc == desc && _formHost != null)
-                    JoinBrowserView.Populate(content, results, row => StartJoin(desc, row), LobbyCoordinator.BuildIdOf(desc));
+                Query = done => ServerBrowser.BeginQuery(desc.Id, results =>
+                {
+                    // Only apply if this gamemode's browser is still the active view.
+                    if (_cloneScreen != null && _cloneScreen.IsOpen && _mpDesc == desc && _formHost != null) done(results);
+                    else Core.Log?.Msg("[browser] dropped a lobby answer for a screen that is gone.");
+                }),
+                OnJoin = row => StartJoin(desc, row),
+                OnBack = () => ShowModeChoice(desc),
+                LocalBuild = LobbyCoordinator.BuildIdOf(desc),
+                OnHost = () => ShowHostConfig(desc),
             });
         }
 
@@ -554,14 +690,15 @@ namespace SideHustle.Menu
             // screen is gone. Marked rather than hidden: the next screen may re-show the SAME host in this frame
             // (checklist -> Back -> consent), and taking the page down would throw away a half-typed reply.
             ChatPanel.MarkStale();
+            SyncManualInstallView.Deactivate();
 
-            if (_formHost != null) { try { UnityEngine.Object.Destroy(_formHost); } catch { /* ignore */ } _formHost = null; }
+            if (_formHost != null) { Safe.Try("destroying the old form", () => UnityEngine.Object.Destroy(_formHost)); _formHost = null; }
 
             // Remove the choice-screen alias strip. Detach BEFORE Destroy (Destroy is deferred to end of frame) so a
             // same-frame ShowRows re-entry never picks the dead strip as its GetChild(0) clone template.
             if (_aliasHeader != null)
             {
-                try { _aliasHeader.transform.SetParent(null, false); UnityEngine.Object.Destroy(_aliasHeader); } catch { /* ignore */ }
+                Safe.Try("destroying the alias strip", () => { _aliasHeader.transform.SetParent(null, false); UnityEngine.Object.Destroy(_aliasHeader); });
                 _aliasHeader = null;
             }
 
@@ -668,7 +805,7 @@ namespace SideHustle.Menu
                 arial.RequestCharactersInTexture(glyphs, Theme.Label);
                 arial.RequestCharactersInTexture(glyphs, Theme.Label, FontStyle.Bold);
             }
-            catch { /* best-effort: a miss just leaves the original one-time first-field hitch */ }
+            catch (Exception e) { Safe.Report("warming the input font (the first text field may hitch once)", e); }
         }
 
         // One native save-slot card -> one row, reusing the SAME native widgets in their native positions: the name
@@ -830,10 +967,8 @@ namespace SideHustle.Menu
                     OnClick = () =>
                     {
                         Preferences.RecordLaunch(desc.Id);
-                        Action go = () => Mods.ModSwitcher.ApplyPolicyAndRestart(desc, plan);
-                        if (!ShowRestartingNotice()) { go(); return; }
-                        _rcPending = go;
-                        _rcPendingDelay = 0.6f;
+                        CommittedRestart.ForHost(() => Mods.ModSwitcher.ApplyPolicyAndRestart(desc, plan),
+                            onCancel: () => ShowModCheck(desc, plan));
                     }
                 });
             }
@@ -891,6 +1026,7 @@ namespace SideHustle.Menu
                 Preferences.RecordLaunch(desc.Id);
                 Mods.ModSwitcher.ApplyPolicyAndRestart(desc, plan, EncodeHostIntent(opts));
             };
+            _rcBack = () => ShowHostConfig(desc);
 
             var canvas = _clone != null ? _clone.GetComponentInParent<Canvas>() : null;
             Transform root = canvas != null ? canvas.transform : (_clone != null ? _clone.transform : null);
@@ -907,7 +1043,7 @@ namespace SideHustle.Menu
 
         private static void RestartCountdownClose()
         {
-            if (_rcScrim != null) { try { UnityEngine.Object.Destroy(_rcScrim); } catch { } _rcScrim = null; }
+            if (_rcScrim != null) { Safe.Try("closing the restart prompt", () => UnityEngine.Object.Destroy(_rcScrim)); _rcScrim = null; }
             _rcLabel = null;
         }
 
@@ -916,60 +1052,27 @@ namespace SideHustle.Menu
         ///
         /// The host used to get nothing here: the prompt vanished and the process relaunched, which from the outside is
         /// indistinguishable from the game crashing. A player who does not know a restart is expected assumes it broke.
-        ///
-        /// The delay is what makes the notice actually arrive. ApplyPolicyAndRestart does its work and relaunches
-        /// within the same call, so a screen built immediately before it never gets a frame to draw in - the joining
-        /// player's version of this screen only shows because downloads happen asynchronously after it. Handing the
-        /// restart to the ticker gives Unity frames to render first.
+        /// The notice carries a Cancel for the moment before the relaunch is handed to the process.
         /// </summary>
         private static void RestartCountdownFire()
         {
             var a = _rcOnRestart;
+            var back = _rcBack;
             _rcOnRestart = null;
+            _rcBack = null;
             RestartCountdownClose();
-            if (a == null) return;
-
-            if (!ShowRestartingNotice()) { a(); return; }   // nowhere to draw -> restart rather than stall
-            _rcPending = a;
-            _rcPendingDelay = 0.6f;
+            if (a == null) { Core.Log?.Warning("[hub] restart countdown fired with no restart action."); return; }
+            CommittedRestart.ForHost(a, back);
         }
 
-        /// <summary>The joining player's "INSTALLING AND RESTARTING" screen, worded for the host: nothing is being
-        /// installed here, the game is relaunching with a smaller mod set.</summary>
-        private static bool ShowRestartingNotice()
-        {
-            try
-            {
-                if (_clone == null || _cloneScreen == null || !_cloneScreen.IsOpen) return false;
-                _back = null;
-                ClearFormHost();
-                SetTmp(_clone.transform, "Title", "Restarting");
-                var host = CreateFormHost("SH_HostRestarting", 560f);
-                if (host == null) return false;
-                ProfilesViews.BuildBigStatus(host, "RESTARTING WITH THE REQUIRED MODS",
-                    "The game comes back on its own and opens your lobby - hang tight. Don't close the game. " +
-                    "Your installed mods are left untouched.");
-                return true;
-            }
-            catch (Exception e) { Core.Log?.Warning("[hub] could not show the restart notice: " + e.Message); return false; }
-        }
-
-        private static void RestartCountdownCancel() { _rcOnRestart = null; RestartCountdownClose(); }   // stay on the host form
+        private static void RestartCountdownCancel() { _rcOnRestart = null; _rcBack = null; RestartCountdownClose(); }   // stay on the host form
 
         private static void TickRestartCountdown()
         {
-            // The committed restart, held back by a few frames so the notice above is on screen when it happens.
-            if (_rcPending != null)
-            {
-                _rcPendingDelay -= Time.unscaledDeltaTime;
-                if (_rcPendingDelay <= 0f) { var a = _rcPending; _rcPending = null; a(); }
-                return;
-            }
-
             if (_rcScrim == null) return;
             _rcRemaining -= Time.unscaledDeltaTime;
             int secs = Mathf.Max(0, Mathf.CeilToInt(_rcRemaining));
-            if (_rcLabel != null) { try { _rcLabel.text = secs > 0 ? $"Restarting in {secs}s..." : "Restarting..."; } catch { } }
+            if (_rcLabel != null) Safe.Try("updating the restart countdown", () => _rcLabel.text = secs > 0 ? $"Restarting in {secs}s..." : "Restarting...");
             if (_rcRemaining <= 0f) RestartCountdownFire();
         }
 
@@ -985,7 +1088,8 @@ namespace SideHustle.Menu
             new KeyValuePair<string, string>("pw", o.Password ?? ""),
             new KeyValuePair<string, string>("cfg", o.ConfigBlob ?? ""),
             new KeyValuePair<string, string>("name", o.LobbyName ?? ""),
-            new KeyValuePair<string, string>("mode", o.ModeLabel ?? "")
+            new KeyValuePair<string, string>("mode", o.ModeLabel ?? ""),
+            new KeyValuePair<string, string>("dc", o.DiscordCode ?? "")
         });
 
         private static HostOptions DecodeHostIntent(string s)
@@ -999,7 +1103,8 @@ namespace SideHustle.Menu
                 Password = m.TryGetValue("pw", out var pw) && pw.Length > 0 ? pw : null,
                 ConfigBlob = m.TryGetValue("cfg", out var c) && c.Length > 0 ? c : null,
                 LobbyName = m.TryGetValue("name", out var n) && n.Length > 0 ? n : null,
-                ModeLabel = m.TryGetValue("mode", out var md) && md.Length > 0 ? md : null
+                ModeLabel = m.TryGetValue("mode", out var md) && md.Length > 0 ? md : null,
+                DiscordCode = m.TryGetValue("dc", out var dc) && DiscordInvite.IsCode(dc) ? dc : null
             };
         }
 
@@ -1114,7 +1219,7 @@ namespace SideHustle.Menu
                     desc.Icon = Sprite.Create(desc.IconTex, new Rect(0, 0, desc.IconTex.width, desc.IconTex.height), new Vector2(0.5f, 0.5f));
                     return desc.Icon;
                 }
-                catch { /* ignore */ }
+                catch (Exception e) { Safe.Report("building a gamemode icon", e); }
             }
             return null;
         }

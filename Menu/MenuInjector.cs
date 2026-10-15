@@ -367,11 +367,11 @@ namespace SideHustle.Menu
                 tmp.text = label;
                 // Our labels ("Mod Profiles", "Restore my mods") can be wider than the cloned nav button; keep them on
                 // one line (extend, not wrap) so a longer entry does not break onto a second row like the vanilla ones.
-                try { tmp.enableWordWrapping = false; tmp.overflowMode = Il2CppTMPro.TextOverflowModes.Overflow; } catch { }
+                try { tmp.enableWordWrapping = false; tmp.overflowMode = Il2CppTMPro.TextOverflowModes.Overflow; } catch (Exception e) { Safe.Report("keeping a menu button label on one line", e); }
                 return;
             }
             var txt = go.GetComponentInChildren<Text>(true);
-            if (txt != null) { txt.text = label; try { txt.horizontalOverflow = HorizontalWrapMode.Overflow; } catch { } }
+            if (txt != null) { txt.text = label; try { txt.horizontalOverflow = HorizontalWrapMode.Overflow; } catch (Exception e) { Safe.Report("keeping a menu button label on one line", e); } }
         }
     }
 }

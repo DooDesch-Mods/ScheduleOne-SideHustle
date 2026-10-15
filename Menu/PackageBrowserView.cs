@@ -58,6 +58,8 @@ namespace SideHustle.Menu
 
             TsIndex index = null;
             string query = "";
+            bool loadFailed = false;
+            System.Action load = null;
 
             void Render()
             {
@@ -66,7 +68,16 @@ namespace SideHustle.Menu
 
                 if (index == null)
                 {
-                    UIFactory.Text("loading", "Loading the package index...", content, 18, TextAnchor.MiddleCenter);
+                    if (!loadFailed)
+                    {
+                        UIFactory.Text("loading", "Loading the package index...", content, 18, TextAnchor.MiddleCenter);
+                        return;
+                    }
+                    UIFactory.Text("offline", "Couldn't load the mod list.", content, 18, TextAnchor.MiddleCenter);
+                    var (retryGO, retryBtn, _r) = UIFactory.ButtonWithLabel("retry", "Retry", content, Theme.Accent, 160, 40);
+                    var retryLe = retryGO.AddComponent<LayoutElement>(); retryLe.minHeight = 40f; retryLe.preferredHeight = 40f;
+                    retryBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => load()));
+                    Interactions.PolishButtons(content);
                     return;
                 }
 
@@ -178,18 +189,29 @@ namespace SideHustle.Menu
             Render();
             Interactions.PolishButtons(formHost);
 
-            System.Threading.Tasks.Task.Run(async () =>
+            load = () =>
             {
-                TsIndex idx = null;
-                try { idx = await ThunderstoreClient.GetIndexAsync(ProfileEngine.GameRoot, false, System.Threading.CancellationToken.None); }
-                catch { /* offline: idx stays null */ }
-                MainThread.Post(() =>
+                loadFailed = false;
+                Render();
+                System.Threading.Tasks.Task.Run(async () =>
                 {
-                    if (content == null) return;   // the view was torn down meanwhile
-                    index = idx ?? new TsIndex(new List<TsPackage>());
-                    Render();
+                    TsIndex idx = null;
+                    try { idx = await ThunderstoreClient.GetIndexAsync(ProfileEngine.GameRoot, false, System.Threading.CancellationToken.None); }
+                    catch (Exception e) { Core.Log?.Warning("[profiles] could not load the Thunderstore index (offline?): " + e.Message); }
+                    MainThread.Post(() =>
+                    {
+                        if (content == null) return;   // the view was torn down meanwhile
+                        if (idx == null)
+                        {
+                            Core.Log?.Warning("[profiles] the Thunderstore index did not load; offering a retry.");
+                            loadFailed = true;
+                        }
+                        else index = idx;
+                        Render();
+                    });
                 });
-            });
+            };
+            load();
         }
 
         // Two tight lines anchored from the row's top edge (name over meta), between the left icon and the right

@@ -1,6 +1,7 @@
 using System;
 using DooDesch.UI;
 using S1API.UI;
+using SideHustle.Config;
 using SideHustle.Multiplayer;
 using SideHustle.Sync;
 using UnityEngine;
@@ -15,14 +16,28 @@ namespace SideHustle.Menu
     /// </summary>
     internal static class VanillaHostView
     {
+        /// <summary>The screen title and host button for a lobby that is, or is not, listed publicly.</summary>
+        internal static string HostLabel(int visibility) => visibility == 1 ? "Host" : "Host publicly";
+
         internal static void Build(Transform formHost, PublishPlan plan, System.Collections.Generic.List<PrefsCategory> prefsCats,
-            int maxClients, Action onBack, Action<HostOptions, bool, System.Collections.Generic.List<string>> onHost)
+            int maxClients, Action onBack, Action<HostOptions, bool, System.Collections.Generic.List<string>> onHost,
+            Action<string> setTitle = null)
         {
             const float Pad = 30f;
             int cap = Mathf.Max(2, maxClients);
-            int players = Mathf.Clamp(4, 2, cap);
-            int visibility = 0;   // 0 = Public, 1 = Private
-            bool enforce = true;   // default ON: co-op is most stable when everyone runs the host's synced set
+            // What the host chose last time (never the password).
+            var saved = Preferences.GetHost(Preferences.VanillaHostKey);
+            int players = Mathf.Clamp(saved != null && saved.MaxPlayers >= 2 ? saved.MaxPlayers : 4, 2, cap);
+            int visibility = saved != null ? saved.Visibility : 0;   // 0 = Public, 1 = Private
+            bool enforce = saved != null ? saved.Enforce : true;   // default ON: co-op is most stable when everyone runs the host's synced set
+            Button hostButton = null;
+            Text hostLabel = null;
+            void RefreshHostLabel()
+            {
+                string label = HostLabel(visibility);
+                if (hostLabel != null) hostLabel.text = label;
+                setTitle?.Invoke(label);
+            }
             var syncPrefs = new System.Collections.Generic.HashSet<string>(
                 (prefsCats ?? new System.Collections.Generic.List<PrefsCategory>())
                     .Where(c => c.SyncByDefault).Select(c => c.Id), StringComparer.OrdinalIgnoreCase);
@@ -42,7 +57,8 @@ namespace SideHustle.Menu
             Components.SectionHeader(content, "Lobby");
 
             Components.FormRow(content, "Lobby name", "Shown to players in the lobby browser.", out var lnSlot, stacked: true);
-            var lobbyName = Components.TextInput(lnSlot, LobbyCoordinator.LocalPersonaName() + " Lobby", null, "lobby name", 40);
+            string startName = saved != null && !string.IsNullOrWhiteSpace(saved.LobbyName) ? saved.LobbyName : LobbyCoordinator.LocalPersonaName() + " Lobby";
+            var lobbyName = Components.TextInput(lnSlot, startName, null, "lobby name", 40);
             Components.FillSlot(lobbyName.gameObject, 6f);
 
             Components.FormRow(content, "Players", $"2 to {cap}.", out var pSlot);
@@ -51,12 +67,17 @@ namespace SideHustle.Menu
             InputField password = null;
             GameObject passwordRow = null;
             Components.FormRow(content, "Lobby", "Private = friends-only, not listed.", out var vSlot);
-            Components.FillSlot(Components.Segmented(vSlot, new[] { "Public", "Private" }, 0,
-                i => { visibility = i; if (passwordRow != null) passwordRow.SetActive(i == 0); }, out _));
+            Components.FillSlot(Components.Segmented(vSlot, new[] { "Public", "Private" }, visibility,
+                i => { visibility = i; if (passwordRow != null) passwordRow.SetActive(i == 0); RefreshHostLabel(); }, out _));
 
             passwordRow = Components.FormRow(content, "Password", "Empty = open lobby.", out var pwSlot);
             password = Components.TextInput(pwSlot, "", null, "no password", 32);
             Components.FillSlot(password.gameObject, 6f);
+            if (visibility == 1) passwordRow.SetActive(false);
+
+            Components.FormRow(content, "Discord invite", "Optional. Shown with your lobby.", out var dcSlot, stacked: true);
+            var discordField = Components.TextInput(dcSlot, saved != null && DiscordInvite.IsCode(saved.DiscordCode) ? DiscordInvite.LinkFor(saved.DiscordCode) : "", null, "discord.gg/invite", 80);
+            Components.FillSlot(discordField.gameObject, 6f);
 
             Components.SectionHeader(content, "Mod sync");
             int auto = plan.AutoCount + plan.GhCount;
@@ -66,7 +87,7 @@ namespace SideHustle.Menu
                         + (plan.DroppedCount > 0 ? $", {plan.DroppedCount} cannot sync (they join without those)" : "") + ".");
 
             Components.FormRow(content, "Synced clients only", "Kick joiners whose mods don't match (friends included).", out var eSlot);
-            Components.Toggle(eSlot, true, v => enforce = v);
+            Components.Toggle(eSlot, enforce, v => enforce = v);
 
             if (prefsCats != null && prefsCats.Count > 0)
             {
@@ -87,17 +108,37 @@ namespace SideHustle.Menu
             PlaceFooter(backGO, left: true);
             backBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => onBack?.Invoke()));
 
-            var (hostGO, hostBtn, _h) = UIFactory.ButtonWithLabel("Host", "Host publicly", footer.transform, Theme.Accent, 200, 40);
+            var (hostGO, hostBtn, hostLbl) = UIFactory.ButtonWithLabel("Host", HostLabel(visibility), footer.transform, Theme.Accent, 200, 40);
+            hostButton = hostBtn; hostLabel = hostLbl;
             PlaceFooter(hostGO, left: false);
+            setTitle?.Invoke(HostLabel(visibility));
             hostBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() =>
             {
+                string discordCode = "";
+                string typedInvite = (discordField != null ? discordField.text : "") ?? "";
+                if (typedInvite.Trim().Length > 0 && !DiscordInvite.TryParse(typedInvite, out discordCode))
+                {
+                    Core.Log?.Msg("[hub] vanilla host form: the Discord invite field did not parse; not hosting.");
+                    Hub.Notify(DiscordInvite.NotAnInvite, Severity.Warning);
+                    return;
+                }
+                string typedName = lobbyName != null ? lobbyName.text : null;
                 var opts = new HostOptions
                 {
                     MaxPlayers = players,
                     Visibility = visibility == 1 ? LobbyVisibility.Private : LobbyVisibility.Public,
                     Password = password != null ? password.text : null,
-                    LobbyName = lobbyName != null ? lobbyName.text : null,
+                    LobbyName = typedName,
+                    DiscordCode = string.IsNullOrEmpty(discordCode) ? null : discordCode,
                 };
+                Preferences.SetHost(Preferences.VanillaHostKey, new Preferences.RememberedHost
+                {
+                    MaxPlayers = players,
+                    Visibility = visibility,
+                    LobbyName = typedName ?? "",
+                    Enforce = enforce,
+                    DiscordCode = discordCode,
+                });
                 onHost?.Invoke(opts, enforce, syncPrefs.ToList());
             }));
 

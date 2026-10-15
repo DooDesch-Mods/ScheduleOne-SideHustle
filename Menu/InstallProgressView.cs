@@ -84,7 +84,7 @@ namespace SideHustle.Menu
                     SetStatus($"Downloading {Math.Min(pp.Done + 1, Math.Max(1, pp.Total))} of {Math.Max(1, pp.Total)}...");
                     UpdateBar();
                 }
-                catch { /* the view was torn down mid-report */ }
+                catch (Exception e) { Fault("reporting progress", e); }
             }
 
             internal void SetApplying()
@@ -94,8 +94,8 @@ namespace SideHustle.Menu
                 SetStatus("Applying to the profile...");
                 // Past the download phase there is nothing left to cancel (the token is only observed while
                 // downloading), so retire the button rather than let it show a misleading "Cancelling...".
-                try { if (CancelButton != null) CancelButton.interactable = false; } catch { }
-                try { Components.SetProgressBar(BarFill, 1f); } catch { }
+                try { if (CancelButton != null) CancelButton.interactable = false; } catch (Exception e) { Fault("retiring the cancel button", e); }
+                try { Components.SetProgressBar(BarFill, 1f); } catch (Exception e) { Fault("filling the bar", e); }
             }
 
             internal void ShowSuccess(string message)
@@ -108,7 +108,7 @@ namespace SideHustle.Menu
                     if (BarFill != null) { BarFill.color = Theme.Success; Components.SetProgressBar(BarFill, 1f); }
                     if (CancelButton != null) CancelButton.interactable = false;
                 }
-                catch { }
+                catch (Exception e) { Fault("showing success", e); }
             }
 
             internal void ShowError(string message, Action onRetry, Action onBack)
@@ -138,7 +138,7 @@ namespace SideHustle.Menu
 
                     Interactions.PolishButtons(Footer);
                 }
-                catch { }
+                catch (Exception e) { Fault("showing the error", e); }
             }
 
             internal void SetCancelling()
@@ -149,7 +149,7 @@ namespace SideHustle.Menu
                     if (CancelLabel != null) CancelLabel.text = "Cancelling...";
                     SetStatus("Cancelling...");
                 }
-                catch { }
+                catch (Exception e) { Fault("showing the cancel state", e); }
             }
 
             /// <summary>Terminal WARNING state: the install itself worked, but with a runtime problem the player
@@ -174,7 +174,7 @@ namespace SideHustle.Menu
 
                     Interactions.PolishButtons(Footer);
                 }
-                catch { }
+                catch (Exception e) { Fault("showing the warning", e); }
             }
 
             /// <summary>Post-terminal per-row runtime note ("Mono variant skipped" / "Mono build - will not
@@ -186,7 +186,7 @@ namespace SideHustle.Menu
                 {
                     SetRow(key, $"{(warn ? "!" : "+")}  {key}  -  {note}", warn ? Theme.WarningText : Theme.TextMuted);
                 }
-                catch { }
+                catch (Exception e) { Fault("setting a row note", e); }
             }
 
             // Sync downloads report explicit steps keyed by DiffEntry.Key (see SyncProgressEvent) instead of the
@@ -242,7 +242,17 @@ namespace SideHustle.Menu
                         done += Math.Min(ActiveBytes, SizeOf(active));
                     Components.SetProgressBar(BarFill, (float)done / TotalBytes);
                 }
-                catch { }
+                catch (Exception e) { Fault("updating the bar", e); }
+            }
+
+            // The view can be torn down mid-report; that is expected once, and a broken painter would otherwise log
+            // on every progress tick.
+            private bool _faulted;
+            private void Fault(string what, Exception e)
+            {
+                if (_faulted) return;
+                _faulted = true;
+                Core.Log?.Warning($"[install] progress view fault while {what}: {e.Message}");
             }
 
             private void SetRow(string key, string text, Color color)
@@ -292,12 +302,16 @@ namespace SideHustle.Menu
             frt.offsetMin = new Vector2(Pad, 0); frt.offsetMax = new Vector2(-Pad, 56);
             c.Footer = footer.transform;
 
-            var (cancelGO, cancelBtn, cancelLbl) = UIFactory.ButtonWithLabel("Cancel", "Cancel", footer.transform, Theme.Button, 160, 40);
-            var crt = cancelGO.GetComponent<RectTransform>();
-            crt.anchorMin = new Vector2(0, 0.5f); crt.anchorMax = new Vector2(0, 0.5f); crt.pivot = new Vector2(0, 0.5f);
-            crt.anchoredPosition = Vector2.zero;
-            c.CancelButton = cancelBtn; c.CancelLabel = cancelLbl;
-            cancelBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => { c.SetCancelling(); onCancel?.Invoke(); }));
+            // A Cancel that nothing listens to is a dead button. It is only built when the caller has something to stop.
+            if (onCancel != null)
+            {
+                var (cancelGO, cancelBtn, cancelLbl) = UIFactory.ButtonWithLabel("Cancel", "Cancel", footer.transform, Theme.Button, 160, 40);
+                var crt = cancelGO.GetComponent<RectTransform>();
+                crt.anchorMin = new Vector2(0, 0.5f); crt.anchorMax = new Vector2(0, 0.5f); crt.pivot = new Vector2(0, 0.5f);
+                crt.anchoredPosition = Vector2.zero;
+                c.CancelButton = cancelBtn; c.CancelLabel = cancelLbl;
+                cancelBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => { c.SetCancelling(); onCancel(); }));
+            }
 
             var listArea = UIFactory.Panel("list", formHost, Theme.Clear);
             var lrt = listArea.GetComponent<RectTransform>();

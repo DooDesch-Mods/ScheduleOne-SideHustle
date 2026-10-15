@@ -35,6 +35,10 @@ namespace SideHustle.Multiplayer
         /// shown on the browser card so joiners see the selected mode. Null when the gamemode has no presets.</summary>
         public string ModeLabel = null;
 
+        /// <summary>The host's Discord invite code (just the code, validated by <c>DiscordInvite</c>), published as
+        /// <c>sh_discord</c>. Null or empty publishes nothing.</summary>
+        public string DiscordCode = null;
+
         /// <summary>True when a Public lobby is password-gated (shows a lock in the browser).</summary>
         public bool HasPassword => Visibility == LobbyVisibility.Public && !string.IsNullOrEmpty(Password);
     }

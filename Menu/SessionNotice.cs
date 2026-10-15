@@ -30,7 +30,8 @@ namespace SideHustle.Menu
         internal static void Set(string reason)
         {
             if (string.IsNullOrEmpty(reason)) return;
-            try { Preferences.LastSessionError = reason; } catch { }
+            try { Preferences.LastSessionError = reason; }
+            catch (Exception e) { Core.Log?.Warning("[notice] could not store the session error \"" + reason + "\": " + e.Message); }
         }
 
         /// <summary>
@@ -44,16 +45,19 @@ namespace SideHustle.Menu
         {
             if (_showing) return;
             string reason;
-            try { reason = Preferences.LastSessionError; } catch { return; }
+            try { reason = Preferences.LastSessionError; }
+            catch (Exception e) { Safe.Report("reading the stored session error", e); return; }
             if (string.IsNullOrEmpty(reason)) return;
 
             // Only surface it once there is somewhere to draw AND no world running - mid-session is the wrong
             // moment for a modal about a session that already ended.
-            try { if (Multiplayer.WorldBoot.IsInGame) return; } catch { }
+            try { if (Multiplayer.WorldBoot.IsInGame) return; }
+            catch (Exception e) { Safe.Report("asking whether a world is running", e); }
 
             Transform root;
-            try { root = Hub.DialogRootStatic(); } catch { return; }
-            if (root == null) return;
+            try { root = Hub.DialogRootStatic(); }
+            catch (Exception e) { Safe.Report("finding the canvas for the session notice", e); return; }
+            if (root == null) return;   // no canvas yet: the notice stays stored and is tried again next frame
 
             _showing = true;
             string text = Sentence(reason);
@@ -76,7 +80,8 @@ namespace SideHustle.Menu
         private static void Dismiss()
         {
             _showing = false;
-            try { Preferences.LastSessionError = ""; } catch { }
+            try { Preferences.LastSessionError = ""; }
+            catch (Exception e) { Core.Log?.Warning("[notice] could not clear the stored session error: " + e.Message); }
         }
 
         /// <summary>Forget a pending notice without showing it (a fresh, deliberate session start).</summary>
@@ -126,8 +131,10 @@ namespace SideHustle.Menu
             // would send the player after the wrong fix.
             if (lower.Contains("stopped unexpectedly")) return "Try rejoining from the session list.";
 
-            // Unknown reasons are still shown rather than swallowed - just tidied into a sentence.
-            return char.ToUpperInvariant(r[0]) + r.Substring(1) + (r.EndsWith(".") ? "" : ".");
+            // An unknown reason is an internal log line, not something to read out to the player. It is already in
+            // the log; the dialog says the session ended and what to do.
+            Core.Log?.Msg("[notice] unrecognised session end reason: " + r);
+            return "The session ended. Try again.";
         }
     }
 }

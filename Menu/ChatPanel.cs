@@ -111,8 +111,8 @@ namespace SideHustle.Menu
         internal static void Hide()
         {
             if (_panel == null && _surface == null) return;
-            try { Surfaces.Unmount(SurfaceId); } catch { }
-            try { if (_panel != null) UnityEngine.Object.Destroy(_panel); } catch { }
+            Safe.Try("unmounting the chat surface", () => Surfaces.Unmount(SurfaceId));
+            Safe.Try("destroying the chat panel", () => { if (_panel != null) UnityEngine.Object.Destroy(_panel); });
             _panel = null;
             _surface = null;
             _peer = 0UL;
@@ -198,7 +198,7 @@ namespace SideHustle.Menu
             if (ChatRelay.Revision == _revisionSeen) return;
             _revisionSeen = ChatRelay.Revision;
             ChatRelay.MarkRead(_peer);
-            try { _surface?.Emit("chat.changed", ""); } catch { /* the page reads state on its next build */ }
+            Safe.Try("telling the chat page it changed", () => _surface?.Emit("chat.changed", ""));
         }
 
         private static string Send(string text)

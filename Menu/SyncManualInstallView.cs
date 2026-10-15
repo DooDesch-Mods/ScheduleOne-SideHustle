@@ -28,6 +28,17 @@ namespace SideHustle.Menu
 
         internal static bool IsActive => _active;
 
+        /// <summary>The checklist is no longer on screen. Every way off it funnels through the hub's screen swap, which
+        /// calls this - the Back and Continue buttons used to be the only exits that cleared the flag, so ESC or a
+        /// right-click left the poller running against a screen that was gone.</summary>
+        internal static void Deactivate()
+        {
+            if (!_active) return;
+            _active = false;
+            _refresh = null;
+            Core.Log?.Msg("[sync] manual-install checklist closed.");
+        }
+
         /// <summary>Start resolving the exact Nexus page for every mod this diff can only offer by name, so the
         /// checklist's links point at the mod itself instead of a search. Called from the consent screen too - the
         /// answers are usually in by the time the checklist opens, and a repeat call is free.</summary>
@@ -40,6 +51,7 @@ namespace SideHustle.Menu
         internal static void Tick()
         {
             if (!_active) return;
+            if (!Hub.ScreenOpen) { Deactivate(); return; }   // the hub closed under the checklist
             var resolved = ManualInstall.Poll(_pending);
             // A new watcher hint or a landed Nexus lookup both change what a row shows, so either repaints.
             bool rowsChanged = _notesSeen != ManualInstall.NotesVersion || _lookupsSeen != NexusLookup.ResultsVersion;
@@ -266,7 +278,7 @@ namespace SideHustle.Menu
                 Toast.Init(Hub.DialogRootStatic());
                 Toast.Show(message, sev);
             }
-            catch { /* menu scene mid-transition */ }
+            catch (Exception e) { Core.Log?.Warning("[sync] could not show a toast (menu mid-transition?): " + e.Message); }
         }
 
         private static void Note(RectTransform content, string text)

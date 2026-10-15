@@ -71,9 +71,9 @@ namespace SideHustle.Menu
         /// </summary>
         internal static void Reset()
         {
-            try { ServerBrowser.VanillaResultsTap = null; } catch { }
-            try { Surfaces.Unmount(SurfaceId); } catch { }
-            try { if (_panel != null) UnityEngine.Object.Destroy(_panel); } catch { }
+            Safe.Try("detaching the lobby tap", () => ServerBrowser.VanillaResultsTap = null);
+            Safe.Try("unmounting the state surface", () => Surfaces.Unmount(SurfaceId));
+            Safe.Try("destroying the state panel", () => { if (_panel != null) UnityEngine.Object.Destroy(_panel); });
             _panel = null;
             _surface = null;
             _pushed = "";
@@ -203,7 +203,8 @@ namespace SideHustle.Menu
             string now = State();
             if (now == _pushed) return;
             _pushed = now;
-            try { _surface?.Emit("menu.changed", ""); } catch { /* the page reads state on its next build */ }
+            // The page reads the state again on its next build, so a missed push only delays the update.
+            Safe.Try("telling the state page the menu changed", () => _surface?.Emit("menu.changed", ""));
         }
 
         /// <summary>
@@ -255,10 +256,11 @@ namespace SideHustle.Menu
                 alt = Mods.AltBase.IsAltSession();
                 if (alt) profile = System.IO.Path.GetFileName(Mods.AltBase.CurrentBase() ?? "");
             }
-            catch { }
+            catch (Exception e) { Safe.Report("reading the active profile for the state column", e); }
 
             string lastError = "";
-            try { lastError = Preferences.LastSessionError ?? ""; } catch { }
+            try { lastError = Preferences.LastSessionError ?? ""; }
+            catch (Exception e) { Safe.Report("reading the last session error for the state column", e); }
 
             return Phone.Json.Object()
                 // Which mod set this process booted with. A player who restarted into a gamemode profile and then
@@ -277,7 +279,7 @@ namespace SideHustle.Menu
         private static string Version()
         {
             try { return typeof(Core).Assembly.GetName().Version?.ToString(3) ?? ""; }
-            catch { return ""; }
+            catch (Exception e) { Safe.Report("reading the mod version", e); return ""; }
         }
 
         /// <summary>Numbers the page prints, formatted where they are read rather than in JavaScript - the engine's

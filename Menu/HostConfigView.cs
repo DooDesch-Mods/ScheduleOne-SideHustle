@@ -20,8 +20,10 @@ namespace SideHustle.Menu
                                    Action onBack, Action<HostOptions, int> onStart)
         {
             int cap = Mathf.Max(2, maxClients);
-            int players = Mathf.Clamp(Mathf.Min(4, cap), 2, cap);   // multiplayer: never below 2
-            int visibility = 0;   // 0 = Public, 1 = Private
+            // What the host chose last time for this gamemode (never the password).
+            var saved = SideHustle.Config.Preferences.GetHost(desc.Id);
+            int players = Mathf.Clamp(saved != null && saved.MaxPlayers >= 2 ? saved.MaxPlayers : Mathf.Min(4, cap), 2, cap);   // multiplayer: never below 2
+            int visibility = saved != null ? saved.Visibility : 0;   // 0 = Public, 1 = Private
             bool hasPolicy = plan != null && plan.HasChanges;
             bool blocked = plan != null && plan.Blocked;
             // The gamemode can default the mod-set choice (e.g. PropHunt wants a clean, everyone-identical set) - but
@@ -35,6 +37,7 @@ namespace SideHustle.Menu
             InputField passwordField = null;
             GameObject passwordRow = null;
             InputField lobbyNameField = null;
+            InputField discordField = null;
 
             // Preset-cascade vs user-edit tracking: cascading a preset into the controls must NOT mark the form
             // "dirty" - only a direct user edit does. On Start the effective mode is the selected preset's name, or
@@ -47,7 +50,7 @@ namespace SideHustle.Menu
                 applyingPreset = true;
                 if (vals != null)
                     foreach (var kv in vals)
-                        if (setters.TryGetValue(kv.Key, out var set)) { try { set(kv.Value); } catch { } }
+                        if (setters.TryGetValue(kv.Key, out var set)) { try { set(kv.Value); } catch (Exception e) { Core.Log?.Warning($"[hub] could not apply preset value {kv.Key}: {e.Message}"); } }
                 applyingPreset = false;
                 settingsDirty = false;   // selecting a preset is a clean baseline
             };
@@ -82,7 +85,8 @@ namespace SideHustle.Menu
             // fall back to the real Steam persona name when no alias is set.
             string hostDisplay = SideHustle.Config.Preferences.GetAlias(desc.Id);
             if (string.IsNullOrEmpty(hostDisplay)) hostDisplay = LobbyCoordinator.LocalPersonaName();
-            lobbyNameField = Components.TextInput(lnSlot, hostDisplay + " Lobby", null, "lobby name", 40);
+            string startName = saved != null && !string.IsNullOrWhiteSpace(saved.LobbyName) ? saved.LobbyName : hostDisplay + " Lobby";
+            lobbyNameField = Components.TextInput(lnSlot, startName, null, "lobby name", 40);
             Fill(lobbyNameField.gameObject, 6f);
 
             // --- Players ---
@@ -91,7 +95,7 @@ namespace SideHustle.Menu
 
             // --- Lobby visibility ---
             Components.FormRow(content, "Lobby", "Private = friends-only, not listed.", out var vSlot);
-            var vis = Components.Segmented(vSlot, new[] { "Public", "Private" }, 0,
+            var vis = Components.Segmented(vSlot, new[] { "Public", "Private" }, visibility,
                 i => { visibility = i; if (passwordRow != null) passwordRow.SetActive(i == 0); }, out _);
             Fill(vis);
 
@@ -99,6 +103,12 @@ namespace SideHustle.Menu
             passwordRow = Components.FormRow(content, "Password", "Empty = open lobby.", out var pwSlot);
             passwordField = Components.TextInput(pwSlot, "", null, "no password", 32);
             Fill(passwordField.gameObject, 6f);
+            if (visibility == 1) passwordRow.SetActive(false);
+
+            // --- Discord invite (optional; only the code is published) ---
+            Components.FormRow(content, "Discord invite", "Optional. Shown with your lobby.", out var dcSlot, stacked: true);
+            discordField = Components.TextInput(dcSlot, saved != null && DiscordInvite.IsCode(saved.DiscordCode) ? DiscordInvite.LinkFor(saved.DiscordCode) : "", null, "discord.gg/invite", 80);
+            Fill(discordField.gameObject, 6f);
 
             // --- Mod policy (optional, only when it would change the mod set) ---
             if (hasPolicy)
@@ -145,6 +155,14 @@ namespace SideHustle.Menu
                 foreach (var kv in textInputs) values[kv.Key] = Sanitize(kv.Value != null ? kv.Value.text : "");
                 int mode = hasPolicy ? policyMode : 0;
                 string lobbyName = Sanitize(lobbyNameField != null ? lobbyNameField.text : "");
+                string discordCode = "";
+                string typedInvite = (discordField != null ? discordField.text : "") ?? "";
+                if (typedInvite.Trim().Length > 0 && !DiscordInvite.TryParse(typedInvite, out discordCode))
+                {
+                    Core.Log?.Msg("[hub] host form: the Discord invite field did not parse; not starting.");
+                    Hub.Notify(DiscordInvite.NotAnInvite, Severity.Warning);
+                    return;
+                }
                 string modeLabel = null;
                 var sel = selectedPreset != null ? selectedPreset() : null;
                 if (sel != null) modeLabel = settingsDirty ? "Custom - " + (sel.Mode ?? sel.Name) : sel.Name;
@@ -155,8 +173,16 @@ namespace SideHustle.Menu
                     Password = passwordField != null ? passwordField.text : null,
                     ConfigBlob = values.Count > 0 ? ConfigCodec.Encode(values) : null,
                     LobbyName = lobbyName,
-                    ModeLabel = modeLabel
+                    ModeLabel = modeLabel,
+                    DiscordCode = string.IsNullOrEmpty(discordCode) ? null : discordCode
                 };
+                SideHustle.Config.Preferences.SetHost(desc.Id, new SideHustle.Config.Preferences.RememberedHost
+                {
+                    MaxPlayers = players,
+                    Visibility = visibility,
+                    LobbyName = lobbyName,
+                    DiscordCode = discordCode,
+                });
                 onStart?.Invoke(opts, mode);
             }));
 
@@ -325,6 +351,33 @@ namespace SideHustle.Menu
                 if (init < 0) init = BestFitIndex(presets, playerCount);
                 Apply(init);
             };
+        }
+
+        /// <summary>
+        /// The settings blob and mode label the host form would start with for <paramref name="players"/> players and
+        /// untouched controls: every declared default, then the default (or best-fitting) preset on top. "Host again"
+        /// uses it to skip the form.
+        /// </summary>
+        internal static string DefaultConfig(GamemodeDescriptor desc, int players, out string modeLabel)
+        {
+            modeLabel = null;
+            var values = new Dictionary<string, string>();
+            if (desc.HostSettings != null)
+                foreach (var s in desc.HostSettings)
+                    if (s != null && !string.IsNullOrEmpty(s.Key)) values[s.Key] = s.Default ?? "";
+            if (desc.Presets != null && desc.Presets.Length > 0)
+            {
+                int init = -1;
+                for (int i = 0; i < desc.Presets.Length; i++) if (desc.Presets[i] != null && desc.Presets[i].DefaultSelected) { init = i; break; }
+                if (init < 0) init = BestFitIndex(desc.Presets, players);
+                var p = desc.Presets[init];
+                if (p != null)
+                {
+                    modeLabel = p.Name;
+                    if (p.Values != null) foreach (var kv in p.Values) values[kv.Key] = kv.Value;
+                }
+            }
+            return values.Count > 0 ? ConfigCodec.Encode(values) : null;
         }
 
         /// <summary>Pick the non-experimental preset whose recommended [Min,Max] player range contains

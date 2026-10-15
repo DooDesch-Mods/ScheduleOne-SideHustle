@@ -49,7 +49,7 @@ namespace SideHustle.Debugging
         private static bool SubmitString(string args)
         {
             try { return !Handle((args ?? "").Trim().Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries)); }
-            catch { return true; }
+            catch (Exception e) { Core.Log?.Error("[dev] console command failed: " + e); return true; }
         }
 
         private static bool SubmitList(Il2CppSystem.Collections.Generic.List<string> args)
@@ -61,7 +61,7 @@ namespace SideHustle.Debugging
                 for (int i = 0; i < args.Count; i++) parts[i] = args[i];
                 return !Handle(parts);
             }
-            catch { return true; }
+            catch (Exception e) { Core.Log?.Error("[dev] console command failed: " + e); return true; }
         }
 
         private static readonly string[][] Listing =
@@ -83,6 +83,12 @@ namespace SideHustle.Debugging
             new[] { "shmanual", "shmanual [steamid] - open the manual-install screen with sample rows" },
             new[] { "shbrowser", "open the vanilla lobby LIST (the screen with Join and Chat)" },
             new[] { "shhub", "open the Side Hustle gamemode list (what the menu entry does)" },
+            new[] { "shsettings", "open the in-game settings form" },
+            new[] { "shcatalog", "open the gamemode list and say which catalogue entries show as not installed" },
+            new[] { "shhostform", "shhostform <gamemodeId|vanilla> - open that host form" },
+            new[] { "shbrowse", "shbrowse <gamemodeId|vanilla> - open that lobby browser" },
+            new[] { "shsyncfake", "a fake three-mod download, about 10 s, cancellable" },
+            new[] { "shrestartfake", "the restarting-to-join notice with its Cancel; nothing restarts" },
             new[] { "shtyping", "is a text field holding the keyboard - which is what blocks Escape" },
         };
 
@@ -121,6 +127,12 @@ namespace SideHustle.Debugging
                     case "shmanual": ManualDemo(parts); break;
                     case "shbrowser": Menu.Hub.OpenVanillaListForTest(); break;
                     case "shhub": Menu.Hub.OpenScreen(); break;
+                    case "shsettings": Menu.Hub.OpenSettingsForTest(); break;
+                    case "shcatalog": Menu.Hub.OpenCatalogueForTest(); break;
+                    case "shhostform": WithTarget(parts, Menu.Hub.OpenHostFormForTest); break;
+                    case "shbrowse": WithTarget(parts, Menu.Hub.OpenBrowserForTest); break;
+                    case "shsyncfake": Menu.Hub.OpenFakeSyncForTest(); break;
+                    case "shrestartfake": Menu.Hub.OpenFakeRestartForTest(); break;
                     case "shtyping": Typing(); break;
                 }
             }
@@ -128,10 +140,20 @@ namespace SideHustle.Debugging
             return true;
         }
 
+        private static void WithTarget(string[] parts, Action<string> open)
+        {
+            if (parts.Length < 2)
+            {
+                Core.Log?.Warning("[dev] " + parts[0] + " needs a gamemode id or 'vanilla'.");
+                return;
+            }
+            open(parts[1]);
+        }
+
         private static void Help()
         {
             Core.Log?.Msg("[dev] Side Hustle console commands:");
-            foreach (string[] one in Listing) Core.Log?.Msg("  " + one[0].PadRight(12) + one[1]);
+            foreach (string[] one in Listing) Core.Log?.Msg("  " + one[0].PadRight(14) + one[1]);
         }
 
         private static void Diag()
@@ -285,7 +307,7 @@ namespace SideHustle.Debugging
         private static string LateDir()
         {
             try { return System.IO.Path.Combine(MelonLoader.Utils.MelonEnvironment.ModsDirectory, "_late"); }
-            catch { return ""; }
+            catch (Exception e) { Core.Log?.Warning("[dev] could not resolve the Mods folder: " + e.Message); return ""; }
         }
 
         /// <summary>
@@ -438,7 +460,7 @@ namespace SideHustle.Debugging
 
         private static ulong LocalId()
         {
-            try { return SteamUser.GetSteamID().m_SteamID; } catch { return 0UL; }
+            try { return SteamUser.GetSteamID().m_SteamID; } catch (Exception e) { Core.Log?.Warning("[dev] could not read our Steam id: " + e.Message); return 0UL; }
         }
     }
 }

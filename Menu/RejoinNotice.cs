@@ -19,9 +19,9 @@ namespace SideHustle.Menu
     /// </summary>
     internal static class RejoinNotice
     {
-        /// <summary>How long the player watches before a way out appears. Short enough not to feel trapped, long
-        /// enough that a rejoin which is simply working never grows a button nobody needed.</summary>
-        private const float CancelAfter = 8f;
+        /// <summary>How long the player watches before a way out appears. None: the notice covers the whole screen
+        /// over a scrim, so a missing button reads as a hang from the first second.</summary>
+        private const float CancelAfter = 0f;
 
         private static OverlayNotice _notice;
         private static Action _cancel;
@@ -92,7 +92,12 @@ namespace SideHustle.Menu
                 var popup = Il2CppScheduleOne.DevUtilities.Singleton<Il2CppScheduleOne.UI.MainMenu.MainMenuPopup>.Instance;
                 return popup != null && popup.Screen != null && popup.Screen.IsOpen;
             }
-            catch { return false; }   // not spawned yet, or the type moved - never let this hide the notice
+            catch (Exception e)
+            {
+                // Not spawned yet, or the type moved - never let this hide the notice.
+                Safe.Report("checking for a vanilla popup over the rejoin notice", e);
+                return false;
+            }
         }
 
         internal static void Hide()
