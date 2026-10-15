@@ -33,6 +33,14 @@ namespace SideHustle
         /// <summary>Icon texture; Side Hustle wraps it in a Sprite when <see cref="Icon"/> is null.</summary>
         public Texture2D IconTex;
 
+        /// <summary>
+        /// Name of a PNG embedded in your mod's assembly (the manifest resource name, e.g. "YourMod.icon.png"). Used
+        /// only when <see cref="Icon"/> and <see cref="IconTex"/> are both null: the hub loads it into
+        /// <see cref="IconTex"/> the first time it draws the row, so you need no Unity image code. A name that does
+        /// not resolve is logged together with the resource names the assembly does have. Since 2.5.0.
+        /// </summary>
+        public string IconResource;
+
         // --- Behaviour ---
 
         /// <summary>Which play modes this gamemode supports.</summary>
@@ -70,9 +78,10 @@ namespace SideHustle
         /// HasCompletedIntro before the intro gate runs), so players drop straight into the world. Default false.</summary>
         public bool SkipIntro = false;
 
-        /// <summary>When true, the gamemode always runs as a fresh new game. Side Hustle ALREADY boots a clean scratch
-        /// world (clears the scratch folder + copies DefaultSave) on every launch, so this is currently a declarative
-        /// no-op documenting that intent; it never overwrites a real save slot. Default false.</summary>
+        /// <summary>Has no effect. Side Hustle boots a clean scratch world (clears the scratch folder and copies
+        /// DefaultSave) on every World launch anyway, and never touches a real save slot. Kept so mods that set it
+        /// still load. Default false.</summary>
+        [Obsolete("Has no effect.")]
         public bool ForceNewGame = false;
 
         /// <summary>When true, Side Hustle blocks every vanilla save (both SaveManager.Save overloads) for the duration

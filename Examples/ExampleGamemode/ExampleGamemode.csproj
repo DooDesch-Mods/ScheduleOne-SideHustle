@@ -1,0 +1,60 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    A minimal gamemode built against the Side Hustle API, for mod authors to read and copy. It is not part of
+    SideHustle.dll (SideHustle.csproj removes Examples/** from its compile) and it has no deploy step: building it
+    proves the example compiles, it does not install it. To try it in game, copy the built
+    SideHustleExampleGamemode.dll into a test copy's Mods folder next to SideHustle.dll.
+
+    References follow SideHustle.csproj: the game and MelonLoader assemblies from Workspace/lib, which sits next to
+    this repo locally. SideHustle itself is a project reference so the example always compiles against the API in
+    this checkout; a real mod references the released SideHustle.dll instead, with Private=false.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>ExampleGamemode</RootNamespace>
+    <AssemblyName>SideHustleExampleGamemode</AssemblyName>
+    <!-- Suppress MSB3277/MSB3245 noise from il2cpp interop transitive refs -->
+    <NoWarn>$(NoWarn);MSB3277;MSB3245</NoWarn>
+    <WorkspaceLibPath Condition="'$(WorkspaceLibPath)' == ''">$(MSBuildThisFileDirectory)../../../Workspace/lib</WorkspaceLibPath>
+    <GameManagedPath>$(WorkspaceLibPath)/il2cpp/game</GameManagedPath>
+    <MelonLoaderPath>$(WorkspaceLibPath)/il2cpp/melonloader</MelonLoaderPath>
+  </PropertyGroup>
+
+  <!-- The copy-in shim, linked so the example uses exactly the file a consumer copies. -->
+  <ItemGroup>
+    <Compile Include="../SideHustleLink.cs" Link="SideHustleLink.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../SideHustle.csproj">
+      <Private>false</Private>
+    </ProjectReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="MelonLoader">
+      <HintPath>$(MelonLoaderPath)/MelonLoader.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Il2CppInterop.Runtime">
+      <HintPath>$(MelonLoaderPath)/Il2CppInterop.Runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Il2Cppmscorlib">
+      <HintPath>$(GameManagedPath)/Il2Cppmscorlib.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- GamemodeDescriptor carries Sprite/Texture2D icon fields, so the compiler needs UnityEngine's core types. -->
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(GameManagedPath)/UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>

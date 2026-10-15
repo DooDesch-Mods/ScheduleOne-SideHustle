@@ -315,6 +315,7 @@ namespace SideHustle
             Menu.SessionNotice.Tick();   // why the last session ended - NOT gated on the menu flag, see SessionNotice
             Menu.RejoinNotice.Tick(UnityEngine.Time.unscaledDeltaTime);   // offers the way out, yields to vanilla popups
             Phone.ChatRelay.Tick();  // liest eingegangene P2P-Nachrichten
+            Internal.ApiPump.Tick();   // public API: queued off-thread calls, session roster, gamemode messages
             Menu.ChatPanel.AnnounceReply();   // in the menu there is no phone to notify on - see the method
             Phone.LobbyApp.Tick();   // pushes one event to the Lobby app when the session state actually moved
             Multiplayer.ClientExitGuard.TickWatchdog();   // recover a kicked/dropped client stranded on a loading screen

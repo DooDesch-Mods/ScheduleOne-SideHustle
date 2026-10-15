@@ -13,6 +13,19 @@ namespace SideHustle.Internal
 
         internal static IReadOnlyList<GamemodeDescriptor> All => _gamemodes;
 
+        /// <summary>A copy of the list, for callers outside Side Hustle that must not see later changes.</summary>
+        internal static IReadOnlyList<GamemodeDescriptor> Snapshot() => new List<GamemodeDescriptor>(_gamemodes).AsReadOnly();
+
+        /// <summary>The registered descriptor with this id, or null.</summary>
+        internal static GamemodeDescriptor Find(string id)
+        {
+            int idx = IndexOf(id);
+            return idx >= 0 ? _gamemodes[idx] : null;
+        }
+
+        /// <summary>True when exactly this descriptor instance is still registered.</summary>
+        internal static bool Contains(GamemodeDescriptor descriptor) => descriptor != null && _gamemodes.Contains(descriptor);
+
         /// <summary>Add or replace by <see cref="GamemodeDescriptor.Id"/>. Returns true if it replaced an existing entry.</summary>
         internal static bool Register(GamemodeDescriptor descriptor)
         {

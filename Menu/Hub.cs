@@ -1072,7 +1072,7 @@ namespace SideHustle.Menu
             _activeCtx = new LaunchContext { Descriptor = desc, IsHost = null, LobbyId = 0 };
             if (_cloneScreen != null) _cloneScreen.Close();
             Core.Log?.Msg($"Launching gamemode '{desc.DisplayName}' (singleplayer).");
-            try { desc.OnLaunchSingleplayer(_activeCtx); }
+            try { desc.OnLaunchSingleplayer(_activeCtx); SessionEvents.RaiseStarted(_activeCtx); }
             catch (Exception e)
             {
                 Core.Log?.Error($"Gamemode '{desc.Id}' launch threw: {e}");
@@ -1082,8 +1082,7 @@ namespace SideHustle.Menu
 
         private static void OnReturn(LaunchContext ctx)
         {
-            try { ctx?.Descriptor?.OnExitToHub?.Invoke(ctx); }
-            catch (Exception e) { Core.Log?.Warning("OnExitToHub threw: " + e.Message); }
+            SessionEvents.Exit(ctx);   // OnExitToHub once per session, then SessionEnded
 
             EnsureClone();
             ShowGamemodeList();
@@ -1106,6 +1105,7 @@ namespace SideHustle.Menu
         /// <summary>Resolve a row icon from the descriptor (wrapping IconTex into a Sprite once, cached on the descriptor).</summary>
         private static Sprite IconOf(GamemodeDescriptor desc)
         {
+            IconResources.Fill(desc);   // an embedded IconResource becomes IconTex, once per descriptor
             if (desc.Icon != null) return desc.Icon;
             if (desc.IconTex != null)
             {
