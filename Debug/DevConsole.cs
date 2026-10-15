@@ -92,6 +92,7 @@ namespace SideHustle.Debugging
             new[] { "shtyping", "is a text field holding the keyboard - which is what blocks Escape" },
             new[] { "shstart", "shstart <gamemodeId> [sp|host|host2] - start a session; host2 asks twice (double-click guard)" },
             new[] { "shprofiles", "open the mod profiles screen" },
+            new[] { "shscene", "shscene [dump|find s|cam x y z rx ry rz [fov]|move path x y z [ry]|show|hide path|dim f|light ...|page on|off|reset] - stage the menu scene behind the hub" },
             new[] { "shrow", "shrow [n [alt]|back|dismiss] - list the hub rows, click row n, right-click it, Back, or close an alert" },
             new[] { "shreturn", "end the running gamemode session the way its ReturnToHub does" },
             new[] { "shapi", "shapi [notice|send] - API version, session, players; show a notice or send a test message" },
@@ -134,6 +135,7 @@ namespace SideHustle.Debugging
                     case "shhub": Menu.Hub.OpenScreen(); break;
                     case "shprofiles": Menu.Hub.OpenProfilesForTest(); break;
                     case "shrow": Menu.Hub.ClickRowForTest(parts); break;
+                    case "shscene": Menu.HubScene.Dev(parts); break;
                     case "shsettings": Menu.Hub.OpenSettingsForTest(); break;
                     case "shcatalog": Menu.Hub.OpenCatalogueForTest(); break;
                     case "shhostform": WithTarget(parts, Menu.Hub.OpenHostFormForTest); break;

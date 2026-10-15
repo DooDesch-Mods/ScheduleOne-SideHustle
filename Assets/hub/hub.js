@@ -161,11 +161,13 @@ function renderPlay(main) {
     delete drawn.playTop; delete drawn.tiles; delete drawn.formLobbies;
   }
 
-  if (changed('playTop', ui.form ? ['form', ui.form.id] : ['hero', S.vanilla, S.cont, lobbiesOf('vanilla'), S.busy])) {
+  if (changed('playTop', ui.form ? ['form', ui.form.id] : ['hero', S.resume, S.vanilla, S.cont, lobbiesOf('vanilla'), S.busy])) {
     playTop.replaceChildren();
     formLobbies = null;
     if (ui.form) { playTop.appendChild(buildForm(ui.form)); delete drawn.formLobbies; }
     else {
+      // The player's own save comes first: the hub must never stand between a player and normal play.
+      if (S.resume) playTop.appendChild(buildResume(S.resume));
       // Public vanilla co-op leads the page: it is what most players install Side Hustle for. The continue card follows
       // as a strip, unless the last session was vanilla co-op, in which case the feature card already offers it.
       const cont = S.cont && S.cont.id !== 'vanilla' ? S.cont : null;
@@ -180,6 +182,19 @@ function renderPlay(main) {
     for (const m of S.modes || []) playTiles.appendChild(buildTile(m));
     if (!S.modes || S.modes.length === 0) playTiles.appendChild(el('div', 'quiet', 'No gamemodes installed.'));
   }
+}
+
+// Continue the last vanilla save with one click, the same load as the vanilla Continue.
+function buildResume(r) {
+  const box = el('div', 'glass resume');
+  const off = S.busy ? ' off' : '';
+  const t = el('div', 't');
+  t.appendChild(el('div', 'k', 'CONTINUE'));
+  t.appendChild(el('div', 'nm', r.name));
+  t.appendChild(el('div', 'd', r.detail));
+  box.appendChild(t);
+  box.appendChild(btn('Continue', 'go big' + off, () => act('hub.resume', String(r.slot))));
+  return box;
 }
 
 // The public co-op card: the player's own save opened to anyone on the left, the public lobbies taking players on the right.
@@ -199,9 +214,9 @@ function buildFeature(v, cont) {
   left.appendChild(head);
   left.appendChild(el('div', 'sp'));
   const acts = el('div', 'acts');
-  if (cont) acts.appendChild(btn(cont.label, 'go big' + off, () => act('hub.' + cont.action, cont.id)));
-  else if (v.canHost) acts.appendChild(btn(v.hostLabel, 'go big' + off, () => act('hub.vanillaHost', 'vanilla')));
-  acts.appendChild(btn(v.canHost ? 'Other save' : 'Pick a save', (v.canHost || cont ? '' : 'go big') + off, () => act('hub.legacy', 'vanillasaves')));
+  if (cont) acts.appendChild(btn(cont.label, 'go' + off, () => act('hub.' + cont.action, cont.id)));
+  else if (v.canHost) acts.appendChild(btn(v.hostLabel, 'go' + off, () => act('hub.vanillaHost', 'vanilla')));
+  acts.appendChild(btn(v.canHost ? 'Other save' : 'Pick a save', (v.canHost || cont ? '' : 'go') + off, () => act('hub.legacy', 'vanillasaves')));
   left.appendChild(acts);
   box.appendChild(left);
 
@@ -235,7 +250,7 @@ function buildContinue(c) {
   box.appendChild(icon(c.icon, c.name));
   const t = el('div', 't');
   const line = el('div', 'line');
-  line.appendChild(el('div', 'k', 'CONTINUE'));
+  line.appendChild(el('div', 'k', 'LAST GAMEMODE'));
   line.appendChild(el('div', 'nm', c.name));
   t.appendChild(line);
   t.appendChild(el('div', 'd', c.summary));

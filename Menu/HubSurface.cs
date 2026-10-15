@@ -154,6 +154,7 @@ namespace SideHustle.Menu
                     .OnCall("hub.state", _ => HubStateJson())
                     .OnCall("hub.hostAgain", HubCallHostAgain)
                     .OnCall("hub.play", HubCallPlay)
+                    .OnCall("hub.resume", HubCallResume)
                     .OnCall("hub.load", HubCallLoad)
                     .OnCall("hub.vanillaHost", _ => HubCallVanillaHost())
                     .OnCall("hub.hostForm", HubCallHostForm)
@@ -199,6 +200,7 @@ namespace SideHustle.Menu
             _hubQueryAdv = _hubQueryVan = false;
             _hubQueryGen++;
             _vanillaInfoAge = 999f;
+            _resumeAge = 999f;
             _flow = null;
         }
 
@@ -212,6 +214,7 @@ namespace SideHustle.Menu
             if (_cloneCanvas != null) _cloneCanvas.enabled = !on;
             if (_cloneRaycaster != null) _cloneRaycaster.enabled = !on;
             Core.Log?.Msg(on ? "[hub3] page shown." : "[hub3] page hidden.");
+            HubScene.OnPageShown(on);
             if (on)
             {
                 _hubPushed = "";
@@ -220,6 +223,16 @@ namespace SideHustle.Menu
             }
         }
 
+#if DEBUG
+        // shscene page off: hides only the page's canvas, so a screenshot shows the staged scene alone.
+        internal static void ShowPageCanvasForTest(bool on)
+        {
+            if (_hubCanvas == null) { Core.Log?.Warning("[scene] the hub page has no canvas yet."); return; }
+            _hubCanvas.enabled = on;
+            Core.Log?.Msg(on ? "[scene] page canvas on." : "[scene] page canvas off.");
+        }
+
+#endif
         private static void EnsureCloneCanvas()
         {
             if (_clone == null || _cloneCanvas != null) return;
@@ -596,6 +609,8 @@ namespace SideHustle.Menu
                     .Add("steam", _hubSteam)
                     .Add("live", live)
                     .Add("vanilla", VanillaJson());
+                var resume = ResumeJson();
+                if (resume != null) j.Add("resume", resume); else j.AddNull("resume");
                 var cont = ContinueJson();
                 if (cont != null) j.Add("cont", cont); else j.AddNull("cont");
                 j.Add("modes", ModesJson(installed, liveByMode))
