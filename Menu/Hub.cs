@@ -62,7 +62,11 @@ namespace SideHustle.Menu
         private const float DescOffsetY = -13f;
         private const float PanelChrome = 92f;
         private const float PanelWidth = 800f;
-        private const float FormPanelHeight = 720f;   // fixed height for the scrollable Host-config form
+        // Every hub screen is this tall, so moving between a choice list and a form never resizes the panel. Row
+        // lists squeeze their slots to fit it (down to MinSlotHeight) and form views scroll inside it.
+        private const float FormHeight = 560f;
+        private const float PanelHeight = PanelChrome + FormHeight + 24f;
+        private const float MinSlotHeight = 64f;
         private const float TextInset = 30f;
         private const float TextInsetWithIcon = 96f;
         // The "Your name" alias strip shown ABOVE the Host/Join/Back cards on a gamemode's choice screen.
@@ -194,7 +198,7 @@ namespace SideHustle.Menu
             if (_cloneScreen == null) { Core.Log?.Warning("[hub] gamemode screen unavailable."); return; }
             ClearFormHost();
             SetTmp(_clone.transform, "Title", "Manual installs");
-            var host = CreateFormHost("SH_ManualDemo", 560f);
+            var host = CreateFormHost("SH_ManualDemo");
             SyncManualInstallView.Build(host, diff, hostSteamId, hostName, hostAcceptsMessages,
                 onContinue: OpenScreen, onBack: OpenScreen);
             _cloneScreen.Open();
@@ -455,8 +459,8 @@ namespace SideHustle.Menu
             foreach (var kv in byId)
             {
                 Ghost ghost = kv.Value;
-                string live = $"Not installed - {ghost.Rows.Count} public {(ghost.Rows.Count == 1 ? "lobby" : "lobbies")} live now"
-                            + (ghost.Players > 0 ? $" ({ghost.Players} player{(ghost.Players == 1 ? "" : "s")})" : "");
+                string live = Words.Plural(ghost.Rows.Count, "public lobby", "public lobbies") + " live now"
+                            + (ghost.Players > 0 ? " - " + Words.Plural(ghost.Players, "player", "players") : "");
                 rows.Add(new Row
                 {
                     Name = ghost.Name,
@@ -518,22 +522,22 @@ namespace SideHustle.Menu
             var catalogued = GamemodeCatalogue.Find(g.GamemodeId);
             var rows = new List<Row>
             {
-                new Row { Name = "Host", Subtitle = "Install the mod to host a session.", Disabled = true },
+                new Row { Name = "Host a lobby", Subtitle = "Install the mod to host.", Disabled = true },
                 new Row
                 {
-                    Name = canJoinAndInstall ? "Join (installs the mods)" : "Join",
+                    Name = "Join a lobby",
                     Subtitle = canJoinAndInstall
-                        ? $"Pick a session - Side Hustle installs {g.Name} and joins it."
-                        : "Install the mod to join a session.",
+                        ? $"Installs {g.Name}, then joins."
+                        : "Install the mod to join.",
                     OnClick = canJoinAndInstall ? (Action)(() => ShowGhostBrowser(g)) : null,
                     Disabled = !canJoinAndInstall
                 },
                 new Row
                 {
-                    Name = canDownload ? "Download Mod" : "Find it on Nexus",
+                    Name = canDownload ? "Download the mod" : "Find it on Nexus",
                     Subtitle = canDownload ? g.Url
-                        : canLookUp ? "No download link from the host - look the mod up on Nexus."
-                        : "No trusted download link provided.",
+                        : canLookUp ? "The host gave no download link."
+                        : "No trusted download link.",
                     OnClick = canDownload ? (Action)(() => DownloadLink.Open(g.Url))
                         : canLookUp ? (Action)(() => DownloadLink.Open(DownloadLink.NexusUrl(g.Name))) : null,
                     Disabled = !canDownload && !canLookUp,
@@ -558,7 +562,7 @@ namespace SideHustle.Menu
             _back = ShowGamemodeList;
             ClearFormHost();
             SetTmp(_clone.transform, "Title", "Settings");
-            var host = CreateFormHost("SH_Settings", 560f);
+            var host = CreateFormHost("SH_Settings");
             SettingsView.Build(host, ShowGamemodeList);
         }
 
@@ -569,13 +573,13 @@ namespace SideHustle.Menu
             var rows = new List<Row>();
             if (desc.AllowsSingleplayer)
                 rows.Add(new Row { Name = "Singleplayer", Subtitle = "Play on your own.", OnClick = () => LaunchSelected(desc) });
-            rows.Add(new Row { Name = "Host", Subtitle = "Configure and open a session.", OnClick = () => ShowHostConfig(desc) });
+            rows.Add(new Row { Name = "Host a lobby", Subtitle = "Configure and open a lobby.", OnClick = () => ShowHostConfig(desc) });
             var again = Preferences.GetHost(desc.Id);
             if (again != null)
                 rows.Add(new Row { Name = "Host again", Subtitle = HostAgainSummary(again), OnClick = () => HostAgain(desc) });
             // Join goes straight to the browser: the mod policy is the host's decision (made on the host form), and a
             // client runs the gamemode host-authoritatively, so it keeps its own mods - no client-side mod gate here.
-            rows.Add(new Row { Name = "Join", Subtitle = "Browse and join an open session.", OnClick = () => ShowBrowser(desc) });
+            rows.Add(new Row { Name = "Join a lobby", Subtitle = "Browse and join an open lobby.", OnClick = () => ShowBrowser(desc) });
             rows.Add(new Row { Name = "Back", Subtitle = "Back to the gamemode list.", OnClick = ShowGamemodeList });
             ShowRows(desc.DisplayName, rows, desc.Id);   // desc.Id -> the "Your name" strip binds to THIS gamemode's alias
         }
@@ -584,7 +588,7 @@ namespace SideHustle.Menu
         private static string HostAgainSummary(Preferences.RememberedHost h)
         {
             string name = string.IsNullOrWhiteSpace(h.LobbyName) ? "" : " - " + h.LobbyName.Trim();
-            return $"{h.MaxPlayers} players - {(h.Visibility == 1 ? "private" : "public")}{name}";
+            return $"{Words.Plural(h.MaxPlayers, "player", "players")} - {(h.Visibility == 1 ? "private" : "public")}{name}";
         }
 
         // Starts a session straight from the settings remembered for this gamemode: same players, visibility and lobby
@@ -624,9 +628,9 @@ namespace SideHustle.Menu
             _mpDesc = desc;
             _back = () => ShowModeChoice(desc);
             ClearFormHost();
-            SetTmp(_clone.transform, "Title", "Host: " + (desc.DisplayName ?? desc.Id));
+            SetTmp(_clone.transform, "Title", "Host " + (desc.DisplayName ?? desc.Id));
 
-            var host = CreateFormHost("SH_HostForm", 560f);
+            var host = CreateFormHost("SH_HostForm");
             var plan = desc.Policy != null ? Mods.ModPolicyResolver.Resolve(desc) : null;
             HostConfigView.Build(host, desc, plan, LobbyCaps.MaxClients(),
                 () => ShowModeChoice(desc),
@@ -634,14 +638,15 @@ namespace SideHustle.Menu
         }
 
         // Build a custom view-host on the cloned panel (used by the host form + the join browser): size the panel to
-        // formH, hide the native row list, and add a full-width form-host of that height as a layout child. The
+        // PanelHeight, hide the native row list, and add a full-width form-host of FormHeight as a layout child. The
         // container's VerticalLayoutGroup does not control child heights, so the rect is set explicitly (the native
         // rows do the same); returns its transform for the view to fill.
-        private static Transform CreateFormHost(string name, float formH)
+        private static Transform CreateFormHost(string name)
         {
+            const float formH = FormHeight;
             _gamemodeListShowing = false;   // a form view is up, not the gamemode row list
             var rootRt = _clone.GetComponent<RectTransform>();
-            if (rootRt != null) rootRt.sizeDelta = new Vector2(PanelWidth, PanelChrome + formH + 24f);
+            if (rootRt != null) rootRt.sizeDelta = new Vector2(PanelWidth, PanelHeight);
 
             var container = _clone.transform.Find("Container");
             if (container != null)
@@ -663,9 +668,9 @@ namespace SideHustle.Menu
             _mpDesc = desc;
             _back = () => ShowModeChoice(desc);
             ClearFormHost();
-            SetTmp(_clone.transform, "Title", "Join: " + (desc.DisplayName ?? desc.Id));
+            SetTmp(_clone.transform, "Title", "Join " + (desc.DisplayName ?? desc.Id));
 
-            var host = CreateFormHost("SH_JoinBrowser", 560f);
+            var host = CreateFormHost("SH_JoinBrowser");
             JoinBrowserView.Build(host, new JoinBrowserView.Options
             {
                 Query = done => ServerBrowser.BeginQuery(desc.Id, results =>
@@ -721,6 +726,11 @@ namespace SideHustle.Menu
                 var vlg = container.GetComponent<VerticalLayoutGroup>();
                 if (vlg != null) vlg.spacing = SlotSpacing;
 
+                // Slots shrink to keep the panel at PanelHeight; past MinSlotHeight the panel grows instead.
+                float aliasBand = string.IsNullOrEmpty(aliasForGamemodeId) ? 0f : AliasHeaderHeight + SlotSpacing;
+                int count = Mathf.Max(1, rows.Count);
+                float slotH = Mathf.Clamp((PanelHeight - PanelChrome - aliasBand - (count - 1) * SlotSpacing) / count, MinSlotHeight, SlotHeight);
+
                 // Make sure there are at least as many slot rows as entries (clone the first slot as a template).
                 if (container.childCount > 0)
                 {
@@ -735,7 +745,7 @@ namespace SideHustle.Menu
                     Transform slot = container.GetChild(i);
                     if (i < rows.Count)
                     {
-                        RepurposeRow(slot, rows[i]);
+                        RepurposeRow(slot, rows[i], slotH);
                         slot.gameObject.SetActive(true);
                     }
                     else
@@ -754,7 +764,7 @@ namespace SideHustle.Menu
                 if (!string.IsNullOrEmpty(aliasForGamemodeId)) { BuildAliasHeader(container, aliasForGamemodeId); band = AliasHeaderHeight + SlotSpacing; }
 
                 int n = Mathf.Max(1, rows.Count);
-                float height = PanelChrome + n * SlotHeight + (n - 1) * SlotSpacing + band;
+                float height = Mathf.Max(PanelHeight, PanelChrome + n * slotH + (n - 1) * SlotSpacing + band);
                 var rootRt = _clone.GetComponent<RectTransform>();
                 if (rootRt != null) rootRt.sizeDelta = new Vector2(PanelWidth, height);
             }
@@ -811,8 +821,10 @@ namespace SideHustle.Menu
         // One native save-slot card -> one row, reusing the SAME native widgets in their native positions: the name
         // where the save's organisation name is (top), the subtitle where the save's stat row is (bottom grey
         // sub-text), an optional corner badge in the bottom-right "Version" corner, and an optional left icon.
-        private static void RepurposeRow(Transform slot, Row row)
+        private static void RepurposeRow(Transform slot, Row row, float slotH)
         {
+            // A row nobody can click is information, not an action: it gets no button look.
+            bool inert = row.OnClick == null;
             Transform info = slot.Find("Container/Info");
             if (info != null) info.gameObject.SetActive(true);
 
@@ -827,13 +839,18 @@ namespace SideHustle.Menu
                 if (bimg != null) { bimg.sprite = Theme.RoundedSprite(); bimg.type = Image.Type.Sliced; bimg.raycastTarget = false; }
                 backing.transform.SetAsFirstSibling();
             }
+            if (container != null)
+            {
+                var bimg = container.Find("SH_RowBacking")?.GetComponent<Image>();
+                if (bimg != null) bimg.color = inert ? Theme.WithAlpha(Theme.BgDeep, 0.5f) : Theme.ScrimRow;
+            }
 
             var slotRt = slot.GetComponent<RectTransform>();
-            if (slotRt != null) slotRt.sizeDelta = new Vector2(slotRt.sizeDelta.x, SlotHeight);
+            if (slotRt != null) slotRt.sizeDelta = new Vector2(slotRt.sizeDelta.x, slotH);
             var le = slot.GetComponent<LayoutElement>();
             if (le == null) le = slot.gameObject.AddComponent<LayoutElement>();
-            le.minHeight = SlotHeight;
-            le.preferredHeight = SlotHeight;
+            le.minHeight = slotH;
+            le.preferredHeight = slotH;
 
             float inset = SetIcon(slot, row.Icon) ? TextInsetWithIcon : TextInset;
 
@@ -845,7 +862,7 @@ namespace SideHustle.Menu
                 if (tmp != null)
                 {
                     tmp.text = row.Name ?? "";
-                    tmp.color = row.Disabled ? Theme.TextDisabled : Color.white;   // explicit both ways so a reused slot resets
+                    tmp.color = row.Disabled ? Theme.TextDisabled : Theme.TextPrimary;   // explicit both ways so a reused slot resets
                 }
             }
 
@@ -857,7 +874,7 @@ namespace SideHustle.Menu
                 if (tmp != null)
                 {
                     tmp.text = string.IsNullOrWhiteSpace(row.Subtitle) ? "" : row.Subtitle.Trim();
-                    tmp.color = row.Disabled ? Theme.TextDisabled : new Color(0.72f, 0.74f, 0.78f, 1f);   // brighter over the scene, on the row backing
+                    tmp.color = row.Disabled ? Theme.TextDisabled : Theme.WithAlpha(Theme.TextPrimary, 0.8f);   // brighter over the scene, on the row backing
                     tmp.enableWordWrapping = false;
                     tmp.overflowMode = Il2CppTMPro.TextOverflowModes.Ellipsis;
                 }
@@ -879,6 +896,8 @@ namespace SideHustle.Menu
 
             HideChild(slot, "Container/Info/Created");
             HideChild(slot, "Container/Info/LastPlayed");
+            // The native slot number ("1", "2", ...) would show faintly at the row's left edge.
+            HideChild(slot, "Container/Index");
 
             // Export/Import are NOT hidden here - they are not children of a row. See StripSaveSlotChrome, which
             // sweeps the whole panel once the rows are built.
@@ -887,6 +906,10 @@ namespace SideHustle.Menu
             WireRowButton(slot, "Container/Button", row.OnClick);
         }
 
+        // The button's own transition as the prefab shipped it, by instance id, so a reused slot can get it back
+        // after it served as an info row.
+        private static readonly Dictionary<int, Selectable.Transition> _nativeTransitions = new Dictionary<int, Selectable.Transition>();
+
         private static void WireRowButton(Transform slot, string path, Action onClick)
         {
             Transform t = slot.Find(path);
@@ -894,6 +917,12 @@ namespace SideHustle.Menu
             Button b = t.GetComponent<Button>();
             if (b == null) return;
             NeutralizeClick(b);
+            int id = b.GetInstanceID();
+            if (!_nativeTransitions.ContainsKey(id)) _nativeTransitions[id] = b.transition;
+            // No tint, no hover and no pointer target on a row that does nothing.
+            bool inert = onClick == null;
+            b.transition = inert ? Selectable.Transition.None : _nativeTransitions[id];
+            if (b.targetGraphic != null) b.targetGraphic.raycastTarget = !inert;
             Action cb = onClick;
             b.onClick.AddListener((UnityAction)(() => { try { cb?.Invoke(); } catch (Exception e) { Core.Log?.Warning("[hub] row click failed: " + e.Message); } }));
             b.interactable = cb != null;
@@ -955,14 +984,14 @@ namespace SideHustle.Menu
 
             if (plan.Blocked)
             {
-                rows.Add(new Row { Name = "Cannot start yet", Subtitle = "Install the missing mod(s), then try again." });
+                rows.Add(new Row { Name = "Cannot start yet", Subtitle = "Install the missing mods first." });
             }
             else
             {
                 rows.Add(new Row
                 {
                     Name = "Confirm and launch",
-                    Subtitle = "Restarts into a temporary profile with just these mods, then opens the gamemode. Your installed mods stay untouched.",
+                    Subtitle = "Restarts the game with just these mods.",
                     // Same notice as the host path: the relaunch has to be visibly deliberate, or it reads as a crash.
                     OnClick = () =>
                     {
@@ -973,7 +1002,7 @@ namespace SideHustle.Menu
                 });
             }
             rows.Add(new Row { Name = "Cancel", Subtitle = "Back to the gamemode list.", OnClick = ShowGamemodeList });
-            ShowRows(desc.DisplayName + " - mod check", rows);
+            ShowRows("Mods for " + desc.DisplayName, rows);
         }
 
         private static string StripDll(string f) =>
@@ -1160,7 +1189,7 @@ namespace SideHustle.Menu
         /// put it back and say why.</summary>
         internal static void ShowRefusal(string why)
         {
-            string text = string.IsNullOrEmpty(why) ? "The session could not start." : why;
+            string text = string.IsNullOrEmpty(why) ? "The lobby could not start." : why;
             Core.Log?.Warning("[hub] session start refused: " + text);
             RejoinNotice.Hide();
             ReopenAfterSession();

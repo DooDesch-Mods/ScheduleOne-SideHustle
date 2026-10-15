@@ -45,16 +45,16 @@ namespace SideHustle.Menu
             // No count in the line either. It used to print the PROFILE input count (5) beside a bar counting pending
             // DOWNLOADS (3), so the screen contradicted itself. The bar already says how many mods; this says what
             // happens next.
-            Run("RESTARTING TO JOIN",
-                $"Your mods are ready. The game restarts and rejoins {what} on its own - don't close it.",
+            Run("Restarting to join",
+                $"Your mods are ready. The game restarts and rejoins {what} - don't close it.",
                 0.62f, relaunch, onCancel);
         }
 
         /// <summary>The host's version: the game relaunches with the gamemode's required mods and opens the lobby.</summary>
         internal static void ForHost(Action relaunch, Action onCancel = null)
         {
-            Run("RESTARTING WITH THE REQUIRED MODS",
-                "The game comes back on its own and opens your lobby - don't close it.",
+            Run("Restarting with the required mods",
+                "The game restarts and opens your lobby - don't close it.",
                 0.9f, relaunch, onCancel);
         }
 

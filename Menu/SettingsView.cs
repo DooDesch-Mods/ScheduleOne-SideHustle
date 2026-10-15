@@ -16,22 +16,11 @@ namespace SideHustle.Menu
     {
         internal static void Build(Transform formHost, Action onBack)
         {
-            const float Pad = 30f;
-
-            var footer = UIFactory.Panel("footer", formHost, Theme.Clear);
-            var frt = footer.GetComponent<RectTransform>();
-            frt.anchorMin = new Vector2(0, 0); frt.anchorMax = new Vector2(1, 0); frt.pivot = new Vector2(0.5f, 0);
-            frt.offsetMin = new Vector2(Pad, 0); frt.offsetMax = new Vector2(-Pad, 56);
-
-            var scrollArea = UIFactory.Panel("scrollArea", formHost, Theme.Clear);
-            var srt = scrollArea.GetComponent<RectTransform>();
-            srt.anchorMin = new Vector2(0, 0); srt.anchorMax = new Vector2(1, 1);
-            srt.offsetMin = new Vector2(Pad, 64); srt.offsetMax = new Vector2(-Pad, 0);
-            var content = Components.ScrollList(scrollArea.transform, out var scroll, 6f, Theme.ScrimPanel);
-            SmoothScroll.Attach(scroll);
+            var page = Scaffold.Create(formHost);
+            var content = page.Content;
 
             Components.SectionHeader(content, "Menus");
-            Switch(content, "Info column in the main menu", "Mod set, open sessions and messages.",
+            Switch(content, "Info column in the main menu", "Mod set, open lobbies and messages.",
                 Preferences.MenuPanel, v => Preferences.MenuPanel = v);
             Switch(content, "Chat column while joining", "Ask the host about a mod you cannot get.",
                 Preferences.JoinChatPanel, v => Preferences.JoinChatPanel = v);
@@ -53,18 +42,14 @@ namespace SideHustle.Menu
             Components.FillSlot(keep.gameObject, 6f);
 
             int waiting = SafePending();
-            if (waiting > 0) Info(content, waiting == 1 ? "1 mod waits for a lobby." : $"{waiting} mods wait for a lobby.");
+            if (waiting > 0) Scaffold.Note(content, waiting == 1 ? "1 mod waits for a lobby." : $"{waiting} mods wait for a lobby.");
 
-            var (backGO, backBtn, _b) = UIFactory.ButtonWithLabel("Back", "Back", footer.transform, Theme.Button, 140, 40);
-            var rt = backGO.GetComponent<RectTransform>();
-            rt.anchorMin = new Vector2(0, 0.5f); rt.anchorMax = new Vector2(0, 0.5f); rt.pivot = new Vector2(0, 0.5f);
-            rt.anchoredPosition = Vector2.zero;
-            backBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() =>
+            Scaffold.FooterButton(page.Footer, "Back", Theme.Button, left: true, onClick: () =>
             {
                 // The text field commits on blur or Enter; a click on Back can arrive first.
                 if (keep != null) SaveKeepList(keep.text);
                 onBack?.Invoke();
-            }));
+            });
 
             Interactions.PolishButtons(formHost);
         }
@@ -99,18 +84,6 @@ namespace SideHustle.Menu
                 Safe.Report("counting the mods that wait for a lobby", e);
                 return 0;
             }
-        }
-
-        private static void Info(RectTransform content, string text)
-        {
-            var row = UIFactory.Panel("info", content, Theme.Clear);
-            var rle = row.AddComponent<LayoutElement>();
-            rle.minHeight = 44f; rle.preferredHeight = 44f; rle.flexibleWidth = 1;
-            var t = UIFactory.Text("text", text, row.transform, 14, TextAnchor.MiddleLeft);
-            t.color = Theme.TextMuted;
-            var rt = t.GetComponent<RectTransform>();
-            rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
-            rt.offsetMin = new Vector2(12, 0); rt.offsetMax = new Vector2(-12, 0);
         }
     }
 }

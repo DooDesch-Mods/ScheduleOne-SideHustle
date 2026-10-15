@@ -93,7 +93,7 @@ namespace SideHustle.Menu
                 if (existingMain != null)
                 {
                     if (!haveProfiles)
-                        CloneNavButton(existingMain, ProfilesButtonName, "Mod Profiles",
+                        CloneNavButton(existingMain, ProfilesButtonName, "Mod profiles",
                             (UnityAction)Hub.OpenProfilesScreen, existingMain.transform.GetSiblingIndex() + 1);
                     _injectedThisScene = true;
                     Hub.RememberHome(home);
@@ -180,7 +180,7 @@ namespace SideHustle.Menu
             int idx = template.transform.GetSiblingIndex();
             var main = CloneNavButton(template, MenuButtonName, "Side Hustle", (UnityAction)Hub.OpenScreen, idx);
             if (main == null) return false;
-            CloneNavButton(template, ProfilesButtonName, "Mod Profiles",
+            CloneNavButton(template, ProfilesButtonName, "Mod profiles",
                 (UnityAction)Hub.OpenProfilesScreen, main.transform.GetSiblingIndex() + 1);
             return true;
         }

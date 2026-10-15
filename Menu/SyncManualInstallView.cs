@@ -63,7 +63,7 @@ namespace SideHustle.Menu
                     foreach (var e in resolved) ShowToast($"{Label(e)} - found and verified.", Severity.Success);
                 else
                     ShowToast($"{resolved.Count} mods found and verified.", Severity.Success);
-                if (!_pending.Any(Pending)) ShowToast("All mods are in - you're ready to continue.", Severity.Success);
+                if (!_pending.Any(Pending)) ShowToast("All mods are in.", Severity.Success);
             }
             if (resolved.Count > 0 || rowsChanged) _refresh?.Invoke();
         }
@@ -78,7 +78,6 @@ namespace SideHustle.Menu
         internal static void Build(Transform formHost, SyncDiff diff, ulong hostSteamId, string hostName,
                                    bool hostAcceptsMessages, Action onContinue, Action onBack)
         {
-            const float Pad = 30f;
             _pending.Clear();
             _pending.AddRange(diff.Entries.Where(Pending));
             ManualInstall.BeginSession();
@@ -94,17 +93,8 @@ namespace SideHustle.Menu
             if (ChatPanel.Possible(hostSteamId, hostAcceptsMessages)) ChatPanel.Show(hostSteamId, hostName);
             else ChatPanel.Hide();
 
-            var footer = UIFactory.Panel("footer", formHost, Theme.Clear);
-            var frt = footer.GetComponent<RectTransform>();
-            frt.anchorMin = new Vector2(0, 0); frt.anchorMax = new Vector2(1, 0); frt.pivot = new Vector2(0.5f, 0);
-            frt.offsetMin = new Vector2(Pad, 0); frt.offsetMax = new Vector2(-Pad, 56);
-
-            var listArea = UIFactory.Panel("scrollArea", formHost, Theme.Clear);
-            var lrt = listArea.GetComponent<RectTransform>();
-            lrt.anchorMin = new Vector2(0, 0); lrt.anchorMax = new Vector2(1, 1);
-            lrt.offsetMin = new Vector2(Pad, 64); lrt.offsetMax = new Vector2(-Pad, 0);
-            var content = Components.ScrollList(listArea.transform, out var scroll, 6f, Theme.ScrimPanel);
-            SmoothScroll.Attach(scroll);
+            var page = Scaffold.Create(formHost);
+            var content = page.Content;
 
             Button continueBtn = null;
 
@@ -115,8 +105,7 @@ namespace SideHustle.Menu
                 int total = _pending.Count;
                 int done = _pending.Count(e => !Pending(e));
                 Components.SectionHeader(content, total > 0 ? $"Install these manually - {done} of {total} ready" : "Install these manually");
-                Note(content, "Open a link and download it - Side Hustle finds the file in " + ManualInstall.WatchedFoldersLabel()
-                              + " and installs it.");
+                Scaffold.Note(content, "Side Hustle picks up downloads from " + ManualInstall.WatchedFoldersLabel() + ".");
 
                 if (_pending.Any(Pending))
                 {
@@ -152,7 +141,7 @@ namespace SideHustle.Menu
                     var rle = row.AddComponent<LayoutElement>();
                     rle.minHeight = 54f; rle.preferredHeight = 54f; rle.flexibleWidth = 1;
 
-                    var title = UIFactory.Text("name", (done2 ? "✓ " : "") + Label(entry), row.transform, 16, TextAnchor.UpperLeft, FontStyle.Bold);
+                    var title = UIFactory.Text("name", Label(entry), row.transform, Theme.H3, TextAnchor.UpperLeft, FontStyle.Bold);
                     // Truncate rather than wrap. A uGUI Text draws OUTSIDE its rect by default, anchored by its own
                     // alignment - so a second line of the status (anchored LowerLeft) grows upward straight through
                     // the mod's name, which is exactly what a long note used to do here. Both texts are clipped to
@@ -162,7 +151,7 @@ namespace SideHustle.Menu
                     Place(title, new Vector2(12, -RowPad), new Vector2(0.8f, 1f), bottom: 26f);
 
                     string statusText = done2 ? "ready" : entry.ManualNote ?? "waiting for the download...";
-                    var status = UIFactory.Text("status", statusText, row.transform, 13, TextAnchor.LowerLeft);
+                    var status = UIFactory.Text("status", statusText, row.transform, Theme.Body, TextAnchor.LowerLeft);
                     status.color = done2 ? Theme.Success : entry.ManualNote != null ? Theme.WarningText : Theme.TextMuted;
                     status.horizontalOverflow = HorizontalWrapMode.Wrap;
                     status.verticalOverflow = VerticalWrapMode.Truncate;
@@ -187,7 +176,7 @@ namespace SideHustle.Menu
                 if (continueBtn != null)
                 {
                     var lbl = continueBtn.GetComponentInChildren<Text>();
-                    if (lbl != null) lbl.text = anyPending ? "Skip missing & continue" : "Continue";
+                    if (lbl != null) lbl.text = anyPending ? "Skip missing and continue" : "Continue";
 
                     // While anything is still missing, giving up is not the primary action - "Open next link" is.
                     // Rewritten each Render rather than once, which also stops PolishButtons stacking its lighten.
@@ -198,27 +187,18 @@ namespace SideHustle.Menu
             }
             _refresh = Render;
 
-            var (backGO, backBtn, _b) = UIFactory.ButtonWithLabel("Back", "Back", footer.transform, Theme.Button, 140, 40);
-            Place2(backGO, left: true);
-
-            backBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => { _active = false; onBack?.Invoke(); }));
+            Scaffold.FooterButton(page.Footer, "Back", Theme.Button, left: true, onClick: () => { _active = false; onBack?.Invoke(); });
 
             // The way back to a column the player closed - this is the screen where the host is the only remaining
             // move, so a one-way X here would be the worst place to have one. Toggles, like the card's button.
             if (ChatPanel.Possible(hostSteamId, hostAcceptsMessages))
             {
-                var (chGO, chBtn, _chLbl) = UIFactory.ButtonWithLabel("Chat", "Chat", footer.transform, Theme.Button, 120, 40);
-                var chrt = chGO.GetComponent<RectTransform>();
-                chrt.anchorMin = chrt.anchorMax = new Vector2(0, 0.5f);
-                chrt.pivot = new Vector2(0, 0.5f);
-                chrt.anchoredPosition = new Vector2(148f, 0f);
-                chBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => ChatPanel.Toggle(hostSteamId, hostName)));
+                Scaffold.FooterButton(page.Footer, "Chat", Theme.Button, left: true, onClick: () => ChatPanel.Toggle(hostSteamId, hostName),
+                    offsetX: Scaffold.SecondaryWidth + 8f, width: 120f);
             }
 
-            var (contGO, cBtn, _c) = UIFactory.ButtonWithLabel("Continue", "Continue", footer.transform, Theme.Accent, 220, 40);
-            Place2(contGO, left: false);
-            continueBtn = cBtn;
-            cBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => { _active = false; ChatPanel.Hide(); onContinue?.Invoke(); }));
+            continueBtn = Scaffold.FooterButton(page.Footer, "Continue", Theme.Accent, left: false,
+                onClick: () => { _active = false; ChatPanel.Hide(); onContinue?.Invoke(); }, width: 220f);
 
             Render();
         }
@@ -281,17 +261,6 @@ namespace SideHustle.Menu
             catch (Exception e) { Core.Log?.Warning("[sync] could not show a toast (menu mid-transition?): " + e.Message); }
         }
 
-        private static void Note(RectTransform content, string text)
-        {
-            var row = UIFactory.Panel("note", content, Theme.Clear);
-            var rle = row.AddComponent<LayoutElement>();
-            rle.minHeight = 40f; rle.preferredHeight = 40f; rle.flexibleWidth = 1;
-            var t = UIFactory.Text("text", text, row.transform, 14, TextAnchor.MiddleLeft);
-            t.color = Theme.TextMuted;
-            var rt = t.GetComponent<RectTransform>();
-            rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one; rt.offsetMin = new Vector2(12, 0); rt.offsetMax = new Vector2(-12, 0);
-        }
-
         // Both texts in a row are anchored to a row EDGE (title top-left, status bottom-left), so each needs its own
         // inset from that edge - without them the title sticks to the row's top border and the status to its bottom.
         private const float RowPad = 8f;
@@ -301,13 +270,6 @@ namespace SideHustle.Menu
             var rt = t.GetComponent<RectTransform>();
             rt.anchorMin = new Vector2(0, 0); rt.anchorMax = anchorMax; rt.pivot = new Vector2(0, 1);
             rt.offsetMin = new Vector2(offset.x, bottom); rt.offsetMax = new Vector2(0, offset.y);
-        }
-
-        private static void Place2(GameObject go, bool left)
-        {
-            var rt = go.GetComponent<RectTransform>();
-            rt.anchorMin = new Vector2(left ? 0 : 1, 0.5f); rt.anchorMax = new Vector2(left ? 0 : 1, 0.5f);
-            rt.pivot = new Vector2(left ? 0 : 1, 0.5f); rt.anchoredPosition = Vector2.zero;
         }
     }
 }

@@ -97,7 +97,7 @@ namespace SideHustle.Menu
 
             GameObject scrim = DooDesch.UI.Components.CountdownDialog(root,
                 "Host this save publicly?",
-                $"Open '{SafeOrg(save)}' as a public Side Hustle lobby so others can join with matching mods - or just play it solo.",
+                $"Open '{SafeOrg(save)}' as a public lobby, or play solo.",
                 "Host publicly", "Just play",
                 onConfirm: () =>
                 {
@@ -174,7 +174,7 @@ namespace SideHustle.Menu
             if (root == null) return;
             _scrim = DooDesch.UI.Components.CountdownDialog(root,
                 "Host this save publicly?",
-                "Open 'Kings of Cul-de-Sac' as a public Side Hustle lobby so others can join with matching mods - or just play it solo.",
+                "Open 'Kings of Cul-de-Sac' as a public lobby, or play solo.",
                 "Host publicly", "Just play",
                 onConfirm: DestroyScrim, onCancel: DestroyScrim, out var countdown);
             if (countdown != null) countdown.text = "";

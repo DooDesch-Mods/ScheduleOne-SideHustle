@@ -56,20 +56,10 @@ namespace SideHustle.Menu
             };
             Func<SettingPreset> selectedPreset = null;
 
-            // Split the panel into a scrolling settings area (top) and a fixed footer (bottom). Both are inset
-            // horizontally by Pad so the form content lines up with the native save-slot rows (which inset their
-            // text by the same amount) instead of overflowing the visible panel and clipping on the left/right.
-            const float Pad = 30f;
-            var footer = NewPanel("footer", formHost);
-            var frt = footer.GetComponent<RectTransform>();
-            frt.anchorMin = new Vector2(0, 0); frt.anchorMax = new Vector2(1, 0); frt.pivot = new Vector2(0.5f, 0);
-            frt.offsetMin = new Vector2(Pad, 0); frt.offsetMax = new Vector2(-Pad, 56);
-
-            var scrollArea = NewPanel("scrollArea", formHost);
-            var srt = scrollArea.GetComponent<RectTransform>();
-            srt.anchorMin = new Vector2(0, 0); srt.anchorMax = new Vector2(1, 1); srt.offsetMin = new Vector2(Pad, 64); srt.offsetMax = new Vector2(-Pad, 0);
-            var content = Components.ScrollList(scrollArea.transform, out var scroll, 6f, Theme.ScrimPanel);
-            SmoothScroll.Attach(scroll);   // smooth wheel glide for the host-config list (driven by Core's menu update)
+            // A scrolling settings area above a fixed footer, both inset by Scaffold.Pad so the form lines up with the
+            // native save-slot rows.
+            var page = Scaffold.Create(formHost);
+            var content = page.Content;
 
             // --- gamemode preset picker (cascades its values into the controls below; the host can still tweak
             //     every individual setting afterwards). Applied once the controls + setters exist (see end). ---
@@ -78,8 +68,8 @@ namespace SideHustle.Menu
 
             Components.SectionHeader(content, "Lobby");
 
-            // --- Lobby name (shown to joiners in the server browser) ---
-            Components.FormRow(content, "Lobby name", "Shown to players in the server browser.", out var lnSlot, stacked: true);
+            // --- Lobby name (shown to joiners in the lobby browser) ---
+            Components.FormRow(content, "Lobby name", "Shown in the lobby browser.", out var lnSlot, stacked: true);
             // Default lobby title uses the host's chosen display name for THIS gamemode when set. At config time the
             // session has not started, so the alias is not yet "active" - read it straight from the stored preference;
             // fall back to the real Steam persona name when no alias is set.
@@ -94,7 +84,7 @@ namespace SideHustle.Menu
             BuildSlider(pSlot, 2, cap, players, true, 1f, "players", v => players = Mathf.RoundToInt(v));
 
             // --- Lobby visibility ---
-            Components.FormRow(content, "Lobby", "Private = friends-only, not listed.", out var vSlot);
+            Components.FormRow(content, "Visibility", "Private = friends only, not listed.", out var vSlot);
             var vis = Components.Segmented(vSlot, new[] { "Public", "Private" }, visibility,
                 i => { visibility = i; if (passwordRow != null) passwordRow.SetActive(i == 0); }, out _);
             Fill(vis);
@@ -114,8 +104,8 @@ namespace SideHustle.Menu
             if (hasPolicy)
             {
                 string hint = blocked
-                    ? "Missing required mod(s): " + string.Join(", ", plan.MissingRequired) + ". Pick \"Current installed mods\"."
-                    : $"Required: pauses {plan.ToDisable.Count} mod(s), enables {plan.ToEnable.Count}; restarts the game. Current keeps your full set.";
+                    ? "Missing required mods: " + string.Join(", ", plan.MissingRequired) + "."
+                    : $"Required mods only pauses {Words.Plural(plan.ToDisable.Count, "mod", "mods")}, enables {plan.ToEnable.Count} and restarts the game.";
                 Components.FormRow(content, "Mods", hint, out var mSlot, stacked: true);
                 var seg = Components.Segmented(mSlot, new[] { "Current installed mods", "Required mods only" }, policyMode,
                     i => policyMode = i, out var mbtns);
@@ -144,13 +134,9 @@ namespace SideHustle.Menu
             applyPresetDefault?.Invoke();
 
             // --- footer: Back / Start ---
-            var (backGO, backBtn, _b) = UIFactory.ButtonWithLabel("Back", "Back", footer.transform, Theme.Button, 140, 40);
-            PlaceFooterButton(backGO, left: true);
-            backBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => onBack?.Invoke()));
+            Scaffold.FooterButton(page.Footer, "Back", Theme.Button, left: true, onClick: onBack);
 
-            var (startGO, startBtn, _s) = UIFactory.ButtonWithLabel("Start", "Start hosting", footer.transform, Theme.Accent, 200, 40);
-            PlaceFooterButton(startGO, left: false);
-            startBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() =>
+            Scaffold.FooterButton(page.Footer, "Start hosting", Theme.Accent, left: false, onClick: () =>
             {
                 foreach (var kv in textInputs) values[kv.Key] = Sanitize(kv.Value != null ? kv.Value.text : "");
                 int mode = hasPolicy ? policyMode : 0;
@@ -184,7 +170,7 @@ namespace SideHustle.Menu
                     DiscordCode = discordCode,
                 });
                 onStart?.Invoke(opts, mode);
-            }));
+            });
 
             Interactions.PolishButtons(formHost);
         }
@@ -300,7 +286,7 @@ namespace SideHustle.Menu
             // settings, so it says so - but the moment they cycle to a named preset that sentence would be a lie, and
             // then the useful thing to say is what picking one does to the rows underneath. The old text,
             // "(new host? pick one, then Start)", said neither.
-            var title = UIFactory.Text("title", "Game mode preset", block.transform, Theme.Label, TextAnchor.MiddleLeft, FontStyle.Bold);
+            var title = UIFactory.Text("title", "Preset", block.transform, Theme.Label, TextAnchor.MiddleLeft, FontStyle.Bold);
             title.color = Theme.TextPrimary; title.raycastTarget = false;
             var tle = title.gameObject.AddComponent<LayoutElement>(); tle.minHeight = 20; tle.preferredHeight = 20;
 
@@ -330,10 +316,10 @@ namespace SideHustle.Menu
                 // DefaultSelected marks the entry a gamemode rebuilt from the host's last session - the only entry
                 // that is not a fixed preset, and the only one the title can claim was "loaded".
                 title.text = p.DefaultSelected
-                    ? "Game mode preset - your last settings are loaded"
-                    : "Game mode preset - fills in every setting below";
-                nameTxt.text = p.Experimental ? (p.Name ?? "") + "   - EXPERIMENTAL" : (p.Name ?? "");
-                nameTxt.color = p.Experimental ? new Color(1f, 0.72f, 0.2f) : Theme.Accent;   // amber badge for not-yet-built mechanics
+                    ? "Preset - your last settings are loaded"
+                    : "Preset - fills in every setting below";
+                nameTxt.text = p.Experimental ? (p.Name ?? "") + "   - experimental" : (p.Name ?? "");
+                nameTxt.color = p.Experimental ? Theme.WarningText : Theme.Accent;   // amber badge for not-yet-built mechanics
                 descTxt.text = string.IsNullOrEmpty(p.Recommended) ? (p.Hint ?? "") : (p.Recommended + "  -  " + (p.Hint ?? ""));
                 applyValues?.Invoke(p.Values);   // cascade into the controls (dirty stays clean - this is a preset pick)
             }
@@ -419,13 +405,6 @@ namespace SideHustle.Menu
 
         // --- small helpers ---
 
-        private static GameObject NewPanel(string name, Transform parent)
-        {
-            var go = UIFactory.Panel(name, parent, Theme.Clear);
-            var img = go.GetComponent<Image>(); if (img != null) img.raycastTarget = false;
-            return go;
-        }
-
         private static void Anchor(GameObject go, Vector2 min, Vector2 max, Vector2 pivot)
         {
             var rt = go.GetComponent<RectTransform>();
@@ -438,14 +417,6 @@ namespace SideHustle.Menu
             if (rt == null) return;
             rt.anchorMin = new Vector2(0, 0); rt.anchorMax = new Vector2(1, 1);
             rt.offsetMin = new Vector2(0, vInset); rt.offsetMax = new Vector2(0, -vInset);
-        }
-
-        private static void PlaceFooterButton(GameObject go, bool left)
-        {
-            var rt = go.GetComponent<RectTransform>();
-            rt.anchorMin = rt.anchorMax = new Vector2(left ? 0 : 1, 0.5f);
-            rt.pivot = new Vector2(left ? 0 : 1, 0.5f);
-            rt.anchoredPosition = new Vector2(left ? 16 : -16, 0);
         }
 
         private static string Fmt(float v, bool whole, string unit)

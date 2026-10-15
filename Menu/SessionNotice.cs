@@ -94,7 +94,7 @@ namespace SideHustle.Menu
             string lower = (reason ?? "").ToLowerInvariant();
             if (lower.Contains("no progress") || lower.Contains("did not complete")
                 || lower.Contains("timed out") || lower.Contains("timeout")) return "Could not join";
-            if (lower.Contains("kick")) return "Removed from the session";
+            if (lower.Contains("kick")) return "Removed from the lobby";
             if (lower.Contains("lost") || lower.Contains("disconnect")) return "Disconnected";
             if (lower.Contains("could not create a lobby")) return "Could not host";
             if (lower.Contains("world boot")) return "World failed to load";
@@ -121,15 +121,15 @@ namespace SideHustle.Menu
             if (lower.Contains("no progress") || lower.Contains("did not complete")
                 || lower.Contains("timed out") || lower.Contains("timeout"))
                 return "No response from the host. Try again.";
-            if (lower.Contains("kick")) return "The host removed you from their session.";
-            if (lower.Contains("lost") || lower.Contains("disconnect")) return "Try rejoining from the session list.";
+            if (lower.Contains("kick")) return "The host removed you from the lobby.";
+            if (lower.Contains("lost") || lower.Contains("disconnect")) return "Join again from the lobby list.";
             if (lower.Contains("could not create a lobby")) return "Steam did not open a lobby. Try again.";
             if (lower.Contains("world boot")) return "The world could not be loaded.";
             // Deliberately states the OBSERVATION, not a cause. All this path knows is that we believed we were
             // connected and are now back in the menu without the clean exit having run. Whether the host closed the
             // session, kicked us, or the connection died is not distinguishable from here - and claiming one of them
             // would send the player after the wrong fix.
-            if (lower.Contains("stopped unexpectedly")) return "Try rejoining from the session list.";
+            if (lower.Contains("stopped unexpectedly")) return "Join again from the lobby list.";
 
             // An unknown reason is an internal log line, not something to read out to the player. It is already in
             // the log; the dialog says the session ended and what to do.

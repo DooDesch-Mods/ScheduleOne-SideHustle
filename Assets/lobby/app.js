@@ -253,7 +253,7 @@ function setPassword(pw) {
 function setEnforce(on) {
   const answer = ask('lobby.setEnforce', on ? '1' : '0');
   if (answer === 'gamemode') { toast('A gamemode lobby always uses its own mods.', 'bad'); return; }
-  if (answer === 'nolist') { toast('This session has no mod list to check joiners against.', 'bad'); return; }
+  if (answer === 'nolist') { toast('This lobby has no mod list to check joiners against.', 'bad'); return; }
   if (answer !== 'ok') { toast('Could not change the mod requirement.', 'bad'); return; }
   say(on ? 'Mod set required. Unsynced players are removed.' : 'Mod set no longer required.', 'ok');
 }
@@ -265,7 +265,7 @@ function republish() {
 
 function togglePublish() {
   const answer = ask('lobby.togglePublish');
-  if (answer === 'n/a') { toast('Your session is already listed by Side Hustle itself.', 'bad'); return; }
+  if (answer === 'n/a') { toast('Side Hustle already lists this lobby.', 'bad'); return; }
   if (answer !== '0' && answer !== '1') { toast('Could not change publishing.', 'bad'); return; }
   say(answer === '1' ? 'Published.' : 'Withdrawn.', 'ok');
 }
@@ -371,7 +371,7 @@ function openDiscord() {
 
 function publishRow(s) {
   const row = el('div', 'row');
-  const h = head(row, 'publish', 'Publish this session');
+  const h = head(row, 'publish', 'Publish this lobby');
   const st = el('div', 'state');
   st.appendChild(el('div', s.published ? 'dot live' : 'dot'));
   st.appendChild(el('div', s.published ? 'state-text live' : 'state-text', s.published ? 'Listed' : 'Not listed'));
@@ -381,7 +381,7 @@ function publishRow(s) {
   // over it would rewrite the name, seats, visibility and join manifest with vanilla values, so the mod refuses -
   // and a button that answers "could not" is worse than no button. Say why instead.
   if (!s.canPublish) {
-    row.appendChild(el('div', 'hint', 'Your session is already listed by Side Hustle itself.'));
+    row.appendChild(el('div', 'hint', 'Side Hustle already lists this lobby.'));
     return row;
   }
 
@@ -442,12 +442,12 @@ function fact(list, iconName, key, value, kind) {
 function renderSession(body, s) {
   const wrap = el('div', 'one');
   const facts = el('div', 'facts');
-  fact(facts, 'name', "Whose game", s.hostName || 'Unknown');
+  fact(facts, 'name', 'Host', s.hostName || 'Unknown');
   fact(facts, 'seats', 'Seats taken', s.members + ' of ' + s.max, s.members >= s.max ? 'warn' : null);
   fact(facts, 'visibility', 'Listed', s.public ? 'Public' : 'Friends only', s.public ? 'live' : null);
   fact(facts, 'password', 'Password', s.hasPassword ? 'Required' : 'None');
   if (!s.gamemode) fact(facts, 'modset', 'Host mod set', s.enforce ? 'Required' : 'Optional', s.enforce ? 'warn' : null);
-  if (s.runtime) fact(facts, 'publish', 'Game branch', s.runtime === 'mono' ? 'Mono' : 'IL2CPP', s.runtime === 'mono' ? 'warn' : 'live');
+  if (s.otherVersion) fact(facts, 'publish', 'Game version', 'Different', 'warn');
   if (s.discord) {
     fact(facts, 'chat', 'Discord', 'discord.gg/' + s.discord);
     facts.appendChild(button('btn wide', 'Open', null, openDiscord));
@@ -463,7 +463,7 @@ function renderPlayers(body) {
   if (raw) { try { people = JSON.parse(raw); } catch (e) { console.error('unreadable roster:', e.message); } }
 
   if (people.length === 0) {
-    body.appendChild(emptyState('players', 'Nobody here yet', 'The moment somebody joins, they show up in this list.'));
+    body.appendChild(emptyState('players', 'Nobody here yet', 'Players show up here when they join.'));
     return;
   }
   for (const p of people) {
@@ -494,7 +494,7 @@ function renderChat(body) {
     const wrap = el('div', 'one');
     wrap.appendChild(emptyState('chat', 'Nobody has messaged you',
       ask('chat.accepting') === '1'
-        ? 'Someone who finds your session but cannot get in can send you a line. It lands here.'
+        ? 'Someone who finds your lobby but cannot get in can message you. It lands here.'
         : 'You have messages from strangers switched off, so nothing reaches you here.'));
     const mutedEmpty = mutedBlock();
     if (mutedEmpty) wrap.appendChild(mutedEmpty);
@@ -656,7 +656,7 @@ function emptyState(iconName, title, line) {
  * notification, both of which lead to a screen with no way through to what they are about. So the conversation stays
  * reachable whenever there is one, or anyone to unmute. */
 function tabsFor(s) {
-  const home = { id: 'lobby', label: s.host ? 'Lobby' : 'Session', icon: 'lobby' };
+  const home = { id: 'lobby', label: 'Lobby', icon: 'lobby' };
   const chat = { id: 'chat', label: 'Chat', icon: 'chat' };
   if (!s.inLobby) return s.hasChat ? [home, chat] : [home];
   return [home, chat, { id: 'players', label: 'Players', icon: 'players' }];
@@ -673,9 +673,9 @@ function render() {
   body.replaceChildren();
   tabsEl.replaceChildren();
 
-  $('sub').textContent = !s.inLobby ? 'Not in a session'
+  $('sub').textContent = !s.inLobby ? 'Not in a lobby'
     : s.host ? (s.public ? 'Hosting, public' : 'Hosting, friends only')
-    : 'In ' + (s.hostName ? s.hostName + "'s" : 'someone else\'s') + ' session';
+    : 'In ' + (s.hostName ? s.hostName + "'s" : 'someone else\'s') + ' lobby';
 
   const seatsEl = $('seats');
   seatsEl.replaceChildren();
@@ -706,8 +706,8 @@ function render() {
 
   if (tab === 'chat') renderChat(body);
   else if (!s.inLobby) {
-    body.appendChild(emptyState('lobby', 'No session running',
-      'Host or join a game from the Side Hustle menu. Host one and this is where you set seats and who can find you.'));
+    body.appendChild(emptyState('lobby', 'No lobby running',
+      'Host or join a lobby from the Side Hustle menu.'));
   }
   else if (tab === 'players') renderPlayers(body);
   else if (s.host) renderLobby(body, s);

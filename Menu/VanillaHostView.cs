@@ -23,7 +23,6 @@ namespace SideHustle.Menu
             int maxClients, Action onBack, Action<HostOptions, bool, System.Collections.Generic.List<string>> onHost,
             Action<string> setTitle = null)
         {
-            const float Pad = 30f;
             int cap = Mathf.Max(2, maxClients);
             // What the host chose last time (never the password).
             var saved = Preferences.GetHost(Preferences.VanillaHostKey);
@@ -42,17 +41,8 @@ namespace SideHustle.Menu
                 (prefsCats ?? new System.Collections.Generic.List<PrefsCategory>())
                     .Where(c => c.SyncByDefault).Select(c => c.Id), StringComparer.OrdinalIgnoreCase);
 
-            var footer = UIFactory.Panel("footer", formHost, Theme.Clear);
-            var frt = footer.GetComponent<RectTransform>();
-            frt.anchorMin = new Vector2(0, 0); frt.anchorMax = new Vector2(1, 0); frt.pivot = new Vector2(0.5f, 0);
-            frt.offsetMin = new Vector2(Pad, 0); frt.offsetMax = new Vector2(-Pad, 56);
-
-            var scrollArea = UIFactory.Panel("scrollArea", formHost, Theme.Clear);
-            var srt = scrollArea.GetComponent<RectTransform>();
-            srt.anchorMin = new Vector2(0, 0); srt.anchorMax = new Vector2(1, 1);
-            srt.offsetMin = new Vector2(Pad, 64); srt.offsetMax = new Vector2(-Pad, 0);
-            var content = Components.ScrollList(scrollArea.transform, out var scroll, 6f, Theme.ScrimPanel);
-            SmoothScroll.Attach(scroll);
+            var page = Scaffold.Create(formHost);
+            var content = page.Content;
 
             Components.SectionHeader(content, "Lobby");
 
@@ -66,7 +56,7 @@ namespace SideHustle.Menu
 
             InputField password = null;
             GameObject passwordRow = null;
-            Components.FormRow(content, "Lobby", "Private = friends-only, not listed.", out var vSlot);
+            Components.FormRow(content, "Visibility", "Private = friends only, not listed.", out var vSlot);
             Components.FillSlot(Components.Segmented(vSlot, new[] { "Public", "Private" }, visibility,
                 i => { visibility = i; if (passwordRow != null) passwordRow.SetActive(i == 0); RefreshHostLabel(); }, out _));
 
@@ -82,9 +72,9 @@ namespace SideHustle.Menu
             Components.SectionHeader(content, "Mod sync");
             int auto = plan.AutoCount + plan.GhCount;
             int total = auto + plan.LinkCount + plan.DroppedCount;
-            Info(content, $"Joiners get your mod set: {auto} of {total} install automatically (Thunderstore{(plan.GhCount > 0 ? "/GitHub" : "")})"
-                        + (plan.LinkCount > 0 ? $", {plan.LinkCount} via download link (picked up automatically once downloaded)" : "")
-                        + (plan.DroppedCount > 0 ? $", {plan.DroppedCount} cannot sync (they join without those)" : "") + ".");
+            Scaffold.Note(content, $"Joiners get your mod set: {auto} of {total} install automatically"
+                        + (plan.LinkCount > 0 ? $", {plan.LinkCount} need a download link" : "")
+                        + (plan.DroppedCount > 0 ? $", {plan.DroppedCount} cannot sync" : "") + ".");
 
             Components.FormRow(content, "Synced clients only", "Kick joiners whose mods don't match (friends included).", out var eSlot);
             Components.Toggle(eSlot, enforce, v => enforce = v);
@@ -92,7 +82,7 @@ namespace SideHustle.Menu
             if (prefsCats != null && prefsCats.Count > 0)
             {
                 Components.SectionHeader(content, "Mod settings to sync");
-                Info(content, "Only your session applies these - the client's real settings stay untouched.");
+                Scaffold.Note(content, "Applied to joiners for this lobby only.");
                 foreach (var cat in prefsCats)
                 {
                     var c = cat;
@@ -104,13 +94,11 @@ namespace SideHustle.Menu
                 }
             }
 
-            var (backGO, backBtn, _b) = UIFactory.ButtonWithLabel("Back", "Back", footer.transform, Theme.Button, 140, 40);
-            PlaceFooter(backGO, left: true);
-            backBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => onBack?.Invoke()));
+            Scaffold.FooterButton(page.Footer, "Back", Theme.Button, left: true, onClick: onBack);
 
-            var (hostGO, hostBtn, hostLbl) = UIFactory.ButtonWithLabel("Host", HostLabel(visibility), footer.transform, Theme.Accent, 200, 40);
+            var (hostGO, hostBtn, hostLbl) = UIFactory.ButtonWithLabel("Host", HostLabel(visibility), page.Footer, Theme.Accent, Scaffold.PrimaryWidth, Scaffold.ButtonHeight);
             hostButton = hostBtn; hostLabel = hostLbl;
-            PlaceFooter(hostGO, left: false);
+            Scaffold.PlaceFooter(hostGO, left: false);
             setTitle?.Invoke(HostLabel(visibility));
             hostBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() =>
             {
@@ -145,18 +133,6 @@ namespace SideHustle.Menu
             Interactions.PolishButtons(formHost);
         }
 
-        private static void Info(RectTransform content, string text)
-        {
-            var row = UIFactory.Panel("info", content, Theme.Clear);
-            var rle = row.AddComponent<LayoutElement>();
-            rle.minHeight = 44f; rle.preferredHeight = 44f; rle.flexibleWidth = 1;
-            var t = UIFactory.Text("text", text, row.transform, 14, TextAnchor.MiddleLeft);
-            t.color = Theme.TextMuted;
-            var rt = t.GetComponent<RectTransform>();
-            rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
-            rt.offsetMin = new Vector2(12, 0); rt.offsetMax = new Vector2(-12, 0);
-        }
-
         // A slider that fills its FormRow slot with a live value readout on the right - the same layout the
         // gamemode host form (HostConfigView) uses. A raw Components.Slider dropped into the slot has no anchors
         // and collapses to the centre, which is why the earlier version overlapped.
@@ -173,14 +149,6 @@ namespace SideHustle.Menu
             srt.anchorMin = new Vector2(0, 0.5f); srt.anchorMax = new Vector2(1, 0.5f); srt.pivot = new Vector2(0.5f, 0.5f);
             srt.offsetMin = new Vector2(0, -4); srt.offsetMax = new Vector2(-52, 4);
             readout.text = Mathf.RoundToInt(slider.value).ToString();
-        }
-
-        private static void PlaceFooter(GameObject go, bool left)
-        {
-            var rt = go.GetComponent<RectTransform>();
-            rt.anchorMin = new Vector2(left ? 0 : 1, 0.5f); rt.anchorMax = new Vector2(left ? 0 : 1, 0.5f);
-            rt.pivot = new Vector2(left ? 0 : 1, 0.5f);
-            rt.anchoredPosition = Vector2.zero;
         }
     }
 }

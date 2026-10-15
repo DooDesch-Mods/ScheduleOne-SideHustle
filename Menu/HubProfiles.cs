@@ -139,7 +139,7 @@ namespace SideHustle.Menu
             if (mref == null) { Core.Log?.Error($"[selftest] removeall: '{fullName}' is not in profile '{p.Name}'."); return; }
             var dependants = BuildGraph(p).DependantsOf(mref);
             var all = new List<ProfileModRef>(dependants) { mref };
-            ExecuteRemoval(p.Id, all, RefDisplayName(mref) + (dependants.Count > 0 ? $" and {dependants.Count} dependent mod(s)" : ""));
+            ExecuteRemoval(p.Id, all, RefDisplayName(mref) + (dependants.Count > 0 ? $" and {Words.Plural(dependants.Count, "dependent mod", "dependent mods")}" : ""));
         }
 
         /// <summary>Dev.SelfTest only: inject a fake wrong-runtime exclusion set into the first profile and show
@@ -182,8 +182,8 @@ namespace SideHustle.Menu
             _back = null;   // right-click at the profiles root closes back to the main menu (TickInput default)
 
             ClearFormHost();
-            SetTmp(_clone.transform, "Title", "Mod Profiles");
-            var host = CreateFormHost("SH_ProfilesList", 560f);
+            SetTmp(_clone.transform, "Title", "Mod profiles");
+            var host = CreateFormHost("SH_ProfilesList");
             var recent = Sync.LastSync.Load();
             ProfilesViews.BuildList(host,
                 onOpen: ShowProfileDetail,
@@ -253,7 +253,7 @@ namespace SideHustle.Menu
         {
             var root = DialogRoot();
             if (root == null) return;
-            Components.PromptDialog(root, "Edit description", "A short note about what this profile is for (leave empty to clear).",
+            Components.PromptDialog(root, "Edit description", "A short note about this profile. Empty clears it.",
                 string.IsNullOrEmpty(currentNotes) ? "e.g. lightweight co-op set" : currentNotes, "Save", notes =>
             {
                 if (!ProfileEngine.SetDescription(profileId, notes)) return "Couldn't save the description. The profile file isn't writable.";
@@ -312,7 +312,7 @@ namespace SideHustle.Menu
 
             ClearFormHost();
             SetTmp(_clone.transform, "Title", p.Name);
-            var host = CreateFormHost("SH_ProfileDetail", 560f);
+            var host = CreateFormHost("SH_ProfileDetail");
             var graph = BuildGraph(p);
             var runtimeNotes = BuildRuntimeNotes(p);
             ProfilesViews.BuildDetail(host, p, writable, IsEssentialFile,
@@ -346,7 +346,7 @@ namespace SideHustle.Menu
 
             ClearFormHost();
             SetTmp(_clone.transform, "Title", "Add an installed mod");
-            var host = CreateFormHost("SH_AddBaseMod", 560f);
+            var host = CreateFormHost("SH_AddBaseMod");
             ProfilesViews.BuildAddBase(host, candidates,
                 onAdd: f =>
                 {
@@ -390,7 +390,7 @@ namespace SideHustle.Menu
                 ("Remove all (recommended)", Theme.Danger, () =>
                 {
                     var all = new List<ProfileModRef>(dependants) { mref };
-                    ExecuteRemoval(profileId, all, $"{what} and {dependants.Count} dependent mod(s)");
+                    ExecuteRemoval(profileId, all, $"{what} and {Words.Plural(dependants.Count, "dependent mod", "dependent mods")}");
                 }),
                 ($"Remove only {what}", Theme.Button, () =>
                     ExecuteRemoval(profileId, new List<ProfileModRef> { mref }, what)));
@@ -479,7 +479,7 @@ namespace SideHustle.Menu
                              : e.Source + "|" + e.FileName, StringComparer.OrdinalIgnoreCase))
                 {
                     bool wholeRef = group.Any(e => !e.HasSurvivingSibling);
-                    notes[group.Key] = wholeRef ? "Mono build - disabled (IL2CPP game)" : "Mono variant skipped";
+                    notes[group.Key] = wholeRef ? "Other game version - disabled" : "Other game version skipped";
                 }
             }
             catch (Exception e) { Safe.Report("reading the per-mod runtime notes", e); }
@@ -543,15 +543,15 @@ namespace SideHustle.Menu
                                     .OrderBy(s => s, StringComparer.OrdinalIgnoreCase).ToList();
                     Components.ChoiceDialog(root, "Some mods were disabled",
                         (list.Count == 1 ? "1 mod in this profile is" : list.Count + " mods in this profile are")
-                        + " built for the Mono branch of the game and cannot load here. They were left out when the profile was built.",
+                        + " made for another game version and cannot load. They were left out of this profile.",
                         items,
                         ("Got it", Theme.Accent, () => { }));
                 }
                 else
                 {
                     ShowToast(list.Count == 1
-                        ? "1 Mono mod stays disabled in this profile."
-                        : list.Count + " Mono mods stay disabled in this profile.", Severity.Warning);
+                        ? "1 mod stays disabled: other game version."
+                        : list.Count + " mods stay disabled: other game version.", Severity.Warning);
                 }
             }
             catch (Exception e) { Core.Log?.Warning("[profiles] runtime notice failed: " + e.Message); }
@@ -575,7 +575,7 @@ namespace SideHustle.Menu
         {
             var root = DialogRoot();
             if (root == null) return;
-            Components.ConfirmDialog(root, "Delete profile", $"Delete '{name}'? Cached downloads and your Mods folder stay as they are.", "Delete", () =>
+            Components.ConfirmDialog(root, "Delete profile", $"Delete '{name}'? Your Mods folder stays as it is.", "Delete", () =>
             {
                 if (ProfileEngine.DeleteProfile(profileId)) ShowToast($"Deleted '{name}'.", Severity.Success);
                 else ShowToast("Couldn't delete the profile. The profile file isn't writable.", Severity.Warning);
@@ -588,7 +588,7 @@ namespace SideHustle.Menu
             var root = DialogRoot();
             if (root == null) return;
             Components.ConfirmDialog(root, "Restart into " + label,
-                "The game restarts and loads exactly this profile's mods. You can always get back from the main menu.",
+                "The game restarts with this profile's mods.",
                 "Restart now", () => ProfileEngine.SwitchTo(profileId));
         }
 
@@ -599,7 +599,7 @@ namespace SideHustle.Menu
 
             ClearFormHost();
             SetTmp(_clone.transform, "Title", "Updates");
-            var host = CreateFormHost("SH_Updates", 560f);
+            var host = CreateFormHost("SH_Updates");
             ProfilesViews.BuildUpdatesPending(host, () => ShowProfileDetail(profileId));
 
             System.Threading.Tasks.Task.Run(async () =>
@@ -609,7 +609,7 @@ namespace SideHustle.Menu
                 try
                 {
                     var index = await ThunderstoreClient.GetIndexAsync(ProfileEngine.GameRoot, true, System.Threading.CancellationToken.None);
-                    if (index == null) { error = "Index unavailable (offline?)."; }
+                    if (index == null) { error = "Mod index unavailable. Are you offline?"; }
                     else
                     {
                         var doc = ProfileEngine.LoadStore(out _);
@@ -628,7 +628,7 @@ namespace SideHustle.Menu
                 {
                     if (_cloneScreen == null || !_cloneScreen.IsOpen) return;
                     ClearFormHost();
-                    var h = CreateFormHost("SH_UpdateResults", 560f);
+                    var h = CreateFormHost("SH_UpdateResults");
                     ProfilesViews.BuildUpdateResults(h, updates, error,
                         onUpdate: u => InstallIntoProfile(profileId, u.FullName, u.Latest, fromUpdate: true),
                         onBack: () => ShowProfileDetail(profileId));
@@ -681,7 +681,7 @@ namespace SideHustle.Menu
 
             ClearFormHost();
             SetTmp(_clone.transform, "Title", "Installing");
-            var host = CreateFormHost("SH_InstallProgress", 560f);
+            var host = CreateFormHost("SH_InstallProgress");
             var cts = new System.Threading.CancellationTokenSource();
             _installCts = cts;
             var ui = InstallProgressView.Build(host, $"Installing {fullName} {version}", plan, unresolved,
@@ -751,16 +751,16 @@ namespace SideHustle.Menu
             if (status == EnsureStatus.Ready)
             {
                 if (!built)
-                    Core.Log?.Warning($"[profiles] installed {fullName} {version} but the rebuild reported problems (see log).");
+                    Core.Log?.Warning($"[profiles] installed {fullName} {version} but the rebuild reported problems .");
 
                 // Authoritative runtime verdict now that the DLLs are extracted: a package whose Mods are ALL
                 // Mono builds installed fine but cannot load here - the player must see that, so no auto-return.
                 var (allWrong, dualSkipped) = PackageRuntimeSummary(fullName, version);
                 if (allWrong)
                 {
-                    ui.ShowWarning($"Installed, but {fullName} is a Mono build - it cannot load in this profile (this game runs the IL2CPP branch).",
+                    ui.ShowWarning($"Installed, but {fullName} is made for another game version and cannot load.",
                         onBack: () => ShowProfileDetail(profileId));
-                    ShowToast($"{fullName} is a Mono build - it will stay disabled.", Severity.Warning);
+                    ShowToast($"{fullName} is for another game version and stays disabled.", Severity.Warning);
                 }
                 else
                 {
@@ -769,7 +769,7 @@ namespace SideHustle.Menu
                     MelonLoader.MelonCoroutines.Start(ReturnToDetailAfter(profileId, 1.2f, offerOrphans: fromUpdate));
                 }
                 if (dualSkipped)
-                    ui.SetRuntimeNote($"{fullName} {version}", "Mono variant skipped", warn: false);
+                    ui.SetRuntimeNote($"{fullName} {version}", "Other game version skipped", warn: false);
 
                 // Dependencies that turned out to be Mono-only get flagged on their rows too.
                 foreach (var key in ui.Plan.Keys.ToList())
@@ -777,22 +777,22 @@ namespace SideHustle.Menu
                     var row = ui.Plan[key];
                     if (string.Equals(row.FullName, fullName, StringComparison.OrdinalIgnoreCase)) continue;
                     var (depAllWrong, depDual) = PackageRuntimeSummary(row.FullName, row.Version);
-                    if (depAllWrong) ui.SetRuntimeNote(key, "Mono build - will not load", warn: true);
-                    else if (depDual) ui.SetRuntimeNote(key, "Mono variant skipped", warn: false);
+                    if (depAllWrong) ui.SetRuntimeNote(key, "Other game version - will not load", warn: true);
+                    else if (depDual) ui.SetRuntimeNote(key, "Other game version skipped", warn: false);
                 }
                 return;
             }
             if (status == EnsureStatus.Cancelled)
             {
-                ShowToast("Install cancelled - nothing was changed.", Severity.Info);
+                ShowToast("Install cancelled.", Severity.Info);
                 ShowProfileDetail(profileId);
                 return;
             }
             Core.Log?.Error($"[profiles] install of {fullName} {version} failed ({status}).");
             ui.ShowError(
                 status == EnsureStatus.Blocked
-                    ? "Nothing to install - the package could not be resolved from the index."
-                    : "The install failed - check your connection, then try again (finished downloads are kept).",
+                    ? "Nothing to install: the package was not found in the index."
+                    : "The install failed. Check your connection and try again.",
                 onRetry: () => InstallIntoProfile(profileId, fullName, version, fromUpdate),
                 onBack: () => ShowProfileDetail(profileId));
         }
@@ -854,7 +854,7 @@ namespace SideHustle.Menu
                     .Select(m => m.FullName),
                 StringComparer.OrdinalIgnoreCase);
 
-            var host = CreateFormHost("SH_PackageBrowser", 560f);
+            var host = CreateFormHost("SH_PackageBrowser");
             PackageBrowserView.Build(host,
                 () => ShowProfileDetail(profileId),
                 (fullName, version) => InstallIntoProfile(profileId, fullName, version),

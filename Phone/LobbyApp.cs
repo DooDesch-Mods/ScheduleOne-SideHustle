@@ -175,6 +175,9 @@ namespace SideHustle.Phone
                 // Whose game this is and what it runs on: a client's whole first tab, and useless to a host.
                 .Add("hostName", LobbyControls.HostName)
                 .Add("runtime", LobbyControls.Runtime)
+                // The page shows only whether the host runs another game version, never the branch names.
+                .Add("otherVersion", !string.IsNullOrEmpty(LobbyControls.Runtime)
+                    && !string.Equals(LobbyControls.Runtime, Multiplayer.LobbyCoordinator.ThisRuntime, StringComparison.OrdinalIgnoreCase))
                 .Add("joinable", LobbyControls.JoinableNow)
                 .Add("inLobby", LobbyControls.InLobby)
                 .Add("name", LobbyControls.LobbyName)
