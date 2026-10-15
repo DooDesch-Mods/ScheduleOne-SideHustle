@@ -21,7 +21,8 @@ namespace SideHustle.Multiplayer
         /// "Custom - Infection"; may be null when the gamemode has no presets.</summary>
         public string Mode { get; internal set; }
 
-        /// <summary>Steam persona of the host (lobby key <c>sh_host_name</c>).</summary>
+        /// <summary>The host's name as other players see it: the display name the host chose for this gamemode, or their
+        /// Steam persona name when none is set (lobby key <c>sh_host_name</c>).</summary>
         public string HostName { get; internal set; }
 
         /// <summary>True if the lobby is password-protected (lobby key <c>sh_pw</c> = "1").</summary>
