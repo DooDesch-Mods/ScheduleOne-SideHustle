@@ -17,6 +17,7 @@ namespace SideHustle.Internal
 
         internal static void RequestReturn(LaunchContext ctx)
         {
+            if (SessionEvents.SkipReturn(ctx)) return;   // this session already ended (aborted, or returned before)
             if (_returning) return;
             _returning = true;
             bool restarting = false;
@@ -31,8 +32,7 @@ namespace SideHustle.Internal
                 if (SideHustle.Mods.ModSwitcher.HasRestorePending)
                 {
                     restarting = true;
-                    try { ctx?.Descriptor?.OnExitToHub?.Invoke(ctx); }
-                    catch (Exception e) { Core.Log?.Warning("OnExitToHub threw: " + e.Message); }
+                    SessionEvents.Exit(ctx);   // OnExitToHub once per session, then SessionEnded
                     try
                     {
                         if (worldOrMp)

@@ -221,6 +221,7 @@ namespace SideHustle.Multiplayer
             _state = State.InSession;
             Core.Log?.Msg($"[mp] HOST ready: '{_desc.DisplayName}' lobby {_ctx.LobbyId}, {_ctx.PlayerCount} player(s).");
             SafeInvoke(_desc.OnHostMultiplayer, _ctx);
+            Internal.SessionEvents.RaiseStarted(_ctx);
         }
 
         private static void FireJoin()
@@ -249,6 +250,7 @@ namespace SideHustle.Multiplayer
                                   $"(host {Short(info.BuildId)} vs local {Short(localBuild)}). Everyone must use the same version - expect bugs.");
 
             SafeInvoke(_desc.OnJoinMultiplayer, _ctx);
+            Internal.SessionEvents.RaiseStarted(_ctx);
         }
 
         private static void FireSpWorld()
@@ -257,14 +259,14 @@ namespace SideHustle.Multiplayer
             _state = State.InSession;
             Core.Log?.Msg($"[mp] singleplayer world ready: '{_desc.DisplayName}'.");
             SafeInvoke(_desc.OnLaunchSingleplayer, _ctx);
+            Internal.SessionEvents.RaiseStarted(_ctx);
         }
 
         // --- return / teardown (called via HubBridge when ctx.ReturnToHub fires for a World/MP session) ---
 
         internal static void ReturnFromSession(LaunchContext ctx)
         {
-            try { ctx?.Descriptor?.OnExitToHub?.Invoke(ctx); }
-            catch (Exception e) { Core.Log?.Warning("OnExitToHub threw: " + e.Message); }
+            Internal.SessionEvents.Exit(ctx);   // OnExitToHub once per session, then SessionEnded
 
             bool host = ctx != null && ctx.IsHost == true;
             if (host) LobbyCoordinator.Unlist();
@@ -333,10 +335,7 @@ namespace SideHustle.Multiplayer
             // Tell the player too, not just the log. Shown once they are back in the menu - right here there is
             // nothing to draw on, and the scene reload below would destroy it anyway.
             Menu.SessionNotice.Set(reason);
-            if (_desc != null && _ctx == null)
-            {
-                try { _desc.OnExitToHub?.Invoke(new LaunchContext { Descriptor = _desc }); } catch { /* ignore */ }
-            }
+            if (_desc != null) Internal.SessionEvents.Exit(_ctx ?? new LaunchContext { Descriptor = _desc });   // started or not, the gamemode cleans up once
             LobbyCoordinator.Unlist();
             bool wasInGame = WorldBoot.IsInGame;
             if (wasInGame) { WorldBoot.ExitToMenu(); PendingHubReopen = true; }

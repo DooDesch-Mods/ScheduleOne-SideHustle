@@ -21,12 +21,22 @@ namespace SideHustle
         /// <summary>True when this is a singleplayer launch.</summary>
         public bool IsSingleplayer => IsHost == null;
 
+        /// <summary>Who the local player is in this session; the same information as <see cref="IsHost"/> as an
+        /// enum. Since 2.5.0.</summary>
+        public SessionRole Role => IsHost == null ? SessionRole.Singleplayer : IsHost.Value ? SessionRole.Host : SessionRole.Client;
+
+        // Lifecycle bookkeeping for SessionEvents: SessionStarted and OnExitToHub each run at most once per context.
+        internal bool StartRaised;
+        internal bool ExitRaised;
+
         // --- Richer multiplayer context (all optional; 0/null for singleplayer) ---
 
         /// <summary>Players currently in the lobby (1 for singleplayer).</summary>
         public int PlayerCount { get; internal set; } = 1;
 
-        /// <summary>Steam persona of the lobby host (null for singleplayer).</summary>
+        /// <summary>The host's display name: their session alias when they set one on the Host form, else their Steam
+        /// persona. On a client it is read from the lobby (<c>sh_host_name</c>), which the host writes the same way.
+        /// Null for singleplayer.</summary>
         public string HostName { get; internal set; }
 
         /// <summary>True if the lobby was created with a password.</summary>
@@ -40,7 +50,8 @@ namespace SideHustle
 
         /// <summary>
         /// Call this from your gamemode when it is done (e.g. the player clicks "Back"). Side Hustle restores
-        /// the main menu and re-shows the hub. Safe to call once; further calls are ignored.
+        /// the main menu and re-shows the hub. Only the first call counts: once the session was ended - by this
+        /// call or by Side Hustle aborting it - later calls are ignored and logged.
         /// </summary>
         public void ReturnToHub() => HubBridge.RequestReturn(this);
     }
