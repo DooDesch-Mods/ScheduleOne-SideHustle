@@ -189,6 +189,38 @@ namespace SideHustle.Menu
                 catch { }
             }
 
+            // Sync downloads report explicit steps keyed by DiffEntry.Key (see SyncProgressEvent) instead of the
+            // profile engine's "a new member means the previous one finished" inference above.
+            internal void SyncStarted(string key)
+            {
+                if (Terminal) return;
+                ActiveKey = key; ActiveBytes = 0;
+                if (Plan.ContainsKey(key) && !Done.Contains(key)) SetRow(key, $">  {key}  -  starting...", Theme.AccentBorder);
+            }
+
+            internal void SyncBytes(string key, long done, long total)
+            {
+                if (Terminal || Done.Contains(key)) return;
+                ActiveKey = key;
+                ActiveBytes = total > 0 ? Math.Min(done, total) : done;
+                if (Plan.ContainsKey(key))
+                    SetRow(key, total > 0 ? $">  {key}  -  {Mb(done)} / {Mb(total)}" : $">  {key}  -  {Mb(done)}", Theme.AccentBorder);
+                UpdateBar();
+            }
+
+            internal void SyncReady(string key)
+            {
+                if (Terminal) return;
+                MarkDone(key);
+            }
+
+            internal void SyncFailed(string key, string reason)
+            {
+                if (Terminal) return;
+                SetRow(key, string.IsNullOrEmpty(reason) ? $"-  {key}  -  failed" : $"-  {key}  -  failed: {reason}", Theme.DangerText);
+                if (string.Equals(key, ActiveKey, StringComparison.OrdinalIgnoreCase)) { ActiveKey = null; ActiveBytes = 0; }
+            }
+
             private void MarkDone(string key)
             {
                 if (!Done.Add(key)) return;
