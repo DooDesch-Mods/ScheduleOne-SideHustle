@@ -116,7 +116,7 @@ namespace SideHustle.Multiplayer
             _lobbyEntered = false;
             _loadStarted = false;
             ResetPhase();
-            GamemodeHygiene.Apply(desc);   // active before the host's world streams in (the client also runs PlayerLoaded)
+            GamemodeHygiene.Apply(desc);   // active before the host's world streams in (the client also runs OnLocalPlayerLoaded)
             NetworkTuning.EnsureIceEnabled();   // allow all P2P ICE candidate types so this join can hold to a non-friend host
             LobbyInviteAccess.Enable();   // let this client invite Steam friends from the pause-menu lobby panel
             PlayerAlias.Enable(Config.Preferences.GetAlias(desc.Id));   // show the player's chosen (per-gamemode) display name this session

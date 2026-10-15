@@ -97,8 +97,9 @@ namespace SideHustle.Internal
             Method("Player.OnStartClient", "custom display name", () => Instance(typeof(Player), "OnStartClient"));
 
         // --- gamemode hygiene ---
-        internal static readonly GameTarget<MethodBase> PlayerPlayerLoaded =
-            Method("Player.PlayerLoaded", "skip intro", () => Instance(typeof(Player), "PlayerLoaded"));
+        // OnLocalPlayerLoaded holds the intro gate; PlayerLoaded is a property of the same name since 0.4.7f12.
+        internal static readonly GameTarget<MethodBase> PlayerOnLocalPlayerLoaded =
+            Method("Player.OnLocalPlayerLoaded", "skip intro", () => Instance(typeof(Player), "OnLocalPlayerLoaded"));
         internal static readonly GameTarget<MethodBase> QuestBegin =
             Method("Quest.Begin", "vanilla quest blocking", () => Instance(typeof(Quest), "Begin"));
         internal static readonly GameTarget<MethodBase> SaveManagerSave =

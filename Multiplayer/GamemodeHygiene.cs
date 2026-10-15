@@ -15,7 +15,7 @@ namespace SideHustle.Multiplayer
     /// Applies a gamemode's opt-in world-hygiene flags for the duration of a session. Each flag maps to one or more
     /// Harmony prefixes, installed LAZILY on first use and gated by a static "active" flag, so they only affect a
     /// session that opted in and are completely inert otherwise:
-    ///  - SkipIntro: prefix on Player.PlayerLoaded sets HasCompletedIntro=true BEFORE the intro gate runs, so the
+    ///  - SkipIntro: prefix on Player.OnLocalPlayerLoaded sets HasCompletedIntro=true BEFORE the intro gate runs, so the
     ///    new-game intro cutscene + character creator never start (Player.cs gate on HasCompletedIntro).
     ///  - BlockVanillaQuests: prefix on Quest.Begin returns false, so no vanilla quest activates (on a fresh world
     ///    quests auto-start AFTER load, so blocking Begin catches them all; host-authoritative). Allow-list exempts
@@ -82,7 +82,7 @@ namespace SideHustle.Multiplayer
 
                 // Each patch is independent: a target the game no longer has (logged by GameTargets) disables only
                 // the flag that depends on it.
-                PatchPrefix(Internal.GameTargets.PlayerPlayerLoaded, nameof(PlayerLoadedPrefix));
+                PatchPrefix(Internal.GameTargets.PlayerOnLocalPlayerLoaded, nameof(OnLocalPlayerLoadedPrefix));
                 PatchPrefix(Internal.GameTargets.QuestBegin, nameof(QuestBeginPrefix));
                 PatchPrefix(Internal.GameTargets.SaveManagerSave, nameof(SaveGatePrefix));
                 PatchPrefix(Internal.GameTargets.SaveManagerSavePath, nameof(SaveGatePrefix));
@@ -116,12 +116,12 @@ namespace SideHustle.Multiplayer
             if (_warned.Add(site)) Core.Log?.Warning($"[hygiene] {site} failed: {e.Message}");
         }
 
-        // Set the intro flag before PlayerLoaded's `if (!_hasCompletedIntro ...)` gate -> intro never starts.
+        // Set the intro flag before OnLocalPlayerLoaded's `if (!_hasCompletedIntro ...)` gate -> intro never starts.
         // The flag is a private auto-property since 0.4.6f11; the interop wrapper exposes it with a setter.
-        private static void PlayerLoadedPrefix(Player __instance)
+        private static void OnLocalPlayerLoadedPrefix(Player __instance)
         {
             try { if (SkipIntroActive && __instance != null) __instance._hasCompletedIntro = true; }
-            catch (Exception e) { WarnOnce("PlayerLoaded prefix", e); }
+            catch (Exception e) { WarnOnce("OnLocalPlayerLoaded prefix", e); }
         }
 
         // Return false = skip Quest.Begin, so no vanilla quest activates while a quest-blocking session is active -
