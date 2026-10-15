@@ -308,6 +308,7 @@ namespace SideHustle
             // The multiplayer coordinator's state machine must advance every frame (its host/join transitions
             // happen during scene loads, not only in the menu).
             Multiplayer.MultiplayerCoordinator.Tick();
+            Multiplayer.LobbyCoordinator.Tick();   // finishes a re-host that had to leave the old lobby first
 
             // Worker-thread completions from the Profiles module (downloads, builds) land on the main thread here.
             Profiles.MainThread.Tick();

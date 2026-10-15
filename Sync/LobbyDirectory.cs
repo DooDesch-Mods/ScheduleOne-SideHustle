@@ -51,12 +51,19 @@ namespace SideHustle.Sync
         /// the backend fallback won't be available for this lobby (Steam still works). Returns false on any error.</summary>
         internal static async Task<bool> PublishAsync(DirPublish p)
         {
-            if (!Enabled) return false;
+            if (!Enabled) { DisabledNote(); return false; }
             try
             {
                 using var body = new StringContent(JsonSerializer.Serialize(p, Json), Encoding.UTF8, "application/json");
                 using var r = await Http.PostAsync(BaseUrl + "/api/lobbies", body).ConfigureAwait(false);
-                return r.IsSuccessStatusCode;
+                if (!r.IsSuccessStatusCode)
+                {
+                    Log($"publish rejected with HTTP {(int)r.StatusCode} for lobby {p?.LobbyId}");
+                    return false;
+                }
+                Core.Log?.Msg($"[dir] lobby {p?.LobbyId} published to the directory.");
+                _heartbeatFailing = false;
+                return true;
             }
             catch (Exception e) { Log("publish failed: " + e.Message); return false; }
         }
@@ -68,29 +75,44 @@ namespace SideHustle.Sync
         /// those lobbies invisible on the website until someone re-hosted; the caller re-publishes instead.</summary>
         internal static async Task<bool> HeartbeatAsync(string lobbyId, string secret, int members)
         {
-            if (!Enabled || string.IsNullOrEmpty(lobbyId)) return true;
+            if (!Enabled) { DisabledNote(); return true; }
+            if (string.IsNullOrEmpty(lobbyId)) { Log("heartbeat skipped: no lobby id"); return true; }
             try
             {
                 using var body = new StringContent(JsonSerializer.Serialize(new { secret, members }, Json), Encoding.UTF8, "application/json");
                 using var r = await Http.PostAsync($"{BaseUrl}/api/lobbies/{lobbyId}/heartbeat", body).ConfigureAwait(false);
-                return r.StatusCode != System.Net.HttpStatusCode.NotFound;
+                if (r.StatusCode == System.Net.HttpStatusCode.NotFound)
+                {
+                    Core.Log?.Msg($"[dir] the backend no longer lists lobby {lobbyId}; re-publishing.");
+                    return false;
+                }
+                if (!r.IsSuccessStatusCode) HeartbeatFailed($"HTTP {(int)r.StatusCode}");
+                else _heartbeatFailing = false;
+                return true;
             }
-            catch { return true; /* network hiccup - not proof the entry is gone */ }
+            catch (Exception e)
+            {
+                HeartbeatFailed(e.Message);   // a network hiccup is not proof the entry is gone
+                return true;
+            }
         }
 
         /// <summary>Stop advertising this lobby (host left / went private). Silent best-effort.</summary>
         internal static async Task RemoveAsync(string lobbyId, string secret)
         {
-            if (!Enabled || string.IsNullOrEmpty(lobbyId)) return;
+            if (!Enabled) { DisabledNote(); return; }
+            if (string.IsNullOrEmpty(lobbyId)) { Log("remove skipped: no lobby id"); return; }
             try
             {
                 using var req = new HttpRequestMessage(HttpMethod.Delete, $"{BaseUrl}/api/lobbies/{lobbyId}")
                 {
                     Content = new StringContent(JsonSerializer.Serialize(new { secret }, Json), Encoding.UTF8, "application/json"),
                 };
-                using var _ = await Http.SendAsync(req).ConfigureAwait(false);
+                using var r = await Http.SendAsync(req).ConfigureAwait(false);
+                if (r.IsSuccessStatusCode) Core.Log?.Msg($"[dir] lobby {lobbyId} withdrawn from the directory.");
+                else Log($"withdraw rejected with HTTP {(int)r.StatusCode} for lobby {lobbyId}");
             }
-            catch { /* best-effort */ }
+            catch (Exception e) { Log("withdraw failed: " + e.Message); }
         }
 
         // --- joiner side ---
@@ -99,7 +121,7 @@ namespace SideHustle.Sync
         /// with the Steam lobby-list, so the backend being down just means fewer discovery sources.</summary>
         internal static async Task<List<DirRow>> BrowseAsync(string kind = null, string gamemode = null, string search = null)
         {
-            if (!Enabled) return new List<DirRow>();
+            if (!Enabled) { DisabledNote(); return new List<DirRow>(); }
             try
             {
                 var q = new List<string>();
@@ -118,7 +140,8 @@ namespace SideHustle.Sync
         /// caller MUST verify the returned mhash against the Steam-lobby mhash before trusting it. Null on any error.</summary>
         internal static async Task<DirManifestResponse> FetchManifestAsync(string lobbyId)
         {
-            if (!Enabled || string.IsNullOrEmpty(lobbyId)) return null;
+            if (!Enabled) { DisabledNote(); return null; }
+            if (string.IsNullOrEmpty(lobbyId)) { Log("manifest fetch skipped: no lobby id"); return null; }
             try
             {
                 string s = await Http.GetStringAsync($"{BaseUrl}/api/lobbies/{lobbyId}/manifest").ConfigureAwait(false);
@@ -128,6 +151,23 @@ namespace SideHustle.Sync
         }
 
         private static void Log(string m) => Core.Log?.Warning("[dir] " + m);
+
+        private static bool _disabledNoted;
+        private static void DisabledNote()
+        {
+            if (_disabledNoted) return;
+            _disabledNoted = true;
+            Core.Log?.Msg("[dir] the backend directory is switched off; lobbies are not listed on the web.");
+        }
+
+        // A dead backend would otherwise log every 30s heartbeat; one line per outage is enough.
+        private static bool _heartbeatFailing;
+        private static void HeartbeatFailed(string why)
+        {
+            if (_heartbeatFailing) return;
+            _heartbeatFailing = true;
+            Log("heartbeat failed (" + why + "); will keep trying quietly.");
+        }
     }
 
     // --- payloads (System.Text.Json, camelCase to match the backend) ---

@@ -64,27 +64,24 @@ namespace SideHustle.Sync
         private static ulong _dirLobbyId;
         private static Func<string, DirPublish> _dirBuild;   // how to rebuild this entry if the backend loses it
 
+        // Probes below run per frame or per refresh; a repeating failure is logged once per site.
+        private static readonly HashSet<string> _warned = new HashSet<string>();
+        private static void WarnOnce(string site, Exception e)
+        {
+            if (_warned.Add(site)) Core.Log?.Warning($"[sync] {site} failed: {e.Message}");
+        }
+
         private static string AppBuildId()
         {
-            try { return typeof(Core).Assembly.ManifestModule.ModuleVersionId.ToString("N"); } catch { return ""; }
+            try { return typeof(Core).Assembly.ManifestModule.ModuleVersionId.ToString("N"); }
+            catch (Exception e) { WarnOnce("app build id", e); return ""; }
         }
 
         private static Lobby LobbyOrNull()
         {
-            try { return PersistentSingleton<Lobby>.Instance; } catch { return null; }
+            try { return PersistentSingleton<Lobby>.Instance; }
+            catch (Exception e) { WarnOnce("Lobby singleton lookup", e); return null; }
         }
-
-        /// <summary>
-        /// Steam carries a lobby's WHOLE key/value set in one 8 KB metadata blob, so every key spends from the same
-        /// budget - vanilla's own five writes included. Past it SetLobbyData simply answers false, and what gets
-        /// refused is whatever happened to be written last.
-        /// </summary>
-        private const int LobbyDataBudget = 8192;
-
-        /// <summary>Left untouched for vanilla's keys (owner, version, host_loading, ready, load_tutorial), Steam's
-        /// per-key overhead, and the renames, seat changes and passwords the host sets later from the phone app. A
-        /// lobby that spends its last byte on the mod list is a lobby that cannot be renamed.</summary>
-        private const int BudgetReserve = 1500;
 
         /// <summary>
         /// Write the vanilla-lobby metadata onto the CURRENT lobby (we must be in/owning it). True when the mod-set
@@ -95,25 +92,26 @@ namespace SideHustle.Sync
             string orgName, string modSummary)
         {
             var l = LobbyOrNull();
-            if (l == null || !l.IsInLobby) return false;
+            if (l == null || !l.IsInLobby)
+            {
+                Core.Log?.Warning("[sync] lobby not tagged: not in a lobby.");
+                return false;
+            }
             try
             {
                 CSteamID sid = new CSteamID(LobbyCoordinator.CurrentLobbyId);
-                if (sid.m_SteamID == 0UL) return false;   // IsInLobby can be true a beat before the id resolves
+                if (sid.m_SteamID == 0UL)
+                {
+                    Core.Log?.Warning("[sync] lobby not tagged: the lobby id is not resolved yet.");   // IsInLobby can be true a beat before the id resolves
+                    return false;
+                }
                 bool priv = opts.Visibility == LobbyVisibility.Private;
                 SteamMatchmaking.SetLobbyType(sid, priv ? ELobbyType.k_ELobbyTypeFriendsOnly : ELobbyType.k_ELobbyTypePublic);
                 SteamMatchmaking.SetLobbyJoinable(sid, true);
                 SteamMatchmaking.SetLobbyMemberLimit(sid, Math.Max(2, opts.MaxPlayers));
 
-                int spent = 0;
-                bool Put(string key, string value)
-                {
-                    value = value ?? "";
-                    if (SteamMatchmaking.SetLobbyData(sid, key, value)) { spent += key.Length + value.Length; return true; }
-                    Core.Log?.Warning($"[sync] Steam refused lobby key '{key}' ({value.Length} chars) "
-                                      + $"after {spent} chars of lobby data.");
-                    return false;
-                }
+                var w = new LobbyDataWriter(sid, "sync");
+                bool Put(string key, string value, bool essential = false) => w.Put(key, value, essential);
 
                 // Free whatever payload is already on this lobby before measuring anything. Those bytes still count,
                 // so a re-tag that skipped this would size the new payload against a budget the old one is holding.
@@ -127,7 +125,7 @@ namespace SideHustle.Sync
                 // and when Steam was down at Lobby.Start the game runs MockLobbyService, which registers no callbacks
                 // at all and never writes it. Writing the same value here is idempotent and keeps the lobby joinable
                 // either way; without it a joiner reads an empty version and gets "Lobby version mismatch".
-                Put("version", UnityEngine.Application.version);
+                Put("version", UnityEngine.Application.version, essential: true);
 
                 Put(KeyVanilla, "1");
                 Put(LobbyCoordinator.KeyMax, opts.MaxPlayers.ToString());
@@ -145,7 +143,7 @@ namespace SideHustle.Sync
                 // it must never be the write that runs out of room - which is exactly what it was: a host syncing
                 // 54 KB of preferences filled the lobby with chunks, and the hash after them was refused. The
                 // session then advertised a mod requirement no joiner could read, let alone satisfy.
-                bool hashOk = Put(KeyMHash, mhash);
+                bool hashOk = Put(KeyMHash, mhash, essential: true);
 
                 Put(KeyOrg, orgName);
                 Put(KeyModSummary, modSummary);
@@ -155,7 +153,7 @@ namespace SideHustle.Sync
                 var pChunks = SyncCodec.Pack(prefsText);
                 int payloadCost = ChunkCost(ManifestChunkPrefix, KeyManifestChunks, mChunks)
                                   + ChunkCost(PrefsChunkPrefix, KeyPrefsChunks, pChunks);
-                bool payloadFits = spent + payloadCost <= LobbyDataBudget - BudgetReserve;
+                bool payloadFits = w.Fits(payloadCost);
                 bool payloadOk = false;
                 if (payloadFits)
                 {
@@ -169,15 +167,15 @@ namespace SideHustle.Sync
                 // Read the hash back instead of trusting the write. This is the one key a joiner cannot do without,
                 // and a payload that was just cleared may have freed the room it needs.
                 if (!hashOk || SteamMatchmaking.GetLobbyData(sid, KeyMHash) != mhash)
-                    hashOk = Put(KeyMHash, mhash) && SteamMatchmaking.GetLobbyData(sid, KeyMHash) == mhash;
+                    hashOk = Put(KeyMHash, mhash, essential: true) && SteamMatchmaking.GetLobbyData(sid, KeyMHash) == mhash;
 
                 int maxChunk = 0; foreach (var c in mChunks) if (c.Length > maxChunk) maxChunk = c.Length;
                 Core.Log?.Msg($"[sync] vanilla lobby published (version={UnityEngine.Application.version}, enforce={enforce}, "
                               + $"manifest {manifestText.Length} chars -> {mChunks.Length} chunk(s), biggest {maxChunk}b, "
-                              + $"prefs {pChunks.Length} chunk(s), {spent} of {LobbyDataBudget - BudgetReserve} chars used).");
+                              + $"prefs {pChunks.Length} chunk(s), {w.Spent} of {LobbyDataWriter.Limit} chars used).");
                 if (!payloadOk)
                     Core.Log?.Msg($"[sync] the mod list needs {payloadCost} chars and Steam's whole lobby carries "
-                                  + $"{LobbyDataBudget - BudgetReserve} - joiners read the backend copy and check it "
+                                  + $"{LobbyDataWriter.Limit} - joiners read the backend copy and check it "
                                   + "against the published hash instead.");
                 if (!hashOk)
                     Core.Log?.Warning("[sync] Steam refused the mod-set hash - joiners cannot sync with this lobby. "
@@ -225,9 +223,13 @@ namespace SideHustle.Sync
         /// with <see cref="TryReadPayloads"/> unchanged. Prefs are empty here - a gamemode carries its settings in its
         /// own config blob. Returns the manifest hash, or "" when nothing was published.
         /// </summary>
-        internal static string PublishJoinManifest(CSteamID sid, string manifestText)
+        internal static string PublishJoinManifest(CSteamID sid, string manifestText, LobbyDataWriter writer = null)
         {
-            if (string.IsNullOrEmpty(manifestText)) return "";
+            if (string.IsNullOrEmpty(manifestText))
+            {
+                Core.Log?.Msg("[sync] no join manifest to publish.");
+                return "";
+            }
             try
             {
                 string mhash = SyncCodec.Hash(manifestText, "");
@@ -235,8 +237,16 @@ namespace SideHustle.Sync
                 var pChunks = SyncCodec.Pack("");
                 // Free the previous payload first. Its bytes count against the lobby's 8 KB whether or not any count
                 // key still points at them, so re-publishing over it is how a lobby runs out of room for its own
-                // mod set (see LobbyDataBudget).
+                // mod set (see LobbyDataWriter).
                 ClearPayload(sid);
+                int payloadCost = ChunkCost(ManifestChunkPrefix, KeyManifestChunks, mChunks)
+                                  + ChunkCost(PrefsChunkPrefix, KeyPrefsChunks, pChunks) + KeyMHash.Length + mhash.Length;
+                if (writer != null && !writer.Fits(payloadCost))
+                {
+                    Core.Log?.Warning($"[sync] the join mod set needs {payloadCost} chars but only "
+                                      + $"{LobbyDataWriter.Limit - writer.Spent} are left in the lobby - not advertising it.");
+                    return "";
+                }
                 // Write the payload FIRST and only claim the hash when every chunk landed: Steam can reject a lobby
                 // data write (size limits, transient failure), and a half-written manifest that still advertises a
                 // hash is worse than none - a joiner would keep retrying a payload that can never validate.
@@ -244,16 +254,17 @@ namespace SideHustle.Sync
                     || !WriteChunks(sid, PrefsChunkPrefix, KeyPrefsChunks, pChunks))
                 {
                     SteamMatchmaking.SetLobbyData(sid, KeyMHash, "");
-                    SteamMatchmaking.SetLobbyData(sid, KeyManifestChunks, "");
+                    ClearPayload(sid);   // free the chunks that did land; they still count against the lobby's 8 KB
                     Core.Log?.Warning("[sync] the lobby refused part of the mod set - not advertising it.");
                     return "";
                 }
                 if (!SteamMatchmaking.SetLobbyData(sid, KeyMHash, mhash))
                 {
                     Core.Log?.Warning("[sync] the lobby refused the mod-set hash - not advertising it.");
-                    SteamMatchmaking.SetLobbyData(sid, KeyManifestChunks, "");
+                    ClearPayload(sid);
                     return "";
                 }
+                Core.Log?.Msg($"[sync] join mod set written to the lobby ({mChunks.Length} chunk(s), hash {mhash}).");
                 return mhash;
             }
             catch (Exception e) { Core.Log?.Warning("[sync] publishing the gamemode mod set failed: " + e.Message); return ""; }
@@ -266,13 +277,19 @@ namespace SideHustle.Sync
         /// </summary>
         internal static void PublishDirectory(ulong lobbyId, Func<string, DirPublish> build)
         {
-            if (build == null) return;
+            if (build == null) { Core.Log?.Warning("[dir] publish skipped: no entry builder."); return; }
             if (string.IsNullOrEmpty(_dirSecret)) _dirSecret = Guid.NewGuid().ToString("N");
             _dirLobbyId = lobbyId;
             _dirBuild = build;
-            _dirGen++;   // invalidates any heartbeat still in flight for the previous listing   // kept so a heartbeat that finds the entry gone can rebuild it
+            _dirGen++;   // invalidates any heartbeat still in flight for the previous listing
+            // The entry is built HERE, on the calling (main) thread: the builders read Steam and IL2CPP state, which
+            // must not be touched from a pool thread. Only the HTTP call runs off-thread.
             var pub = build(_dirSecret);
-            Task.Run(() => LobbyDirectory.PublishAsync(pub));
+            Task.Run(async () =>
+            {
+                if (!await LobbyDirectory.PublishAsync(pub).ConfigureAwait(false))
+                    Core.Log?.Warning($"[dir] lobby {lobbyId} is not listed on the web directory (see the line above); Steam discovery still works.");
+            });
         }
 
         /// <summary>Drop this host's directory entry (session over). Safe to call when nothing was published.</summary>
@@ -281,6 +298,7 @@ namespace SideHustle.Sync
             if (_dirLobbyId == 0) return;
             string id = _dirLobbyId.ToString(); string sec = _dirSecret;
             Task.Run(() => LobbyDirectory.RemoveAsync(id, sec));
+            Core.Log?.Msg($"[dir] withdrawing lobby {id} from the directory.");
             _dirLobbyId = 0; _dirSecret = null; _dirBuild = null; _dirGen++;
         }
 
@@ -292,7 +310,12 @@ namespace SideHustle.Sync
             if (_dirLobbyId == 0) return;
             string id = _dirLobbyId.ToString(); string sec = _dirSecret;
             _dirLobbyId = 0; _dirSecret = null; _dirBuild = null; _dirGen++;
-            try { LobbyDirectory.RemoveAsync(id, sec).Wait(TimeSpan.FromSeconds(2)); } catch { /* quitting anyway */ }
+            try
+            {
+                if (!LobbyDirectory.RemoveAsync(id, sec).Wait(TimeSpan.FromSeconds(2)))
+                    Core.Log?.Warning($"[dir] the withdraw of lobby {id} did not finish before quitting; the backend expires it on its own.");
+            }
+            catch (Exception e) { Core.Log?.Warning("[dir] withdraw on quit failed: " + e.Message); }
         }
 
         /// <summary>Stop advertising (host went back to the menu). The lobby itself dies with the session.</summary>
@@ -301,15 +324,25 @@ namespace SideHustle.Sync
             // Drop the backend directory entry first, independent of whether the Steam lobby is still around.
             UnpublishDirectory();
             var l = LobbyOrNull();
-            if (l == null || !l.IsInLobby) return;
+            if (l == null || !l.IsInLobby)
+            {
+                Core.Log?.Msg("[sync] untag: not in a lobby, nothing to unpublish on Steam.");
+                return;
+            }
             try
             {
                 CSteamID sid = new CSteamID(LobbyCoordinator.CurrentLobbyId);
-                if (sid.m_SteamID == 0UL) return;
-                SteamMatchmaking.SetLobbyData(sid, KeyVanilla, "");
-                SteamMatchmaking.SetLobbyJoinable(sid, false);
+                if (sid.m_SteamID == 0UL)
+                {
+                    Core.Log?.Warning("[sync] untag: the lobby id is not resolved; the Steam lobby stays marked.");
+                    return;
+                }
+                bool cleared = SteamMatchmaking.SetLobbyData(sid, KeyVanilla, "");
+                bool closed = SteamMatchmaking.SetLobbyJoinable(sid, false);
+                if (cleared && closed) Core.Log?.Msg("[sync] lobby unpublished on Steam.");
+                else Core.Log?.Warning($"[sync] untag incomplete (marker cleared={cleared}, joinable off={closed}).");
             }
-            catch { /* ignore */ }
+            catch (Exception e) { Core.Log?.Warning("[sync] untag failed: " + e.Message); }
         }
 
         /// <summary>Refresh the backend directory entry for the live host session (keeps it from expiring + updates the
@@ -318,23 +351,35 @@ namespace SideHustle.Sync
         {
             if (_dirLobbyId == 0 || string.IsNullOrEmpty(_dirSecret)) return;
             int members = 1;
-            try { var l = LobbyOrNull(); if (l != null) members = Math.Max(1, l.PlayerCount); } catch { }
+            try { var l = LobbyOrNull(); if (l != null) members = Math.Max(1, l.PlayerCount); }
+            catch (Exception e) { WarnOnce("heartbeat member count", e); }
             string id = _dirLobbyId.ToString(); string sec = _dirSecret;
             var build = _dirBuild;
             ulong lobby = _dirLobbyId;
             int gen = _dirGen;
+            // Built on this (main) thread and only used if the backend lost the entry; the builder reads Steam and
+            // IL2CPP state, which a pool thread must not touch.
+            DirPublish rebuilt = null;
+            try { rebuilt = build?.Invoke(sec); }
+            catch (Exception e) { WarnOnce("directory entry rebuild", e); }
             Task.Run(async () =>
             {
                 bool known = await LobbyDirectory.HeartbeatAsync(id, sec, members).ConfigureAwait(false);
                 // The backend keeps its directory in memory, so a redeploy drops every entry while the hosts are
                 // still playing. A 404 means "you are no longer listed" - re-publish instead of heartbeating into
                 // the void until the host re-hosts.
-                if (known || build == null) return;
+                if (known) return;
+                if (rebuilt == null)
+                {
+                    Core.Log?.Warning($"[dir] lobby {lobby} fell off the backend directory and its entry could not be rebuilt.");
+                    return;
+                }
                 // ...but only if this listing is still OURS. Teardown can run while the request is in flight, and
                 // re-publishing then resurrects a lobby that has ended - with the local state already cleared, nothing
                 // is left that could withdraw it again, so it stays advertised until the backend expires it.
-                if (gen != _dirGen || _dirLobbyId != lobby || _dirSecret != sec) return;
-                try { await LobbyDirectory.PublishAsync(build(sec)).ConfigureAwait(false); } catch { }
+                if (gen != _dirGen || _dirLobbyId != lobby || _dirSecret != sec) { Core.Log?.Msg($"[dir] lobby {lobby} ended during the heartbeat; not re-publishing."); return; }
+                if (!await LobbyDirectory.PublishAsync(rebuilt).ConfigureAwait(false))
+                    Core.Log?.Warning($"[dir] re-publishing lobby {lobby} failed (see the line above).");
             });
         }
 
@@ -352,7 +397,20 @@ namespace SideHustle.Sync
         {
             if (_dirLobbyId == 0 || string.IsNullOrEmpty(_dirSecret)) { _hbTimer = 0f; return; }
             _hbTimer += dt;
-            if (_hbTimer >= 30f) { _hbTimer = 0f; HeartbeatDirectory(); }
+            if (_hbTimer < 30f) return;
+            _hbTimer = 0f;
+            // A listing outlives nothing: once the Steam lobby is gone there is nobody to join, so the entry goes too.
+            var l = LobbyOrNull();
+            bool inLobby = false;
+            try { inLobby = l != null && l.IsInLobby; }
+            catch (Exception e) { WarnOnce("heartbeat lobby check", e); }
+            if (!inLobby)
+            {
+                Core.Log?.Warning($"[dir] lobby {_dirLobbyId} is gone on Steam; withdrawing its directory entry.");
+                UnpublishDirectory();
+                return;
+            }
+            HeartbeatDirectory();
         }
 
         /// <summary>Fallback manifest read: fetch from the backend directory and accept it ONLY if it hashes to the
@@ -363,7 +421,11 @@ namespace SideHustle.Sync
             try
             {
                 var resp = await LobbyDirectory.FetchManifestAsync(lobbyId.ToString()).ConfigureAwait(false);
-                if (resp == null || string.IsNullOrEmpty(resp.Manifest)) return null;
+                if (resp == null || string.IsNullOrEmpty(resp.Manifest))
+                {
+                    Core.Log?.Msg($"[dir] the backend has no manifest for lobby {lobbyId}.");
+                    return null;
+                }
                 string steamMhash = SteamMatchmaking.GetLobbyData(new CSteamID(lobbyId), KeyMHash);
                 string prefs = resp.Prefs ?? "";
                 string computed = SyncCodec.Hash(resp.Manifest, prefs);
@@ -373,7 +435,11 @@ namespace SideHustle.Sync
                     return null;
                 }
                 var manifest = SyncManifest.Parse(resp.Manifest);
-                if (manifest == null) return null;
+                if (manifest == null)
+                {
+                    Core.Log?.Warning($"[dir] the backend manifest for lobby {lobbyId} did not parse.");
+                    return null;
+                }
                 return new DirManifest { Manifest = manifest, Prefs = prefs, Mhash = steamMhash };
             }
             catch (Exception e) { Core.Log?.Warning("[dir] directory read failed: " + e.Message); return null; }
@@ -406,7 +472,7 @@ namespace SideHustle.Sync
                 int.TryParse(SteamMatchmaking.GetLobbyData(sid, KeyManifestChunks), out int count);
                 return count <= 0;
             }
-            catch { return false; }
+            catch (Exception e) { WarnOnce("backend-only payload check", e); return false; }
         }
 
         /// <summary>The mod-set hash the CURRENT lobby actually advertises, or "" when it carries none. What a joiner
@@ -416,10 +482,14 @@ namespace SideHustle.Sync
             try
             {
                 CSteamID sid = new CSteamID(LobbyCoordinator.CurrentLobbyId);
-                if (sid.m_SteamID == 0UL) return "";
+                if (sid.m_SteamID == 0UL)
+                {
+                    Core.Log?.Warning("[sync] published mod-set hash unreadable: the lobby id is not resolved.");
+                    return "";
+                }
                 return SteamMatchmaking.GetLobbyData(sid, KeyMHash) ?? "";
             }
-            catch { return ""; }
+            catch (Exception e) { WarnOnce("published mod-set hash read", e); return ""; }
         }
 
         /// <summary>Move the mod-set requirement on the card without touching the gate. The pair belongs together
@@ -430,7 +500,10 @@ namespace SideHustle.Sync
             try
             {
                 CSteamID sid = new CSteamID(LobbyCoordinator.CurrentLobbyId);
-                if (sid.m_SteamID != 0UL) SteamMatchmaking.SetLobbyData(sid, KeyEnforce, enforce ? "1" : "0");
+                if (sid.m_SteamID == 0UL) { Core.Log?.Warning("[sync] mod-set flag not updated: the lobby id is not resolved."); return; }
+                if (SteamMatchmaking.SetLobbyData(sid, KeyEnforce, enforce ? "1" : "0"))
+                    Core.Log?.Msg($"[sync] lobby now advertises the mod-set requirement as {(enforce ? "on" : "off")}.");
+                else Core.Log?.Warning("[sync] Steam refused the mod-set flag - the lobby card may show the old requirement.");
             }
             catch (Exception e) { Core.Log?.Warning("[sync] could not update the mod-set flag: " + e.Message); }
         }
@@ -504,9 +577,10 @@ namespace SideHustle.Sync
                 row.Runtime = SteamMatchmaking.GetLobbyData(sid, LobbyCoordinator.KeyRuntime);
                 row.AcceptsMessages = SteamMatchmaking.GetLobbyData(sid, KeyMessages) == "1";
                 int.TryParse(SteamMatchmaking.GetLobbyData(sid, LobbyCoordinator.KeyMax), out row.MaxPlayers);
-                try { row.Members = SteamMatchmaking.GetNumLobbyMembers(sid); } catch { row.Members = 1; }
+                try { row.Members = SteamMatchmaking.GetNumLobbyMembers(sid); }
+                catch (Exception e) { WarnOnce("lobby member count", e); row.Members = 1; }
             }
-            catch { /* mostly-empty row */ }
+            catch (Exception e) { WarnOnce("lobby summary read", e); }   // the row stays mostly empty
             return row;
         }
 
@@ -529,7 +603,7 @@ namespace SideHustle.Sync
                 manifest = SyncManifest.Parse(manifestText);
                 return manifest != null;
             }
-            catch { return false; }
+            catch (Exception e) { Core.Log?.Warning($"[sync] reading the payload of lobby {lobbyId} failed: {e.Message}"); return false; }
         }
 
         /// <summary>Diagnostic: describe exactly why a lobby's manifest read is failing (missing/short chunk vs hash

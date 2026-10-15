@@ -50,26 +50,61 @@ namespace SideHustle.Multiplayer
             "mono";
 #endif
 
+        // These probes run per frame; a repeating failure is logged once per site.
+        private static readonly System.Collections.Generic.HashSet<string> _warned = new System.Collections.Generic.HashSet<string>();
+        private static void WarnOnce(string site, Exception e)
+        {
+            if (_warned.Add(site)) Core.Log?.Warning($"[mp] {site} failed: {e.Message}");
+        }
+
         private static Lobby LobbyOrNull()
         {
-            try { return PersistentSingleton<Lobby>.Instance; } catch { return null; }
+            try { return PersistentSingleton<Lobby>.Instance; }
+            catch (Exception e) { WarnOnce("Lobby singleton lookup", e); return null; }
         }
 
         internal static bool IsInLobby
         {
-            get { var l = LobbyOrNull(); try { return l != null && l.IsInLobby; } catch { return false; } }
+            get
+            {
+                var l = LobbyOrNull();
+                try { return l != null && l.IsInLobby; }
+                catch (Exception e) { WarnOnce("IsInLobby", e); return false; }
+            }
         }
 
         internal static bool IsHost
         {
-            get { var l = LobbyOrNull(); try { return l != null && l.IsInLobby && l.IsHost; } catch { return false; } }
+            get
+            {
+                var l = LobbyOrNull();
+                try { return l != null && l.IsInLobby && l.IsHost; }
+                catch (Exception e) { WarnOnce("IsHost", e); return false; }
+            }
+        }
+
+        /// <summary>
+        /// Whether <paramref name="lobbyId"/> is a GAMEMODE lobby (hosted through the hub's gamemode path) rather than a
+        /// vanilla co-op lobby. A gamemode lobby never carries a mod-set hash and its clients never write the
+        /// <c>sh_sync</c> handshake, so the synced-clients-only requirement cannot apply to it.
+        /// </summary>
+        internal static bool IsGamemodeLobby(ulong lobbyId)
+        {
+            if (MultiplayerCoordinator.IsBusy) return true;
+            if (lobbyId == 0) return false;
+            try { return !string.IsNullOrEmpty(SteamMatchmaking.GetLobbyData(new CSteamID(lobbyId), KeyGamemode)); }
+            catch (Exception e) { WarnOnce("gamemode lobby check", e); return false; }
         }
 
         /// <summary>The Steam id of the lobby we are in, or 0. NOT Lobby.LobbyID - that property exists but the game
         /// never assigns it, so it always reads 0; the real id lives in SteamLobbyService, which FullHouse resolves.</summary>
         internal static ulong CurrentLobbyId
         {
-            get { try { return DooDesch.FullHouse.Lobbies.CurrentLobbyId; } catch { return 0UL; } }
+            get
+            {
+                try { return DooDesch.FullHouse.Lobbies.CurrentLobbyId; }
+                catch (Exception e) { WarnOnce("CurrentLobbyId", e); return 0UL; }
+            }
         }
 
         /// <summary>The current lobby as a Steam id. <see cref="CSteamID.Nil"/> when we are not in a lobby.</summary>
@@ -77,14 +112,23 @@ namespace SideHustle.Multiplayer
 
         internal static int MemberCount
         {
-            get { var l = LobbyOrNull(); try { return l != null ? l.PlayerCount : 1; } catch { return 1; } }
+            get
+            {
+                var l = LobbyOrNull();
+                try { return l != null ? l.PlayerCount : 1; }
+                catch (Exception e) { WarnOnce("PlayerCount", e); return 1; }
+            }
         }
 
         /// <summary>The true Steam lobby member count (ground truth, independent of the game's fixed Players[] array;
         /// used to verify BiggerLobbies actually seats more than the vanilla 4).</summary>
         internal static int SteamMemberCount
         {
-            get { try { return SteamMatchmaking.GetNumLobbyMembers(new CSteamID(CurrentLobbyId)); } catch { return -1; } }
+            get
+            {
+                try { return SteamMatchmaking.GetNumLobbyMembers(new CSteamID(CurrentLobbyId)); }
+                catch (Exception e) { WarnOnce("GetNumLobbyMembers", e); return -1; }
+            }
         }
 
         /// <summary>Ask Steam to create a lobby (Public = browser-listed, Private = friends-only). The game's global
@@ -96,58 +140,101 @@ namespace SideHustle.Multiplayer
             if (l == null) { Core.Log?.Warning("[mp] Lobby singleton unavailable; cannot host."); return false; }
             try
             {
-                if (l.IsInLobby) l.LeaveLobby();
                 var type = visibility == LobbyVisibility.Private ? ELobbyType.k_ELobbyTypeFriendsOnly : ELobbyType.k_ELobbyTypePublic;
-                SteamMatchmaking.CreateLobby(type, Math.Max(2, maxPlayers));
+                int seats = Math.Max(2, maxPlayers);
+                if (l.IsInLobby)
+                {
+                    // Leave first and create on a later frame, so Steam has handled the departure before the new lobby
+                    // is requested; both in one frame can hand the old lobby's callback to the new request.
+                    l.LeaveLobby();
+                    _pendingCreate = (type, seats);
+                    _pendingCreateFrame = UnityEngine.Time.frameCount;
+                    Core.Log?.Msg("[mp] left the previous lobby; the new one is created next frame.");
+                    return true;
+                }
+                SteamMatchmaking.CreateLobby(type, seats);
+                Core.Log?.Msg($"[mp] lobby requested ({type}, {seats} seats).");
                 return true;
             }
             catch (Exception e) { Core.Log?.Warning("[mp] CreateLobby failed: " + e.Message); return false; }
         }
 
+        private static (ELobbyType type, int seats)? _pendingCreate;
+        private static int _pendingCreateFrame;
+
+        /// <summary>Pumped every frame: finishes a <see cref="CreateLobby"/> that had to leave a lobby first.</summary>
+        internal static void Tick()
+        {
+            if (_pendingCreate == null || UnityEngine.Time.frameCount <= _pendingCreateFrame) return;
+            var (type, seats) = _pendingCreate.Value;
+            _pendingCreate = null;
+            try
+            {
+                SteamMatchmaking.CreateLobby(type, seats);
+                Core.Log?.Msg($"[mp] lobby requested ({type}, {seats} seats).");
+            }
+            catch (Exception e) { Core.Log?.Error("[mp] deferred CreateLobby failed: " + e.Message); }
+        }
+
         /// <summary>Re-affirm public/joinable + write the namespaced metadata so the lobby shows in the browser
-        /// and clients can read the host's options. Call once the singleton has flipped (we are in the lobby).</summary>
-        internal static void TagLobby(GamemodeDescriptor desc, HostOptions opts)
+        /// and clients can read the host's options. Call once the singleton has flipped (we are in the lobby).
+        /// Returns false when the lobby could not be made joinable and tagged as this gamemode's - booting a world
+        /// on such a lobby would produce a session nobody can find.</summary>
+        internal static bool TagLobby(GamemodeDescriptor desc, HostOptions opts)
         {
             var l = LobbyOrNull();
-            if (l == null || !l.IsInLobby) return;
+            if (l == null || !l.IsInLobby)
+            {
+                Core.Log?.Warning("[mp] lobby not tagged: not in a lobby.");
+                return false;
+            }
             try
             {
                 CSteamID sid = CurrentLobbySteamId;
-                if (sid.m_SteamID == 0UL) { Core.Log?.Warning("[mp] lobby id not resolved yet; skipping the tag pass."); return; }
+                if (sid.m_SteamID == 0UL) { Core.Log?.Warning("[mp] lobby id not resolved yet; skipping the tag pass."); return false; }
                 bool priv = opts.Visibility == LobbyVisibility.Private;
-                SteamMatchmaking.SetLobbyType(sid, priv ? ELobbyType.k_ELobbyTypeFriendsOnly : ELobbyType.k_ELobbyTypePublic);
-                SteamMatchmaking.SetLobbyJoinable(sid, true);
-                SteamMatchmaking.SetLobbyMemberLimit(sid, Math.Max(2, opts.MaxPlayers));
-                SteamMatchmaking.SetLobbyData(sid, KeyGamemode, desc.Id ?? "");
-                SteamMatchmaking.SetLobbyData(sid, KeyGamemodeName, desc.DisplayName ?? desc.Id ?? "");
-                SteamMatchmaking.SetLobbyData(sid, KeyMax, opts.MaxPlayers.ToString());
-                SteamMatchmaking.SetLobbyData(sid, KeyVisibility, priv ? "priv" : "pub");
-                SteamMatchmaking.SetLobbyData(sid, KeyPassword, opts.HasPassword ? "1" : "0");
-                SteamMatchmaking.SetLobbyData(sid, KeyPwHash, opts.HasPassword ? HashPassword(opts.Password) : "");
-                SteamMatchmaking.SetLobbyData(sid, KeyHostName, LocalPersonaName());
-                SteamMatchmaking.SetLobbyData(sid, KeyLobbyName, string.IsNullOrEmpty(opts.LobbyName) ? LocalPersonaName() : opts.LobbyName);
-                if (!string.IsNullOrEmpty(opts.ModeLabel)) SteamMatchmaking.SetLobbyData(sid, KeyMode, opts.ModeLabel);
-                if (!string.IsNullOrEmpty(opts.ConfigBlob))
-                    SteamMatchmaking.SetLobbyData(sid, KeyConfig, opts.ConfigBlob);
-                SteamMatchmaking.SetLobbyData(sid, KeyBuild, BuildIdOf(desc));
-                SteamMatchmaking.SetLobbyData(sid, KeyRuntime, ThisRuntime);
+                bool typed = SteamMatchmaking.SetLobbyType(sid, priv ? ELobbyType.k_ELobbyTypeFriendsOnly : ELobbyType.k_ELobbyTypePublic);
+                bool joinable = SteamMatchmaking.SetLobbyJoinable(sid, true);
+                bool limited = SteamMatchmaking.SetLobbyMemberLimit(sid, Math.Max(2, opts.MaxPlayers));
+                if (!typed || !joinable || !limited)
+                    Core.Log?.Warning($"[mp] Steam refused part of the lobby setup (type={typed}, joinable={joinable}, seats={limited}).");
+
+                var w = new LobbyDataWriter(sid, "mp");
+                bool tagged = w.Put(KeyGamemode, desc.Id ?? "", essential: true);
+                w.Put(KeyGamemodeName, desc.DisplayName ?? desc.Id ?? "");
+                w.Put(KeyMax, opts.MaxPlayers.ToString());
+                w.Put(KeyVisibility, priv ? "priv" : "pub");
+                w.Put(KeyPassword, opts.HasPassword ? "1" : "0");
+                w.Put(KeyPwHash, opts.HasPassword ? HashPassword(opts.Password) : "");
+                w.Put(KeyHostName, LocalPersonaName());
+                w.Put(KeyLobbyName, string.IsNullOrEmpty(opts.LobbyName) ? LocalPersonaName() : opts.LobbyName);
+                if (!string.IsNullOrEmpty(opts.ModeLabel)) w.Put(KeyMode, opts.ModeLabel);
+                w.Put(KeyBuild, BuildIdOf(desc));
+                w.Put(KeyRuntime, ThisRuntime);
 
                 // Whether this host can be asked a question before somebody commits to joining. The World guard is
                 // load-bearing: a MenuSpace gamemode never loads a save, so its host has no phone to answer on and
                 // a Chat button there would open onto silence.
-                SteamMatchmaking.SetLobbyData(sid, Sync.VanillaLobby.KeyMessages,
+                w.Put(Sync.VanillaLobby.KeyMessages,
                     desc.Surface == GamemodeSurface.World && Config.Preferences.AcceptStrangerMessages ? "1" : "0");
                 // Advertise this gamemode's PUBLIC lobbies to players who do not have it installed (a discovery marker
                 // + a download link the browser can open). Private lobbies are never advertised - you cannot join them
                 // anyway - and a gamemode can opt out with Advertise = false (e.g. a WIP mod not ready to be found).
                 if (desc.Advertise && !priv)
                 {
-                    SteamMatchmaking.SetLobbyData(sid, KeyAdvertise, "1");
-                    SteamMatchmaking.SetLobbyData(sid, KeyUrl, desc.DownloadUrl ?? "");
+                    w.Put(KeyAdvertise, "1");
+                    w.Put(KeyUrl, desc.DownloadUrl ?? "");
                 }
-                PublishJoinMods(sid, desc, opts);
+                // The host's own config blob is unbounded, so it is the one write that can exhaust the lobby's 8 KB;
+                // the writer refuses it (and says so) instead of letting Steam reject whatever comes after it.
+                if (!string.IsNullOrEmpty(opts.ConfigBlob))
+                    w.Put(KeyConfig, opts.ConfigBlob);
+                PublishJoinMods(sid, desc, opts, w);
+
+                Core.Log?.Msg($"[mp] lobby tagged for '{desc.Id}' ({w.Spent} of {LobbyDataWriter.Limit} chars of lobby data used).");
+                return joinable && tagged;
             }
-            catch (Exception e) { Core.Log?.Warning("[mp] TagLobby failed: " + e.Message); }
+            catch (Exception e) { Core.Log?.Error("[mp] TagLobby failed: " + e); return false; }
         }
 
         /// <summary>
@@ -156,23 +243,36 @@ namespace SideHustle.Multiplayer
         /// gamemode join at all: Side Hustle can fetch precisely the host's build instead of guessing, and a mod
         /// nobody can fetch automatically still shows up on the manual checklist.
         ///
-        /// Best-effort and silent on failure: without it the lobby simply behaves as before (installed players only).
+        /// Best-effort: without it the lobby simply behaves as before (installed players only), and each reason it
+        /// was skipped is logged.
         /// </summary>
-        private static void PublishJoinMods(CSteamID sid, GamemodeDescriptor desc, HostOptions opts)
+        private static void PublishJoinMods(CSteamID sid, GamemodeDescriptor desc, HostOptions opts, LobbyDataWriter w)
         {
             try
             {
                 var files = Mods.ModPolicyResolver.RequiredFilesForJoin(desc);
-                if (files.Count == 0) return;
+                if (files.Count == 0)
+                {
+                    Core.Log?.Msg($"[mp] '{desc.Id}' needs no extra files to join; no join mod set and no directory listing.");
+                    return;
+                }
                 // Name the gamemode's OWN dll so a joiner can tell "the gamemode itself arrived" from "some extra
                 // mod did" - restarting without the gamemode would land them in the menu with nothing gained.
-                SteamMatchmaking.SetLobbyData(sid, KeyGamemodeFile, Mods.ModPolicyResolver.OwnFileOf(desc) ?? "");
+                w.Put(KeyGamemodeFile, Mods.ModPolicyResolver.OwnFileOf(desc) ?? "");
                 var index = Profiles.ThunderstoreClient.GetCachedIndexOrNull(Profiles.ProfileEngine.GameRoot);
                 var plan = Sync.SyncPublisher.BuildPlan(index, excludeFiles: null, includeFiles: files);
-                if (plan.Manifest.Mods.Count == 0) return;
+                if (plan.Manifest.Mods.Count == 0)
+                {
+                    Core.Log?.Msg($"[mp] the join plan for '{desc.Id}' has no mods; no join mod set and no directory listing.");
+                    return;
+                }
                 string manifestText = plan.Manifest.ToCanonicalText();
-                string mhash = Sync.VanillaLobby.PublishJoinManifest(sid, manifestText);
-                if (string.IsNullOrEmpty(mhash)) return;
+                string mhash = Sync.VanillaLobby.PublishJoinManifest(sid, manifestText, w);
+                if (string.IsNullOrEmpty(mhash))
+                {
+                    Core.Log?.Warning($"[mp] the join mod set for '{desc.Id}' was not written to the lobby (see above); no directory listing either.");
+                    return;
+                }
                 Core.Log?.Msg($"[mp] join mod set published: {plan.Manifest.Mods.Count} file(s) " +
                               $"({plan.AutoCount} auto, {plan.GhCount} github, {plan.LinkCount} link, {plan.DroppedCount} unsourced).");
 
@@ -180,6 +280,7 @@ namespace SideHustle.Multiplayer
                 // friends-only session is nobody else's business.
                 if (opts.Visibility != LobbyVisibility.Private)
                     PublishDirectoryEntry(sid, desc, opts, manifestText, mhash, plan);
+                else Core.Log?.Msg("[mp] friends-only lobby: not listed in the public directory.");
             }
             catch (Exception e) { Core.Log?.Warning("[mp] could not publish the join mod set: " + e.Message); }
         }
@@ -193,7 +294,8 @@ namespace SideHustle.Multiplayer
             try
             {
                 int members = 1;
-                try { var l = LobbyOrNull(); if (l != null) members = Math.Max(1, l.PlayerCount); } catch { }
+                try { var l = LobbyOrNull(); if (l != null) members = Math.Max(1, l.PlayerCount); }
+                catch (Exception e) { WarnOnce("directory member count", e); }
                 string summary = $"{plan.Manifest.Mods.Count} mod(s), {plan.AutoCount} auto-installable";
                 Sync.VanillaLobby.PublishDirectory(sid.m_SteamID, secret => new Sync.DirPublish
                 {
@@ -223,10 +325,15 @@ namespace SideHustle.Multiplayer
         }
 
         /// <summary>Join a lobby by id. The game's OnLobbyEntered then drives the client world-load handshake.</summary>
-        internal static void JoinLobby(ulong lobbyId)
+        internal static bool JoinLobby(ulong lobbyId)
         {
-            try { SteamMatchmaking.JoinLobby(new CSteamID(lobbyId)); }
-            catch (Exception e) { Core.Log?.Warning("[mp] JoinLobby failed: " + e.Message); }
+            try
+            {
+                SteamMatchmaking.JoinLobby(new CSteamID(lobbyId));
+                Core.Log?.Msg($"[mp] join requested for lobby {lobbyId}.");
+                return true;
+            }
+            catch (Exception e) { Core.Log?.Warning("[mp] JoinLobby failed: " + e.Message); return false; }
         }
 
         /// <summary>Menu safety net: if we still OWN a Steam lobby but no Side Hustle session is live or starting, it
@@ -269,16 +376,25 @@ namespace SideHustle.Multiplayer
         {
             Sync.VanillaLobby.UnpublishDirectory();   // drop the website listing too, even if the Steam lobby is gone
             var l = LobbyOrNull();
-            if (l == null || !l.IsInLobby) return;
+            if (l == null || !l.IsInLobby)
+            {
+                Core.Log?.Msg("[mp] unlist: not in a lobby, nothing to close on Steam.");
+                return;
+            }
             try
             {
                 CSteamID sid = CurrentLobbySteamId;
-                if (sid.m_SteamID == 0UL) return;
-                SteamMatchmaking.SetLobbyJoinable(sid, false);
-                SteamMatchmaking.SetLobbyData(sid, KeyGamemode, "");
-                SteamMatchmaking.SetLobbyData(sid, KeyAdvertise, "");
+                if (sid.m_SteamID == 0UL)
+                {
+                    Core.Log?.Warning("[mp] unlist: the lobby id is not resolved; the Steam lobby stays joinable.");
+                    return;
+                }
+                bool closed = SteamMatchmaking.SetLobbyJoinable(sid, false);
+                bool cleared = SteamMatchmaking.SetLobbyData(sid, KeyGamemode, "") & SteamMatchmaking.SetLobbyData(sid, KeyAdvertise, "");
+                if (closed && cleared) Core.Log?.Msg("[mp] lobby closed and unlisted on Steam.");
+                else Core.Log?.Warning($"[mp] unlist incomplete (joinable off={closed}, markers cleared={cleared}).");
             }
-            catch { /* ignore */ }
+            catch (Exception e) { Core.Log?.Warning("[mp] unlisting the lobby failed: " + e.Message); }
         }
 
         /// <summary>Read the namespaced metadata for a lobby (used to populate browser rows + the join context).</summary>
@@ -302,7 +418,7 @@ namespace SideHustle.Multiplayer
                 int.TryParse(SteamMatchmaking.GetLobbyData(sid, KeyMax), out int max);
                 info.MaxPlayers = max;
             }
-            catch { /* ignore - returns a mostly-empty info */ }
+            catch (Exception e) { Core.Log?.Warning($"[mp] reading the metadata of lobby {lobbyId} failed (the info stays mostly empty): {e.Message}"); }
             return info;
         }
 
@@ -315,7 +431,7 @@ namespace SideHustle.Multiplayer
                 var alias = PlayerAlias.CurrentAlias;
                 return !string.IsNullOrEmpty(alias) ? alias : SteamFriends.GetPersonaName();
             }
-            catch { return "Host"; }
+            catch (Exception e) { WarnOnce("local persona name", e); return "Host"; }
         }
 
         /// <summary>A stable build fingerprint for a gamemode's DLL: the module's ModuleVersionId (MVID), which the
@@ -325,7 +441,7 @@ namespace SideHustle.Multiplayer
         internal static string BuildIdOf(GamemodeDescriptor desc)
         {
             try { return desc?.OwnerAssembly?.ManifestModule?.ModuleVersionId.ToString("N") ?? ""; }
-            catch { return ""; }
+            catch (Exception e) { Core.Log?.Warning($"[mp] could not read the build id of '{desc?.Id}': {e.Message}"); return ""; }
         }
 
         /// <summary>A stable salted hash of a join password, stored on the lobby so a joining client can verify the
@@ -340,7 +456,11 @@ namespace SideHustle.Multiplayer
                 foreach (var b in bytes) sb.Append(b.ToString("x2"));
                 return sb.ToString();
             }
-            catch { return "h" + (("sidehustle:" + pw).GetHashCode() & 0x7fffffff); }   // fallback gate
+            catch (Exception e)
+            {
+                Core.Log?.Warning("[mp] SHA256 unavailable for the lobby password; using a weaker fallback gate: " + e.Message);
+                return "h" + (("sidehustle:" + pw).GetHashCode() & 0x7fffffff);
+            }
         }
     }
 }
