@@ -123,6 +123,9 @@ namespace SideHustle.Menu
         }
 
         // Rows on screen that do something on right-click, with their rect. Rebuilt by every ShowRows, cleared by a form.
+        // The rows on screen, for the dev console's row click. Null while a form view is up.
+        private static List<Row> _shownRows;
+
         private static readonly List<KeyValuePair<RectTransform, Action>> _secondaryTargets = new List<KeyValuePair<RectTransform, Action>>();
 
         private static bool TrySecondaryClick()
@@ -694,6 +697,7 @@ namespace SideHustle.Menu
             const float formH = FormHeight;
             _gamemodeListShowing = false;   // a form view is up, not the gamemode row list
             _secondaryTargets.Clear();
+            _shownRows = null;
             var rootRt = _clone.GetComponent<RectTransform>();
             if (rootRt != null) rootRt.sizeDelta = new Vector2(PanelWidth, PanelHeight);
 
@@ -768,6 +772,7 @@ namespace SideHustle.Menu
             if (_clone == null) return;
             ClearFormHost();
             _secondaryTargets.Clear();
+            _shownRows = rows;
             _gamemodeListShowing = title == "Choose a gamemode";   // tracked so a late advertised query can refresh it
             try
             {

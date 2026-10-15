@@ -29,6 +29,45 @@ namespace SideHustle.Menu
             return found;
         }
 
+        /// <summary>Click row <paramref name="n"/> (1-based) of the screen on show, its right-click with "alt", or the
+        /// screen's Back with "back". No argument lists the rows.</summary>
+        internal static void ClickRowForTest(string[] parts)
+        {
+            if (parts.Length > 1 && parts[1].Equals("dismiss", StringComparison.OrdinalIgnoreCase))
+            {
+                // An alert's outside-click is its dismiss; press it the way a player would.
+                var root = DialogRootStatic();
+                var scrim = root != null ? root.Find("DD_AlertScrim") : null;
+                var btn = scrim != null ? scrim.Find("catcher")?.GetComponent<UnityEngine.UI.Button>() : null;
+                if (btn == null) { Core.Log?.Warning("[dev] shrow dismiss: no alert on show."); return; }
+                Core.Log?.Msg("[dev] shrow: dismissing the alert.");
+                btn.onClick.Invoke();
+                return;
+            }
+            if (_cloneScreen == null || !_cloneScreen.IsOpen) { Core.Log?.Warning("[dev] shrow: the hub is not open."); return; }
+            if (parts.Length > 1 && parts[1].Equals("back", StringComparison.OrdinalIgnoreCase))
+            {
+                Core.Log?.Msg("[dev] shrow: Back.");
+                _back?.Invoke();
+                return;
+            }
+            if (_shownRows == null) { Core.Log?.Warning("[dev] shrow: a form is on show, not rows."); return; }
+            if (parts.Length < 2 || !int.TryParse(parts[1], out int n))
+            {
+                for (int i = 0; i < _shownRows.Count; i++)
+                    Core.Log?.Msg($"[dev] row {i + 1}: '{_shownRows[i].Name}' - {_shownRows[i].Subtitle} [{_shownRows[i].Corner}]"
+                                  + (_shownRows[i].OnSecondary != null ? " (right-click)" : ""));
+                return;
+            }
+            if (n < 1 || n > _shownRows.Count) { Core.Log?.Warning($"[dev] shrow: no row {n}; {_shownRows.Count} on show."); return; }
+            var row = _shownRows[n - 1];
+            bool alt = parts.Length > 2 && parts[2].Equals("alt", StringComparison.OrdinalIgnoreCase);
+            var act = alt ? row.OnSecondary : row.OnClick;
+            if (act == null) { Core.Log?.Warning($"[dev] shrow: '{row.Name}' has no {(alt ? "right-click" : "click")} action."); return; }
+            Core.Log?.Msg($"[dev] shrow: {(alt ? "right-click" : "click")} '{row.Name}'.");
+            act();
+        }
+
         internal static void OpenSettingsForTest()
         {
             if (OpenHubForTest()) ShowSettings();
