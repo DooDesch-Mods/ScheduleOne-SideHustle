@@ -255,7 +255,7 @@ namespace SideHustle.Sync
         internal static void Tick()
         {
             if (_state == State.Idle || _state == State.InSession) return;
-            _timer += Time.unscaledDeltaTime;
+            _timer += Internal.WaitClock.Step;
 
             switch (_state)
             {
@@ -285,7 +285,7 @@ namespace SideHustle.Sync
                     {
                         // Keep re-requesting the lobby data and re-running discovery while we wait: a restarted
                         // client can take a couple of seconds to see the still-open host lobby.
-                        _lobbyRetry += Time.unscaledDeltaTime;
+                        _lobbyRetry += Internal.WaitClock.Step;
                         if (_lobbyRetry >= 2f)
                         {
                             _lobbyRetry = 0f;

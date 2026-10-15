@@ -163,7 +163,7 @@ namespace SideHustle.Multiplayer
         {
             if (_state == State.Idle) return;
             if (_state == State.InSession) { TickSessionAlive(); return; }
-            _timer += Time.unscaledDeltaTime;
+            _timer += Internal.WaitClock.Step;
 
             switch (_state)
             {
