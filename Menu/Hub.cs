@@ -346,8 +346,12 @@ namespace SideHustle.Menu
             // One render: installed rows plus any ghost rows for not-installed gamemodes with live public lobbies,
             // taken from the cache the menu warmed on entry. No async second render, so the list never jumps.
             var rows = BuildGamemodeListRows();
-            if (Preferences.ShowUninstalledGamemodes && _advertisedCache != null)
-                rows.AddRange(BuildGhostRows(_advertisedCache));
+            if (Preferences.ShowUninstalledGamemodes)
+            {
+                if (_advertisedCache != null) rows.AddRange(BuildGhostRows(_advertisedCache));
+                rows.AddRange(BuildCatalogueRows(_advertisedCache));
+            }
+            rows.Add(new Row { Name = "Settings", Subtitle = "Menus, messages and when mods load.", OnClick = ShowSettings });
             ShowRows("Choose a gamemode", rows);
         }
 
@@ -511,6 +515,7 @@ namespace SideHustle.Menu
             // lobby after the restart. Same two steps an installed player takes - pick a lobby, then join - only the
             // install runs in between. Hosting still needs the mod up front.
             bool canJoinAndInstall = g.Rows.Count > 0;
+            var catalogued = GamemodeCatalogue.Find(g.GamemodeId);
             var rows = new List<Row>
             {
                 new Row { Name = "Host", Subtitle = "Install the mod to host a session.", Disabled = true },
@@ -535,7 +540,26 @@ namespace SideHustle.Menu
                 },
                 new Row { Name = "Back", Subtitle = "Back to the gamemode list.", OnClick = ShowGamemodeList }
             };
+            if (catalogued != null)
+                rows.Insert(rows.Count - 1, new Row
+                {
+                    Name = "Install into a profile",
+                    Subtitle = "Adds " + catalogued.Name + " to one of your profiles.",
+                    OnClick = () => StartCatalogueInstall(catalogued, () => ShowUninstalledChoice(g))
+                });
             ShowRows(g.Name, rows);
+        }
+
+        // The in-game form for the preferences players otherwise edit in the config file.
+        private static void ShowSettings()
+        {
+            if (_clone == null) return;
+            _mpDesc = null;
+            _back = ShowGamemodeList;
+            ClearFormHost();
+            SetTmp(_clone.transform, "Title", "Settings");
+            var host = CreateFormHost("SH_Settings", 560f);
+            SettingsView.Build(host, ShowGamemodeList);
         }
 
         private static void ShowModeChoice(GamemodeDescriptor desc)
