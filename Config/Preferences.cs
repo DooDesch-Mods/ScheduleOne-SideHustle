@@ -42,6 +42,7 @@ namespace SideHustle.Config
         private static MelonPreferences_Entry<bool> _menuPanel;
         private static MelonPreferences_Entry<bool> _joinChatPanel;
         private static MelonPreferences_Entry<string> _hostConfigs;
+        private static MelonPreferences_Entry<string> _lastModes;
         private static MelonPreferences_Entry<bool> _browserHideFull;
         private static MelonPreferences_Entry<bool> _browserHideLocked;
         private static MelonPreferences_Entry<bool> _browserHideOtherVersion;
@@ -106,6 +107,8 @@ namespace SideHustle.Config
             _hostConfigs = _category.CreateEntry("HostConfigs", "", "Remembered host settings (internal)",
                 "Internal: the player count, visibility, lobby name and mod requirement last used for each gamemode and for " +
                 "vanilla co-op, so the host form starts filled in. Passwords are never stored. Managed automatically.");
+            _lastModes = _category.CreateEntry("LastModes", "", "Last chosen mode per gamemode (internal)",
+                "Internal: whether each gamemode was last played solo or in a lobby, so a solo player starts it with one click. Managed automatically.");
 
             _browserHideFull = _category.CreateEntry("BrowserHideFull", false, "Lobby browser: hide full lobbies",
                 "Internal: the lobby browser's Hide full switch. Managed automatically.");
@@ -363,6 +366,8 @@ namespace SideHustle.Config
             public string LobbyName = "";
             public bool Enforce = true;     // vanilla only
             public string DiscordCode = "";
+            public int PolicyMode;          // gamemodes only: 0 = keep all mods, 1 = required mods only
+            public string Save = "";        // vanilla only: the save slot number last hosted
         }
 
         /// <summary>The key for vanilla co-op in <see cref="GetHost"/>.</summary>
@@ -379,6 +384,8 @@ namespace SideHustle.Config
             if (f.TryGetValue("name", out var n)) h.LobbyName = n ?? "";
             if (f.TryGetValue("enf", out var e)) h.Enforce = e != "0";
             if (f.TryGetValue("dc", out var dc)) h.DiscordCode = dc ?? "";
+            if (f.TryGetValue("pm", out var pm) && int.TryParse(pm, out int mode)) h.PolicyMode = mode;
+            if (f.TryGetValue("save", out var sv)) h.Save = sv ?? "";
             return h;
         }
 
@@ -395,11 +402,35 @@ namespace SideHustle.Config
                 new KeyValuePair<string, string>("name", h.LobbyName ?? ""),
                 new KeyValuePair<string, string>("enf", h.Enforce ? "1" : "0"),
                 new KeyValuePair<string, string>("dc", h.DiscordCode ?? ""),
+                new KeyValuePair<string, string>("pm", h.PolicyMode.ToString()),
+                new KeyValuePair<string, string>("save", h.Save ?? ""),
             });
             _hostConfigs.Value = ConfigCodec.Encode(map);
             Core.Log?.Msg($"[prefs] remembered the host settings for '{key}'.");
         }
 
         private static Dictionary<string, string> DecodeHosts() => ConfigCodec.Decode(_hostConfigs?.Value);
+
+        // --- last chosen mode ---
+
+        internal const string ModeSolo = "sp";
+        internal const string ModeLobby = "mp";
+
+        /// <summary>How a gamemode was last played: <see cref="ModeSolo"/>, <see cref="ModeLobby"/> or "" when never.</summary>
+        internal static string GetLastMode(string gamemodeId)
+        {
+            if (string.IsNullOrEmpty(gamemodeId)) return "";
+            return ConfigCodec.Decode(_lastModes?.Value).TryGetValue(gamemodeId, out var m) ? m ?? "" : "";
+        }
+
+        internal static void SetLastMode(string gamemodeId, string mode)
+        {
+            if (_lastModes == null || string.IsNullOrEmpty(gamemodeId)) return;
+            var map = ConfigCodec.Decode(_lastModes.Value);
+            if (map.TryGetValue(gamemodeId, out var old) && old == mode) return;
+            map[gamemodeId] = mode ?? "";
+            _lastModes.Value = ConfigCodec.Encode(map);
+            Core.Log?.Msg($"[prefs] '{gamemodeId}' was last played as '{mode}'.");
+        }
     }
 }
