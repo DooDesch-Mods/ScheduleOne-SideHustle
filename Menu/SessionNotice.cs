@@ -92,6 +92,13 @@ namespace SideHustle.Menu
         private static string Title(string reason)
         {
             string lower = (reason ?? "").ToLowerInvariant();
+            // The specific abort reasons first: some carry a watchdog detail ("world not ready - timed out ...") that
+            // the generic words below would misread.
+            if (lower.Contains("world not ready") || lower.Contains("could not start the save")) return "World failed to load";
+            if (lower.Contains("lobby did not open") || lower.Contains("could not set up the lobby")) return "Could not host";
+            if (lower.Contains("could not enter the lobby") || lower.Contains("could not ask steam to join")
+                || lower.Contains("never started the game")) return "Could not join";
+            if (lower.Contains("gamemode callback threw")) return "Gamemode error";
             if (lower.Contains("no progress") || lower.Contains("did not complete")
                 || lower.Contains("timed out") || lower.Contains("timeout")) return "Could not join";
             if (lower.Contains("kick")) return "Removed from the lobby";
@@ -118,6 +125,13 @@ namespace SideHustle.Menu
             if (r.Length == 0) return "Try again.";
             string lower = r.ToLowerInvariant();
 
+            if (lower.Contains("world not ready") || lower.Contains("could not start the save")) return "The world could not be loaded.";
+            if (lower.Contains("lobby did not open")) return "Steam did not open a lobby. Try again.";
+            if (lower.Contains("could not set up the lobby")) return "Steam did not accept the lobby settings. Try again.";
+            if (lower.Contains("could not enter the lobby")) return "The lobby may be full or closed. Try another one.";
+            if (lower.Contains("could not ask steam to join")) return "Steam did not start the join. Try again.";
+            if (lower.Contains("never started the game")) return "The host has not started the game yet. Try again soon.";
+            if (lower.Contains("gamemode callback threw")) return "The gamemode failed to start. Its error is in the log.";
             if (lower.Contains("no progress") || lower.Contains("did not complete")
                 || lower.Contains("timed out") || lower.Contains("timeout"))
                 return "No response from the host. Try again.";
