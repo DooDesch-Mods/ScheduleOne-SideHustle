@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using Il2CppScheduleOne.DevUtilities;   // PersistentSingleton<>
 using Il2CppScheduleOne.Networking;     // Lobby
@@ -23,21 +24,21 @@ namespace SideHustle.Multiplayer
                 int seats = DooDesch.FullHouse.Lobbies.SeatCount;
                 if (seats >= 2) return seats;
             }
-            catch { /* fall through */ }
+            catch (Exception e) { Core.Log?.Msg("[mp] FullHouse seat count is not available yet: " + e.Message); }
 
             try
             {
                 int cap = DooDesch.FullHouse.Lobbies.EffectiveCap;
                 if (cap >= 2) return cap;
             }
-            catch { /* fall through */ }
+            catch (Exception e) { Core.Log?.Msg("[mp] FullHouse effective cap is not available: " + e.Message); }
 
             try
             {
                 if (Mods.ModInventory.Loaded().Any(m => Mods.ModInventory.MatchesAny(m, "BiggerLobbies")))
                     return BiggerLobbiesCap;
             }
-            catch { /* ignore */ }
+            catch (Exception e) { Core.Log?.Warning("[mp] could not check for BiggerLobbies; using the vanilla seat count: " + e.Message); }
 
             return Vanilla;
         }

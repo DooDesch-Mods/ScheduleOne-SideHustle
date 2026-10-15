@@ -133,7 +133,8 @@ namespace SideHustle.Mods
                 if (ReferenceEquals(m.Assembly, desc.OwnerAssembly) || m.Assembly.FullName == desc.OwnerAssembly.FullName)
                     return m.File;
             }
-            try { var loc = desc.OwnerAssembly.Location; if (!string.IsNullOrEmpty(loc)) return Path.GetFileName(loc); } catch { /* ignore */ }
+            try { var loc = desc.OwnerAssembly.Location; if (!string.IsNullOrEmpty(loc)) return Path.GetFileName(loc); }
+            catch (Exception e) { Core.Log?.Warning($"[modpolicy] could not locate the file of '{desc.OwnerAssembly.FullName}': {e.Message}"); }
             return null;
         }
 
