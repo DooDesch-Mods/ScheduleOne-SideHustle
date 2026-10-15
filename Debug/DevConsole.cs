@@ -90,6 +90,9 @@ namespace SideHustle.Debugging
             new[] { "shsyncfake", "a fake three-mod download, about 10 s, cancellable" },
             new[] { "shrestartfake", "the restarting-to-join notice with its Cancel; nothing restarts" },
             new[] { "shtyping", "is a text field holding the keyboard - which is what blocks Escape" },
+            new[] { "shstart", "shstart <gamemodeId> [sp|host|host2] - start a session; host2 asks twice (double-click guard)" },
+            new[] { "shreturn", "end the running gamemode session the way its ReturnToHub does" },
+            new[] { "shapi", "shapi [notice|send] - API version, session, players; show a notice or send a test message" },
         };
 
         private static bool Handle(string[] parts)
@@ -134,6 +137,9 @@ namespace SideHustle.Debugging
                     case "shsyncfake": Menu.Hub.OpenFakeSyncForTest(); break;
                     case "shrestartfake": Menu.Hub.OpenFakeRestartForTest(); break;
                     case "shtyping": Typing(); break;
+                    case "shstart": StartSession(parts); break;
+                    case "shreturn": ReturnSession(); break;
+                    case "shapi": ApiState(parts); break;
                 }
             }
             catch (Exception e) { Core.Log?.Warning("[dev] " + cmd + " failed: " + e); }
@@ -148,6 +154,49 @@ namespace SideHustle.Debugging
                 return;
             }
             open(parts[1]);
+        }
+
+        private static void StartSession(string[] parts)
+        {
+            if (parts.Length < 2) { Core.Log?.Msg("[dev] shstart <gamemodeId> [sp|host|host2]"); return; }
+            GamemodeDescriptor desc = null;
+            foreach (var d in API.Registered) if (string.Equals(d.Id, parts[1], StringComparison.OrdinalIgnoreCase)) desc = d;
+            if (desc == null) { Core.Log?.Warning("[dev] shstart: no registered gamemode '" + parts[1] + "'."); return; }
+            string how = parts.Length > 2 ? parts[2].ToLowerInvariant() : "sp";
+            if (how == "sp")
+            {
+                Core.Log?.Msg("[dev] shstart: singleplayer '" + desc.Id + "'.");
+                Menu.Hub.LaunchSelected(desc);
+                return;
+            }
+            var opts = new HostOptions { MaxPlayers = 4, Visibility = LobbyVisibility.Private, LobbyName = "shstart" };
+            bool first = MultiplayerCoordinator.StartHost(desc, opts);
+            Core.Log?.Msg("[dev] shstart host: " + (first ? "started" : "refused - " + MultiplayerCoordinator.LastRefusal));
+            if (how == "host2")
+            {
+                bool second = MultiplayerCoordinator.StartHost(desc, opts);
+                Core.Log?.Msg("[dev] shstart second host request: " + (second ? "STARTED (guard failed)" : "refused - " + MultiplayerCoordinator.LastRefusal));
+            }
+        }
+
+        private static void ReturnSession()
+        {
+            var ctx = API.CurrentSession;
+            if (ctx == null) { Core.Log?.Msg("[dev] shreturn: no session is running."); return; }
+            Core.Log?.Msg("[dev] shreturn: ending '" + ctx.Descriptor?.Id + "'.");
+            ctx.ReturnToHub();
+        }
+
+        private static void ApiState(string[] parts)
+        {
+            var ctx = API.CurrentSession;
+            Core.Log?.Msg("[dev] shapi: version " + API.ApiVersion + ", session " + (ctx == null ? "none" : "'" + ctx.Descriptor?.Id + "' as " + ctx.Role)
+                          + ", " + API.Players.Count + " player(s)");
+            foreach (var p in API.Players) Core.Log?.Msg("[dev]   " + p.SteamId + " '" + p.DisplayName + "'" + (p.IsHost ? " host" : "") + (p.IsLocal ? " local" : ""));
+            string what = parts.Length > 1 ? parts[1].ToLowerInvariant() : "";
+            if (what == "notice") API.ShowNotice("Side Hustle test notice.");
+            else if (what == "send" && ctx != null)
+                Core.Log?.Msg("[dev] shapi send: " + (API.SendToAll(ctx.Descriptor.Id, "test", "hello") ? "sent" : "refused"));
         }
 
         private static void Help()
