@@ -70,7 +70,11 @@ namespace SideHustle.Profiles
                 var list = JsonSerializer.Deserialize<List<TsPackage>>(json);
                 return list == null ? null : new TsIndex(list);
             }
-            catch { return null; }
+            catch (Exception e)
+            {
+                ThunderstoreClient.Log?.Invoke("the package index JSON is not valid: " + e.Message);
+                return null;
+            }
         }
 
         internal TsPackage Find(string fullName) =>

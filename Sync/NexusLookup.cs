@@ -233,7 +233,11 @@ namespace SideHustle.Sync
                     }
                 return list;
             }
-            catch { return null; }
+            catch (Exception e)
+            {
+                Log?.Invoke("the answer could not be read: " + e.Message);
+                return null;
+            }
         }
 
         /// <summary>

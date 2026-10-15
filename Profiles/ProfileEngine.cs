@@ -57,7 +57,11 @@ namespace SideHustle.Profiles
                     var p = doc.Profiles.FirstOrDefault(x => ProfileResolver.Sanitize(x.Id).Equals(folder, StringComparison.OrdinalIgnoreCase));
                     return p?.Id ?? "";
                 }
-                catch { return ""; }
+                catch (Exception e)
+                {
+                    Shared.SharedLog.WarnOnce("active-profile", "could not work out the active profile (treated as none): " + e.Message);
+                    return "";
+                }
             }
         }
 
@@ -72,7 +76,11 @@ namespace SideHustle.Profiles
                 if (!string.IsNullOrEmpty(t)) Environment.SetEnvironmentVariable(EnvContinueToken, null);
                 return t ?? "";
             }
-            catch { return ""; }
+            catch (Exception e)
+            {
+                Shared.SharedLog.WarnOnce("continue-token", "could not read the continue token (treated as none): " + e.Message);
+                return "";
+            }
         }
 
         // --- registry ---
@@ -107,7 +115,11 @@ namespace SideHustle.Profiles
         {
             private readonly Action<T> _on;
             internal SyncProgress(Action<T> on) { _on = on; }
-            public void Report(T value) { try { _on?.Invoke(value); } catch { } }
+            public void Report(T value)
+            {
+                try { _on?.Invoke(value); }
+                catch (Exception e) { Shared.SharedLog.WarnOnce("progress-sink", "a progress receiver threw and was skipped: " + e.Message); }
+            }
         }
 
         internal static ProfileDef CreateProfile(string name)
@@ -199,9 +211,11 @@ namespace SideHustle.Profiles
             try
             {
                 string dir = Path.GetDirectoryName(ProfileModsDir(profileId));
-                if (ok && dir != null && Directory.Exists(dir)) Directory.Delete(dir, true);
+                // Locked files leave harmless leftovers (the folder holds only hardlinks); a link inside is removed as
+                // a link, never followed. DeleteTreeNoFollow logs what it could not remove.
+                if (ok && dir != null) PackageCache.DeleteTreeNoFollow(dir);
             }
-            catch { /* locked files: the folder holds only hardlinks; harmless leftovers */ }
+            catch (Exception e) { Core.Log?.Warning($"[profiles] could not remove the folder of profile '{profileId}': {e.Message}"); }
             return ok;
         }
 

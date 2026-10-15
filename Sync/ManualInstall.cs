@@ -54,7 +54,11 @@ namespace SideHustle.Sync
                 string dir = Path.Combine(appData, "Vortex", "downloads", "schedule1");
                 return Directory.Exists(dir) ? dir : null;
             }
-            catch { return null; }
+            catch (Exception e)
+            {
+                WarnOnce("vortex", "could not look for Vortex's download folder: " + e.Message);
+                return null;
+            }
         }
 
         /// <summary>The folders the checklist tells the player it is watching.</summary>
@@ -125,7 +129,11 @@ namespace SideHustle.Sync
                         if (pending.All(e => !IsAwaiting(e))) return resolved;
                     }
                     catch (InvalidDataException) { if (key != null) _scanned.Add(key); }   // corrupt zip: done with it
-                    catch { /* mid-copy or locked: next poll */ }
+                    catch (Exception e)
+                    {
+                        // Mid-copy or locked: tried again on the next poll. Logged once per file, not once per poll.
+                        WarnOnce("scan:" + path, $"[sync] '{path}' could not be read yet ({e.Message}); trying again on the next check.");
+                    }
                 }
             }
             return resolved;
@@ -141,7 +149,11 @@ namespace SideHustle.Sync
             string promoted = PromoteBytes(File.ReadAllBytes(path), match.Mod.File, sha);
             if (promoted == null) return;
             Resolve(match, promoted, resolved);
-            if (consume) { try { File.Delete(path); } catch { /* leave it */ } }
+            if (consume)
+            {
+                try { File.Delete(path); }
+                catch (Exception e) { WarnOnce("del:" + path, $"could not remove the used file '{path}' (left in place): {e.Message}"); }
+            }
         }
 
         private static void TryZip(string path, bool consume, List<DiffEntry> pending, List<DiffEntry> resolved)
@@ -166,7 +178,11 @@ namespace SideHustle.Sync
                 }
             }
             if (!consumed) NoteNearMiss(Path.GetFileName(path), unreadableArchive: false, pending);
-            if (consumed && consume) { try { File.Delete(path); } catch { } }
+            if (consumed && consume)
+            {
+                try { File.Delete(path); }
+                catch (Exception e) { WarnOnce("del:" + path, $"could not remove the used file '{path}' (left in place): {e.Message}"); }
+            }
         }
 
         private static void Resolve(DiffEntry match, string promoted, List<DiffEntry> resolved)
@@ -199,16 +215,41 @@ namespace SideHustle.Sync
         /// index finds them (this join and every rejoin).</summary>
         internal static string PromoteBytes(byte[] bytes, string fileName, string sha)
         {
+            string part = null;
             try
             {
                 string cacheRoot = PackageCache.RootFor(ProfileEngine.GameRoot);
                 string dir = PackageCache.ManualPathFor(cacheRoot, sha);
                 Directory.CreateDirectory(dir);
                 string dst = Path.Combine(dir, fileName);
-                File.WriteAllBytes(dst, bytes);
+                // Written beside the target and moved into place, so the hash index never sees a half-written file
+                // (and a cancelled or failed write leaves nothing behind).
+                part = dst + ".part";
+                File.WriteAllBytes(part, bytes);
+                File.Move(part, dst, true);
+                part = null;
                 return dst;
             }
-            catch (Exception e) { Core.Log?.Warning("[sync] manual promote failed: " + e.Message); return null; }
+            catch (Exception e)
+            {
+                Core.Log?.Warning("[sync] manual promote failed: " + e.Message);
+                if (part != null)
+                {
+                    try { if (File.Exists(part)) File.Delete(part); }
+                    catch (Exception cleanup) { Core.Log?.Warning($"[sync] could not remove the partial file '{part}': {cleanup.Message}"); }
+                }
+                return null;
+            }
+        }
+
+        private static readonly HashSet<string> _warned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private const int MaxWarned = 200;
+
+        /// <summary>A scan repeats every few seconds, so a problem with one file or folder is logged once.</summary>
+        private static void WarnOnce(string key, string message)
+        {
+            if (_warned.Count >= MaxWarned || !_warned.Add(key)) return;
+            Core.Log?.Warning(message.StartsWith("[") ? message : "[sync] " + message);
         }
 
         // The files of one watched root: everything at the top level, plus the contents of its immediate
@@ -219,19 +260,23 @@ namespace SideHustle.Sync
         private static IEnumerable<string> SafeFiles(string dir, ManualScan.RootKind kind)
         {
             var files = new List<string>();
-            try { files.AddRange(Directory.GetFiles(dir)); } catch { /* unreadable root */ }
+            try { files.AddRange(Directory.GetFiles(dir)); }
+            catch (Exception e) { WarnOnce("list:" + dir, $"could not list '{dir}': {e.Message}"); }
 
             string[] subs;
-            try { subs = Directory.GetDirectories(dir); } catch { return files; }
+            try { subs = Directory.GetDirectories(dir); }
+            catch (Exception e) { WarnOnce("subs:" + dir, $"could not list the folders in '{dir}': {e.Message}"); return files; }
             int opened = 0;
             foreach (var sub in subs)
             {
                 if (opened >= ManualScan.MaxSubfolders) break;
                 DateTime mtime;
-                try { mtime = Directory.GetLastWriteTimeUtc(sub); } catch { continue; }
+                try { mtime = Directory.GetLastWriteTimeUtc(sub); }
+                catch (Exception e) { WarnOnce("mtime:" + sub, $"could not read the age of '{sub}' (skipped): {e.Message}"); continue; }
                 if (!ManualScan.IsCandidateDir(kind, mtime, _watchStartUtc)) continue;
                 opened++;
-                try { files.AddRange(Directory.GetFiles(sub)); } catch { /* unreadable subfolder */ }
+                try { files.AddRange(Directory.GetFiles(sub)); }
+                catch (Exception e) { WarnOnce("sub:" + sub, $"could not list '{sub}': {e.Message}"); }
             }
             return files;
         }

@@ -78,13 +78,21 @@ namespace SideHustle.Sync
         private static string ExtOf(string fileName)
         {
             try { return (Path.GetExtension(fileName) ?? "").ToLowerInvariant(); }
-            catch { return ""; }
+            catch (Exception e)
+            {
+                Core.Log?.Warning($"[sync] '{fileName}' is not a usable file name (ignored): {e.Message}");
+                return "";
+            }
         }
 
         private static string StripExt(string fileName)
         {
             try { return Path.GetFileNameWithoutExtension(fileName) ?? ""; }
-            catch { return fileName ?? ""; }
+            catch (Exception e)
+            {
+                Core.Log?.Warning($"[sync] '{fileName}' is not a usable file name (used as is): {e.Message}");
+                return fileName ?? "";
+            }
         }
 
         private static string Norm(string s) =>

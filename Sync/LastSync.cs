@@ -53,13 +53,17 @@ namespace SideHustle.Sync
                 var rec = JsonSerializer.Deserialize<Record>(File.ReadAllText(p));
                 return rec != null && !string.IsNullOrEmpty(rec.Manifest) ? rec : null;
             }
-            catch { return null; }
+            catch (Exception e)
+            {
+                Core.Log?.Warning("[sync] the last-sync record is unreadable and is ignored: " + e.Message);
+                return null;
+            }
         }
 
         internal static void Clear()
         {
             try { string p = PathFor(); if (p != null && File.Exists(p)) File.Delete(p); }
-            catch { /* best-effort */ }
+            catch (Exception e) { Core.Log?.Warning("[sync] could not clear the last-sync record: " + e.Message); }
         }
     }
 }
