@@ -206,13 +206,18 @@ function buildFeature(v, cont) {
   left.appendChild(acts);
   box.appendChild(left);
 
+  // The state line and the way to the board share one row; the newest lobbies follow under it.
   const right = el('div', 'fr');
   const list = lobbiesOf('vanilla');
+  const state = el('div', 'fs');
   const live = el('div', list.length > 0 ? 'live' : 'quiet');
   if (list.length > 0) live.appendChild(el('div', 'dot'));
   live.appendChild(el('div', null, list.length === 0 ? (S.steam === 'error' ? 'Steam is not answering.' : 'Nobody is hosting right now.')
     : list.length === 1 ? '1 public lobby live' : list.length + ' public lobbies live'));
-  right.appendChild(live);
+  state.appendChild(live);
+  state.appendChild(btn(list.length > 3 ? 'All ' + list.length : 'Browse lobbies', 'sm',
+    () => { ui.chip = 'vanilla'; ui.lobby = null; go('lobbies'); }));
+  right.appendChild(state);
   for (const l of list.slice(0, 3)) {
     const r = el('div', 'lr');
     const lt = el('div', 't');
@@ -223,9 +228,6 @@ function buildFeature(v, cont) {
     r.appendChild(btn('Join', 'sm' + (l.canJoin && !S.busy ? '' : ' off'), () => join(l)));
     right.appendChild(r);
   }
-  right.appendChild(el('div', 'sp'));
-  right.appendChild(btn(list.length > 3 ? 'All ' + list.length + ' vanilla lobbies' : 'Browse lobbies', 'sm',
-    () => { ui.chip = 'vanilla'; ui.lobby = null; go('lobbies'); }));
   box.appendChild(right);
   return box;
 }
@@ -337,8 +339,8 @@ function buildForm(f) {
   minus.addEventListener('click', () => setPlayers(f.players - 1));
   plus.addEventListener('click', () => setPlayers(f.players + 1));
   step.appendChild(minus); step.appendChild(val); step.appendChild(plus);
-  step.appendChild(el('div', 'cap', 'max ' + f.max));
   pRow.appendChild(step);
+  pRow.appendChild(el('div', 'cap', 'max ' + f.max));
   form.appendChild(pRow);
 
   form.appendChild(toggleRow('Lobby', [['0', 'Public'], ['1', 'Friends only']], String(f.visibility),
