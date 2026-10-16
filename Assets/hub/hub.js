@@ -83,6 +83,16 @@ function btn(label, cls, onClick) {
   return b;
 }
 
+// Sideload keeps the native text field of an input that left the document until the rebuild after the one that
+// dropped it, as an empty grey bar at the top of the screen. Anything about to drop inputs asks for that second
+// rebuild here; 100 ms puts it safely after the first one, which runs on the next frame.
+let sweepQueued = false;
+function sweepInputs(root) {
+  if (!root || sweepQueued || root.querySelectorAll('input').length === 0) return;
+  sweepQueued = true;
+  setTimeout(() => { sweepQueued = false; document.body.classList.toggle('swept'); }, 100);
+}
+
 // An action the mod may refuse. Busy means a launch is already in flight, and the mod refuses that too.
 function act(name, arg) {
   const why = call(name, arg);
@@ -150,6 +160,7 @@ let playTiles = null;
 
 function renderPlay(main) {
   if (!playTop || !playTop.parentElement) {
+    sweepInputs(main);
     main.replaceChildren();
     playTop = el('div', 'slot');
     playTop.style.flex = 'none';
@@ -163,6 +174,7 @@ function renderPlay(main) {
   }
 
   if (changed('playTop', ui.form ? ['form', ui.form.id] : ['hero', S.vanilla, S.cont, lobbiesOf('vanilla'), S.busy])) {
+    sweepInputs(playTop);
     playTop.replaceChildren();
     formLobbies = null;
     if (ui.form) { playTop.appendChild(buildForm(ui.form)); delete drawn.formLobbies; }
@@ -488,8 +500,8 @@ function chipData() {
   return [...counts.values()].sort((a, b) => (b.id === 'vanilla') - (a.id === 'vanilla') || b.n - a.n || a.name.localeCompare(b.name));
 }
 
-// One search field for the page's lifetime. A dropped input leaves its native text field behind as an empty
-// grey bar at the top of the screen, so a rebuilt board takes the same field over.
+// One search field for the page's lifetime, so a rebuilt board takes the same field over instead of dropping one
+// (see sweepInputs).
 let searchField = null;
 function searchBox() {
   if (searchField) return searchField;
@@ -501,6 +513,7 @@ function searchBox() {
 }
 
 function buildBoard(main, chips) {
+  sweepInputs(main);
   main.replaceChildren();
   rows.clear();
   const board = el('div', 'glass board');
@@ -733,7 +746,7 @@ function askPassword(l, anyway) {
   }
 }
 
-function closeDialog() { if (dialog) { dialog.remove(); dialog = null; } }
+function closeDialog() { if (dialog) { sweepInputs(dialog); dialog.remove(); dialog = null; } }
 
 /* ---------- status panel ---------- */
 
