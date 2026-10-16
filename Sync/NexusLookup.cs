@@ -46,6 +46,9 @@ namespace SideHustle.Sync
         /// stays pure BCL, so it cannot log anywhere itself.</summary>
         internal static Action<string> Log;
 
+        /// <summary>Test seam: replaces the HTTP POST (url, json) -> body or null.</summary>
+        internal static Func<string, string, CancellationToken, Task<string>> PostJson = ThunderstoreClient.PostJsonAsync;
+
         private static readonly object Gate = new object();
         // Normalized name -> mod id, 0 meaning "asked, no unique match". Failed lookups are NOT cached, so a later
         // screen retries them.
@@ -162,23 +165,35 @@ namespace SideHustle.Sync
         /// </summary>
         internal static async Task<int?> ResolveAsync(string modName, CancellationToken ct)
         {
+            var hit = await ResolveVersionedAsync(modName, null, ct).ConfigureAwait(false);
+            return hit?.ModId;
+        }
+
+        /// <summary>
+        /// One live lookup that also weighs the version (see <see cref="Pick"/>): the mod id and what decided it
+        /// ("version" or "name"), id 0 when nothing qualifies, null when the API could not be reached. Worker-thread
+        /// only. The join flow's fallback when the Side Hustle backend is down.
+        /// </summary>
+        internal static async Task<(int ModId, string By)?> ResolveVersionedAsync(string modName, string version, CancellationToken ct)
+        {
             string term = Normalize(modName);
-            if (!Enabled || !IsSearchable(term)) return 0;
-            string body = await ThunderstoreClient.PostJsonAsync(Endpoint, BuildRequestJson(term), ct).ConfigureAwait(false);
+            if (!Enabled || !IsSearchable(term)) return (0, "none");
+            string body = await PostJson(Endpoint, BuildRequestJson(term), ct).ConfigureAwait(false);
             if (body == null) return null;
             var mods = ParseMods(body, out int totalCount);
             if (mods == null) return null;
-            int id = PickUnique(term, mods, totalCount);
+            var (id, by) = Pick(term, version, mods, totalCount);
             Log?.Invoke(id > 0
-                ? $"\"{term}\" resolved to nexus mod {id} ({mods.Count} candidate(s), {totalCount} total)"
-                : $"\"{term}\" not resolved ({totalCount} match(es)) - using the search link");
-            return id;
+                ? $"\"{term}\" {version} resolved to nexus mod {id} by {by} ({mods.Count} candidate(s), {totalCount} total)"
+                : $"\"{term}\" {version} not resolved ({totalCount} match(es)) - using the search link");
+            return (id, by);
         }
 
         internal sealed class NexusMod
         {
             public int ModId;
             public string Name;
+            public string Version = "";
         }
 
         /// <summary>The GraphQL request body: published Schedule I mods whose name matches every word of the term.</summary>
@@ -200,7 +215,7 @@ namespace SideHustle.Sync
             " status: [{ value: \"published\", op: EQUALS }]," +
             " name: [{ value: $name, op: WILDCARD }]" +
             " }, count: " + MaxCandidates + ") {" +
-            " totalCount nodes { modId name }" +
+            " totalCount nodes { modId name version }" +
             " } }";
 
         /// <summary>Parse the response. Null when the body is not a usable GraphQL result (transport error page,
@@ -229,7 +244,8 @@ namespace SideHustle.Sync
                     {
                         int id = m.TryGetProperty("modId", out var mi) && mi.TryGetInt32(out int v) ? v : 0;
                         string name = m.TryGetProperty("name", out var nm) ? nm.GetString() : null;
-                        if (id > 0 && !string.IsNullOrEmpty(name)) list.Add(new NexusMod { ModId = id, Name = name });
+                        string ver = m.TryGetProperty("version", out var vv) && vv.ValueKind == JsonValueKind.String ? vv.GetString() : "";
+                        if (id > 0 && !string.IsNullOrEmpty(name)) list.Add(new NexusMod { ModId = id, Name = name, Version = ver ?? "" });
                     }
                 return list;
             }
@@ -247,17 +263,55 @@ namespace SideHustle.Sync
         /// name that matches exactly one published mod in the whole game. Two candidates that qualify equally are
         /// never guessed between - a wrong page costs the player a wasted download, the search costs one click.
         /// </summary>
-        internal static int PickUnique(string term, List<NexusMod> candidates, int totalCount)
+        internal static int PickUnique(string term, List<NexusMod> candidates, int totalCount) =>
+            Pick(term, null, candidates, totalCount).ModId;
+
+        /// <summary>
+        /// <see cref="PickUnique"/> with the host's version as the first tie-breaker. One candidate at exactly that
+        /// version wins even over an exact title: "More Guns" (v1.4.2) is the exact title for "MoreGuns", but a host
+        /// running 1.6.6 runs "More Guns Forked". A version only counts when the answer holds every match
+        /// (<paramref name="totalCount"/> &lt;= candidates) - otherwise the right mod may sit beyond the cut-off,
+        /// and only an exact title may still win on version. Several at that version: an exact title among them
+        /// decides, else nothing. Without a version match the name rules of <see cref="PickUnique"/> apply.
+        /// Returns the id (0 for none) and what decided it: "version", "name" or "none".
+        /// </summary>
+        internal static (int ModId, string By) Pick(string term, string version, List<NexusMod> candidates, int totalCount)
         {
-            if (string.IsNullOrEmpty(term) || candidates == null || candidates.Count == 0) return 0;
+            if (string.IsNullOrEmpty(term) || candidates == null || candidates.Count == 0) return (0, "none");
+
+            string want = NormVersion(version);
+            if (want.Length > 0)
+            {
+                bool seenAll = totalCount <= candidates.Count;
+                var pool = seenAll ? candidates : candidates.Where(m => Normalize(m.Name) == term).ToList();
+                var same = pool.Where(m => NormVersion(m.Version) == want).ToList();
+                if (same.Count == 1) return (same[0].ModId, "version");
+                if (same.Count > 1)
+                {
+                    var exactSame = same.Where(m => Normalize(m.Name) == term).ToList();
+                    return exactSame.Count == 1 ? (exactSame[0].ModId, "version") : (0, "none");
+                }
+            }
 
             var exact = candidates.Where(m => Normalize(m.Name) == term).ToList();
-            if (exact.Count > 0) return exact.Count == 1 ? exact[0].ModId : 0;
+            if (exact.Count > 0) return exact.Count == 1 ? (exact[0].ModId, "name") : (0, "none");
 
             var titled = candidates.Where(m => Normalize(m.Name).StartsWith(term + " ", StringComparison.Ordinal)).ToList();
-            if (titled.Count > 0) return titled.Count == 1 ? titled[0].ModId : 0;
+            if (titled.Count > 0) return titled.Count == 1 ? (titled[0].ModId, "name") : (0, "none");
 
-            return totalCount == 1 && candidates.Count == 1 ? candidates[0].ModId : 0;
+            return totalCount == 1 && candidates.Count == 1 ? (candidates[0].ModId, "name") : (0, "none");
+        }
+
+        /// <summary>A version in comparable form: trimmed, lowercased, a leading "v" before a digit dropped, and
+        /// trailing ".0" parts dropped down to two parts ("v1.6.0" and "1.6" compare equal).</summary>
+        internal static string NormVersion(string v)
+        {
+            if (string.IsNullOrWhiteSpace(v)) return "";
+            string s = v.Trim().ToLowerInvariant();
+            if (s.Length > 1 && s[0] == 'v' && char.IsDigit(s[1])) s = s.Substring(1);
+            var parts = s.Split('.').ToList();
+            while (parts.Count > 2 && parts[parts.Count - 1] == "0") parts.RemoveAt(parts.Count - 1);
+            return string.Join(".", parts);
         }
 
         /// <summary>Test seam: forget every answer so a lookup runs again.</summary>

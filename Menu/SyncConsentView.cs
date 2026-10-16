@@ -123,6 +123,6 @@ namespace SideHustle.Menu
             string.IsNullOrEmpty(e.Mod.Name) ? e.Mod.File : $"{e.Mod.Name} {e.Mod.Version}";
 
         private static string SourceLabel(DiffEntry e) =>
-            GhReleases.IsGitHubSource(e.Mod.Source) ? "GitHub" : "Thunderstore";
+            GhReleases.IsGitHubSource(e.EffectiveSource) ? "GitHub" : "Thunderstore";
     }
 }

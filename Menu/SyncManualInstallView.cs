@@ -45,7 +45,7 @@ namespace SideHustle.Menu
         internal static void PrefetchLinks(SyncDiff diff)
         {
             if (diff?.Entries == null) return;
-            NexusLookup.Prefetch(diff.Entries.Where(NeedsLookup).Select(ManualQuery));
+            SourceLookup.Prefetch(diff.Entries.Where(NeedsLookup).Select(e => SourceLookup.For(e.Mod)));
         }
 
         internal static void Tick()
@@ -54,9 +54,9 @@ namespace SideHustle.Menu
             if (!Hub.ScreenOpen) { Deactivate(); return; }   // the hub closed under the checklist
             var resolved = ManualInstall.Poll(_pending);
             // A new watcher hint or a landed Nexus lookup both change what a row shows, so either repaints.
-            bool rowsChanged = _notesSeen != ManualInstall.NotesVersion || _lookupsSeen != NexusLookup.ResultsVersion;
+            bool rowsChanged = _notesSeen != ManualInstall.NotesVersion || _lookupsSeen != LookupsVersion;
             _notesSeen = ManualInstall.NotesVersion;
-            _lookupsSeen = NexusLookup.ResultsVersion;
+            _lookupsSeen = LookupsVersion;
             if (resolved.Count > 0)
             {
                 if (resolved.Count <= 3)
@@ -82,7 +82,7 @@ namespace SideHustle.Menu
             _pending.AddRange(diff.Entries.Where(Pending));
             ManualInstall.BeginSession();
             _notesSeen = ManualInstall.NotesVersion;
-            _lookupsSeen = NexusLookup.ResultsVersion;
+            _lookupsSeen = LookupsVersion;
             PrefetchLinks(diff);
             _active = true;
 
@@ -162,8 +162,10 @@ namespace SideHustle.Menu
                         // Never a dead button: the host's exact link when it is a trusted URL, else the mod's own Nexus
                         // page once the name lookup has identified it, else a Nexus search for the name.
                         bool hasDirect = DownloadLink.IsAllowed(LinkUrl(entry));
+                        string page = hasDirect ? null : DownloadLink.PageFor(entry.Mod);
                         string label = hasDirect ? "Open link"
-                            : DownloadLink.HasNexusPage(ManualQuery(entry)) ? "Open Nexus" : "Find online";
+                            : page == null ? "Find online"
+                            : page.IndexOf("thunderstore.io", StringComparison.OrdinalIgnoreCase) >= 0 ? "Open page" : "Open Nexus";
                         var (linkGO, linkBtn, _) = UIFactory.ButtonWithLabel("link", label, row.transform, Theme.Button, 110f, 34f);
                         var lrt2 = linkGO.GetComponent<RectTransform>();
                         lrt2.anchorMin = new Vector2(1, 0.5f); lrt2.anchorMax = new Vector2(1, 0.5f); lrt2.pivot = new Vector2(1, 0.5f);
@@ -216,8 +218,11 @@ namespace SideHustle.Menu
         private static void OpenFor(DiffEntry e)
         {
             string u = LinkUrl(e);
-            DownloadLink.OpenExternal(DownloadLink.IsAllowed(u) ? u : DownloadLink.NexusUrl(ManualQuery(e)));
+            DownloadLink.OpenExternal(DownloadLink.IsAllowed(u) ? u : DownloadLink.UrlFor(e.Mod));
         }
+
+        // Either lookup landing changes which link a row offers.
+        private static int LookupsVersion => NexusLookup.ResultsVersion + SourceLookup.ResultsVersion;
 
         // The URL the host published for this mod ("nx:<url>"), or null when the mod came without a source.
         private static string LinkUrl(DiffEntry e) =>
@@ -246,14 +251,6 @@ namespace SideHustle.Menu
         /// <summary>Whether the checklist has anything the player could install by hand: it lists Manual and Dropped
         /// entries, and a Dropped one has no source to fetch from, so a list of only those is just a dead end.</summary>
         internal static bool HasHandInstall(SyncDiff diff) => diff.Entries.Any(e => e.Status == DiffStatus.Manual);
-
-        // The search term for a manual mod: its name, or the DLL file name without extension when the name is blank.
-        private static string ManualQuery(DiffEntry e)
-        {
-            if (!string.IsNullOrEmpty(e.Mod.Name)) return e.Mod.Name;
-            var f = e.Mod.File ?? "";
-            return f.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? f.Substring(0, f.Length - 4) : f;
-        }
 
         private static void ShowToast(string message, Severity sev)
         {

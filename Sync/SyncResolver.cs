@@ -32,6 +32,13 @@ namespace SideHustle.Sync
         /// <summary>Client-side hint for the manual checklist (near-miss guidance from the folder watcher);
         /// never part of the manifest.</summary>
         public string ManualNote;
+        /// <summary>A "ts:" source the Side Hustle backend found for an UNSOURCED manifest row by matching its file
+        /// hash inside a Thunderstore package. Kept here, not written into the manifest: the manifest's canonical
+        /// text is hashed and must stay exactly what the host published.</summary>
+        public string ResolvedSource;
+
+        /// <summary>Where this entry is fetched from: the host's source, or the one the backend resolved.</summary>
+        public string EffectiveSource => !string.IsNullOrEmpty(Mod?.Source) ? Mod.Source : ResolvedSource ?? "";
 
         /// <summary>The identity of this entry in progress reporting: the display name, else the file name. Exactly
         /// what the plan rows are keyed by (<c>SyncDownloadProgress.PlanFrom</c>) and what every
@@ -142,6 +149,8 @@ namespace SideHustle.Sync
                 diff.Entries.Add(e);
             }
 
+            ResolveUnsourced(diff);
+
             var inManifest = new HashSet<string>(manifest.Mods.Select(m => m.File), StringComparer.OrdinalIgnoreCase);
             foreach (var m in loadedList)
             {
@@ -150,6 +159,51 @@ namespace SideHustle.Sync
                 diff.LocalOnly.Add(m.Name ?? m.File);
             }
             return diff;
+        }
+
+        /// <summary>
+        /// Ask the Side Hustle backend about every mod the host could not source and the client cannot cover from
+        /// its own install (status Dropped). A row whose file hash the backend found inside a Thunderstore package
+        /// becomes a Download from that package; the download is hash-checked against the manifest like any ts: row,
+        /// and falls back to Dropped when it does not match. Everything else stays Dropped, and its page link (if
+        /// any) is now cached for the manual checklist. Blocks up to <see cref="SourceLookup.JoinBudget"/>; Compute
+        /// already runs on a worker thread.
+        /// </summary>
+        // The Thunderstore build downloads no packages, so a resolved package there only improves the checklist link.
+#if NO_EXTERNAL_FETCH
+        private const bool CanDownloadPackages = false;
+#else
+        private const bool CanDownloadPackages = true;
+#endif
+
+        private static void ResolveUnsourced(SyncDiff diff)
+        {
+            var rows = diff.Entries.Where(x => x.Status == DiffStatus.Dropped && string.IsNullOrEmpty(x.Mod.Source)).ToList();
+            if (rows.Count == 0) return;
+            if (!SourceLookup.Enabled) { Core.Log?.Msg($"[sync] source lookup is off; {rows.Count} unsourced mod(s) stay dropped."); return; }
+
+            var queries = rows.Select(x => SourceLookup.For(x.Mod)).ToList();
+            Core.Log?.Msg($"[sync] looking up {rows.Count} unsourced mod(s): " + string.Join(", ", queries.Select(q => $"{q.Name} {q.Version}")));
+            var answers = SourceLookup.ResolveNow(queries, SourceLookup.JoinBudget);
+
+            for (int i = 0; i < rows.Count; i++)
+            {
+                var e = rows[i];
+                answers.TryGetValue(SourceLookup.Key(queries[i]), out var a);
+                if (SourceLookup.IsAutoInstallable(a, e.Mod.Sha256) && !CanDownloadPackages)
+                    Core.Log?.Msg($"[sync] '{e.Mod.File}': file hash matches {a.Source}; this build does not download, so it stays on the checklist.");
+                else if (SourceLookup.IsAutoInstallable(a, e.Mod.Sha256))
+                {
+                    e.ResolvedSource = a.Source;
+                    e.Status = DiffStatus.Download;
+                    Core.Log?.Msg($"[sync] '{e.Mod.File}': file hash matches {a.Source}; downloading it from Thunderstore.");
+                }
+                else if (a == null)
+                    Core.Log?.Msg($"[sync] '{e.Mod.File}': no source found in time; stays dropped.");
+                else
+                    Core.Log?.Msg($"[sync] '{e.Mod.File}': {a.Resolution} [{a.Confidence}] is not a file-hash match; stays dropped"
+                                  + (string.IsNullOrEmpty(a.Url) ? "." : $" with link {a.Url}."));
+            }
         }
 
         /// <summary>Download every auto-fetchable entry (ts: Thunderstore, GitHub releases) that is not yet
@@ -206,13 +260,14 @@ namespace SideHustle.Sync
                 string key = e.Key;
                 progress?.Report(SyncProgressEvent.Started(key));
 
-                if (GhReleases.CanAutoFetch(e.Mod.Source))
+                string source = e.EffectiveSource;
+                if (GhReleases.CanAutoFetch(source))
                 {
                     byte[] bytes = null;
                     string ghWhy = null;
                     try
                     {
-                        bytes = await GhReleases.TryFetchAsync(e.Mod.Source.Substring(3), e.Mod.Version, e.Mod.Sha256, ct,
+                        bytes = await GhReleases.TryFetchAsync(source.Substring(3), e.Mod.Version, e.Mod.Sha256, ct,
                             failed: w => ghWhy = w,
                             onBytes: (d, t) => progress?.Report(SyncProgressEvent.Progress(key, d, t))).ConfigureAwait(false);
                     }
@@ -242,7 +297,7 @@ namespace SideHustle.Sync
                 // A failed auto-download must not stay "Download": that status means "will be fetched", so the entry
                 // would silently vanish from the profile inputs while the checklist (which lists manual/dropped rows)
                 // never shows it. Demote it to what it actually is - a mod the player has to fetch by hand.
-                if (!TsIndex.SplitDependency(e.Mod.Source.Substring(3), out var fullName, out var version))
+                if (source.Length <= 3 || !TsIndex.SplitDependency(source.Substring(3), out var fullName, out var version))
                 { Fail(e, "no usable download link", e.Mod.Name ?? e.Mod.File); continue; }
 
                 string tsWhy = null;
@@ -256,6 +311,17 @@ namespace SideHustle.Sync
                 }
                 string src = PackageCache.FindExtractedFile(dir, e.Mod.File);
                 string sha = src != null ? ProfileBuilder.Sha256OfFile(src) : null;
+                // A backend-resolved package matched on the HASH, so its DLL may carry another file name than the
+                // host's. Take the file with the host's bytes; the profile still links it under the manifest's name.
+                if (e.ResolvedSource != null && !string.Equals(sha, e.Mod.Sha256, StringComparison.OrdinalIgnoreCase))
+                {
+                    string byHash = FindByHash(dir, e.Mod.Sha256);
+                    if (byHash != null)
+                    {
+                        Core.Log?.Msg($"[sync] '{e.Mod.File}': {fullName} ships it as '{Path.GetFileName(byHash)}' (same bytes).");
+                        src = byHash; sha = e.Mod.Sha256;
+                    }
+                }
                 if (src != null && string.Equals(sha, e.Mod.Sha256, StringComparison.OrdinalIgnoreCase))
                 {
                     e.Status = DiffStatus.Cached;
@@ -279,7 +345,7 @@ namespace SideHustle.Sync
             // downloaded. A rejoin (or a second sync against the same host) resolves the mods straight from the
             // package cache, and the libraries must still be there.
             var tsEntries = diff.Entries
-                .Where(x => x.Mod?.Source != null && x.Mod.Source.StartsWith("ts:", StringComparison.Ordinal)
+                .Where(x => x.Mod != null && x.EffectiveSource.StartsWith("ts:", StringComparison.Ordinal)
                             && x.Status != DiffStatus.Manual && x.Status != DiffStatus.Dropped)
                 .ToList();
             if (tsEntries.Count > 0)
@@ -288,7 +354,7 @@ namespace SideHustle.Sync
                 {
                     index ??= await ThunderstoreClient.GetIndexAsync(ProfileEngine.GameRoot, false, ct).ConfigureAwait(false);
                     foreach (var e in tsEntries)
-                        if (TsIndex.SplitDependency(e.Mod.Source.Substring(3), out var fn, out var ver))
+                        if (TsIndex.SplitDependency(e.EffectiveSource.Substring(3), out var fn, out var ver))
                             await EnsureLibDependenciesAsync(diff, index, fn, ver, ct).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) { throw; }
@@ -305,6 +371,21 @@ namespace SideHustle.Sync
         {
             e.Status = string.IsNullOrEmpty(e.Mod.Source) ? DiffStatus.Dropped : DiffStatus.Manual;
             if (!string.IsNullOrEmpty(why)) e.ManualNote = why;
+            // A resolved package that failed is no longer this entry's source, so its libraries stay out of the profile.
+            e.ResolvedSource = null;
+        }
+
+        /// <summary>The DLL under a package directory whose bytes hash to <paramref name="sha256"/>, else null.</summary>
+        private static string FindByHash(string dir, string sha256)
+        {
+            try
+            {
+                foreach (var f in Directory.GetFiles(dir, "*.dll", SearchOption.AllDirectories))
+                    if (string.Equals(ProfileBuilder.Sha256OfFile(f), sha256, StringComparison.OrdinalIgnoreCase)) return f;
+                Core.Log?.Warning($"[sync] no DLL in '{dir}' has the host's hash {sha256}.");
+            }
+            catch (Exception e) { Core.Log?.Warning($"[sync] could not search '{dir}' by hash: {e.Message}"); }
+            return null;
         }
 
         /// <summary>How deep the dependency walk goes, and how many library packages it may fetch - a runaway
@@ -396,8 +477,8 @@ namespace SideHustle.Sync
                         AddPackage(dn, dv, depth + 1);
             }
             foreach (var e in diff.Entries)
-                if (e.Mod?.Source != null && e.Mod.Source.StartsWith("ts:", StringComparison.Ordinal)
-                    && TsIndex.SplitDependency(e.Mod.Source.Substring(3), out var fn, out var ver))
+                if (e.Mod != null && e.EffectiveSource.StartsWith("ts:", StringComparison.Ordinal)
+                    && TsIndex.SplitDependency(e.EffectiveSource.Substring(3), out var fn, out var ver))
                     AddPackage(fn, ver, 0);
             foreach (var d in diff.LibPackageDirs) AddDir(d);
 
