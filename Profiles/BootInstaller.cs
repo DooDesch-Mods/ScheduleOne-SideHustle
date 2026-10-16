@@ -25,7 +25,8 @@ namespace SideHustle.Profiles
                 string target = Path.Combine(pluginsDir, ResourceName);
                 string old = target + ".old";
 
-                try { if (File.Exists(old)) File.Delete(old); } catch { /* still loaded from a swap last session */ }
+                try { if (File.Exists(old)) File.Delete(old); }
+                catch (Exception e) { Core.Log?.Msg("[profiles] the previous boot plugin copy is still loaded and stays until next launch: " + e.Message); }
 
                 byte[] embedded = ReadEmbedded();
                 if (embedded == null || embedded.Length == 0)
@@ -38,19 +39,36 @@ namespace SideHustle.Profiles
                 {
                     byte[] existing = File.ReadAllBytes(target);
                     if (existing.AsSpan().SequenceEqual(embedded)) return;   // up to date
-
-                    try
-                    {
-                        File.Delete(target);   // not loaded (e.g. was never picked up) - plain replace
-                    }
-                    catch
-                    {
-                        File.Move(target, old);   // loaded: rename-swap (NTFS allows renaming a loaded DLL)
-                    }
                 }
 
+                // The new copy is written beside the old one FIRST, so a failed or interrupted write never leaves the
+                // plugin folder without a working picker; only the final move replaces it.
                 Directory.CreateDirectory(pluginsDir);
-                File.WriteAllBytes(target, embedded);
+                string fresh = target + ".new";
+                try
+                {
+                    File.WriteAllBytes(fresh, embedded);
+                    if (File.Exists(target))
+                    {
+                        try
+                        {
+                            File.Move(fresh, target, true);   // not loaded (e.g. never picked up) - plain replace
+                        }
+                        catch (Exception e)
+                        {
+                            Core.Log?.Msg("[profiles] the boot plugin is loaded; swapping it by rename: " + e.Message);
+                            File.Move(target, old, true);     // loaded: rename-swap (NTFS allows renaming a loaded DLL)
+                            File.Move(fresh, target);
+                        }
+                    }
+                    else File.Move(fresh, target);
+                }
+                catch
+                {
+                    try { if (File.Exists(fresh)) File.Delete(fresh); }
+                    catch (Exception cleanup) { Core.Log?.Warning("[profiles] could not remove the unfinished boot plugin copy: " + cleanup.Message); }
+                    throw;   // reported once by the handler below
+                }
                 Core.Log?.Msg("[profiles] boot plugin installed/updated (active from the next launch).");
             }
             catch (Exception e)
@@ -69,7 +87,11 @@ namespace SideHustle.Profiles
                 s.CopyTo(ms);
                 return ms.ToArray();
             }
-            catch { return null; }
+            catch (Exception e)
+            {
+                Core.Log?.Warning("[profiles] could not read the embedded boot plugin: " + e.Message);
+                return null;
+            }
         }
     }
 }

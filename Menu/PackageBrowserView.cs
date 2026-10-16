@@ -31,12 +31,9 @@ namespace SideHustle.Menu
         internal static void Build(Transform formHost, Action onBack, Action<string, string> onInstall,
             Func<string, bool> isInstalled = null)
         {
-            const float Pad = 30f;
-
-            var footer = UIFactory.Panel("footer", formHost, Theme.Clear);
-            var frt = footer.GetComponent<RectTransform>();
-            frt.anchorMin = new Vector2(0, 0); frt.anchorMax = new Vector2(1, 0); frt.pivot = new Vector2(0.5f, 0);
-            frt.offsetMin = new Vector2(Pad, 0); frt.offsetMax = new Vector2(-Pad, 56);
+            const float Pad = Scaffold.Pad;
+            var page = Scaffold.Create(formHost, topInset: 96f);
+            var content = page.Content;
 
             var searchArea = UIFactory.Panel("search", formHost, Theme.Clear);
             var sart = searchArea.GetComponent<RectTransform>();
@@ -48,16 +45,11 @@ namespace SideHustle.Menu
             sortRt.anchorMin = new Vector2(0, 1); sortRt.anchorMax = new Vector2(1, 1); sortRt.pivot = new Vector2(0.5f, 1);
             sortRt.offsetMin = new Vector2(Pad, -90); sortRt.offsetMax = new Vector2(-Pad, -56);
 
-            var listArea = UIFactory.Panel("list", formHost, Theme.Clear);
-            var lrt = listArea.GetComponent<RectTransform>();
-            lrt.anchorMin = new Vector2(0, 0); lrt.anchorMax = new Vector2(1, 1);
-            lrt.offsetMin = new Vector2(Pad, 64); lrt.offsetMax = new Vector2(-Pad, -96);
-
-            var content = Components.ScrollList(listArea.transform, out var scroll, 6f, Theme.ScrimPanel);
-            SmoothScroll.Attach(scroll);
 
             TsIndex index = null;
             string query = "";
+            bool loadFailed = false;
+            System.Action load = null;
 
             void Render()
             {
@@ -66,7 +58,16 @@ namespace SideHustle.Menu
 
                 if (index == null)
                 {
-                    UIFactory.Text("loading", "Loading the package index...", content, 18, TextAnchor.MiddleCenter);
+                    if (!loadFailed)
+                    {
+                        UIFactory.Text("loading", "Loading the package index...", content, Theme.H2, TextAnchor.MiddleCenter);
+                        return;
+                    }
+                    UIFactory.Text("offline", "Couldn't load the mod list.", content, Theme.H2, TextAnchor.MiddleCenter);
+                    var (retryGO, retryBtn, _r) = UIFactory.ButtonWithLabel("retry", "Retry", content, Theme.Accent, 160, 40);
+                    var retryLe = retryGO.AddComponent<LayoutElement>(); retryLe.minHeight = 40f; retryLe.preferredHeight = 40f;
+                    retryBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => load()));
+                    Interactions.PolishButtons(content);
                     return;
                 }
 
@@ -84,7 +85,7 @@ namespace SideHustle.Menu
 
                 if (results.Count == 0)
                 {
-                    UIFactory.Text("none", "No packages match.", content, 18, TextAnchor.MiddleCenter);
+                    UIFactory.Text("none", "No packages match.", content, Theme.H2, TextAnchor.MiddleCenter);
                     return;
                 }
 
@@ -119,12 +120,12 @@ namespace SideHustle.Menu
                         prt.anchorMin = new Vector2(0, 1); prt.anchorMax = new Vector2(0, 1); prt.pivot = new Vector2(0, 1);
                         prt.sizeDelta = new Vector2(PillW, 18f); prt.anchoredPosition = new Vector2(TextLeft, -33f);
                         var pl = UIFactory.Text("t", "Modpack", pill.transform, Theme.Caption, TextAnchor.MiddleCenter, FontStyle.Bold);
-                        pl.color = Color.white; pl.raycastTarget = false;
+                        pl.color = Theme.TextPrimary; pl.raycastTarget = false;
                         var plrt = pl.rectTransform; plrt.anchorMin = Vector2.zero; plrt.anchorMax = Vector2.one; plrt.offsetMin = Vector2.zero; plrt.offsetMax = Vector2.zero;
                         metaLeft = TextLeft + PillW + 8f;
                     }
 
-                    var meta = UIFactory.Text("meta", $"by {p.Owner} - v{p.Latest.VersionNumber} - {Downloads(p.TotalDownloads)} downloads",
+                    var meta = UIFactory.Text("meta", $"by {p.Owner} - v{p.Latest.VersionNumber} - {Downloads(p.TotalDownloads)} {(p.TotalDownloads == 1 ? "download" : "downloads")}",
                         row.transform, Theme.Body, TextAnchor.UpperLeft);
                     meta.color = Theme.TextMuted; meta.horizontalOverflow = HorizontalWrapMode.Overflow;
                     var metaRt = meta.rectTransform;
@@ -169,27 +170,34 @@ namespace SideHustle.Menu
             var seg = Components.Segmented(sortArea.transform, SortLabels, _sortMode, i => { _sortMode = i; Render(); }, out _);
             Components.FillSlot(seg);
 
-            var (backGO, backBtn, _b) = UIFactory.ButtonWithLabel("Back", "Back", footer.transform, Theme.Button, 140, 40);
-            var bprt = backGO.GetComponent<RectTransform>();
-            bprt.anchorMin = new Vector2(0, 0.5f); bprt.anchorMax = new Vector2(0, 0.5f); bprt.pivot = new Vector2(0, 0.5f);
-            bprt.anchoredPosition = new Vector2(0f, 0f);
-            backBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => onBack?.Invoke()));
+            Scaffold.FooterButton(page.Footer, "Back", Theme.Button, left: true, onClick: onBack);
 
             Render();
             Interactions.PolishButtons(formHost);
 
-            System.Threading.Tasks.Task.Run(async () =>
+            load = () =>
             {
-                TsIndex idx = null;
-                try { idx = await ThunderstoreClient.GetIndexAsync(ProfileEngine.GameRoot, false, System.Threading.CancellationToken.None); }
-                catch { /* offline: idx stays null */ }
-                MainThread.Post(() =>
+                loadFailed = false;
+                Render();
+                System.Threading.Tasks.Task.Run(async () =>
                 {
-                    if (content == null) return;   // the view was torn down meanwhile
-                    index = idx ?? new TsIndex(new List<TsPackage>());
-                    Render();
+                    TsIndex idx = null;
+                    try { idx = await ThunderstoreClient.GetIndexAsync(ProfileEngine.GameRoot, false, System.Threading.CancellationToken.None); }
+                    catch (Exception e) { Core.Log?.Warning("[profiles] could not load the Thunderstore index (offline?): " + e.Message); }
+                    MainThread.Post(() =>
+                    {
+                        if (content == null) return;   // the view was torn down meanwhile
+                        if (idx == null)
+                        {
+                            Core.Log?.Warning("[profiles] the Thunderstore index did not load; offering a retry.");
+                            loadFailed = true;
+                        }
+                        else index = idx;
+                        Render();
+                    });
                 });
-            });
+            };
+            load();
         }
 
         // Two tight lines anchored from the row's top edge (name over meta), between the left icon and the right

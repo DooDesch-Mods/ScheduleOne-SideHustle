@@ -85,7 +85,8 @@ namespace SideHustle.Menu
         {
             // Hide the vanilla save picker so it cannot bleed through the dialog scrim. The
             // reference is kept so Just-play still loads and dismiss can reopen it.
-            try { screen.Close(); } catch { }
+            try { screen.Close(); }
+            catch (Exception e) { Core.Log?.Warning("[sync] could not hide the save picker behind the host prompt: " + e.Message); }
 
             var root = Hub.DialogRootStatic();
             if (root == null)
@@ -96,24 +97,21 @@ namespace SideHustle.Menu
 
             GameObject scrim = DooDesch.UI.Components.CountdownDialog(root,
                 "Host this save publicly?",
-                $"Open '{SafeOrg(save)}' as a public Side Hustle lobby so others can join with matching mods - or just play it solo.",
+                $"Open '{SafeOrg(save)}' as a public lobby, or play solo.",
                 "Host publicly", "Just play",
                 onConfirm: () =>
                 {
                     DestroyScrim();
                     Hub.HostVanillaSave(save);
                 },
-                onCancel: () =>
-                {
-                    DestroyScrim();
-                    try { _bypass = true; screen.LoadGame(index); }
-                    finally { _bypass = false; }
-                },
+                onCancel: () => JustPlay(screen, index),
                 out var countdown,
                 onDismiss: () =>
                 {
                     DestroyScrim();
-                    try { screen.Open(); } catch { }   // back to the save picker; nothing hosted or loaded
+                    // Back to the save picker; nothing hosted or loaded.
+                    try { screen.Open(); }
+                    catch (Exception e) { Core.Log?.Warning("[sync] could not reopen the save picker: " + e.Message); }
                 });
 
             // A dialog that was built but is not actually in a live, active hierarchy is worse than
@@ -128,7 +126,43 @@ namespace SideHustle.Menu
 
             _scrim = scrim;
             if (countdown != null) countdown.text = "";   // no timer: a deliberate choice, not a countdown
+            AddDontAskButton(scrim, () =>
+            {
+                Preferences.AskHostOnContinue = false;
+                Core.Log?.Msg("[sync] the host prompt was turned off from the prompt itself.");
+                Hub.Notify("Won't ask again. Turn it back on in the Side Hustle settings.", DooDesch.UI.Severity.Info);
+                JustPlay(screen, index);
+            });
             return true;
+        }
+
+        /// <summary>Load the save the way the game would have, without asking again for this click.</summary>
+        private static void JustPlay(ContinueScreen screen, int index)
+        {
+            DestroyScrim();
+            try { _bypass = true; screen.LoadGame(index); }
+            finally { _bypass = false; }
+        }
+
+        /// <summary>A third choice under the dialog's two: the shared dialog only has Cancel and Confirm, so the card
+        /// grows by one button row and the new button sits above them.</summary>
+        private static void AddDontAskButton(GameObject scrim, Action onClick)
+        {
+            var card = scrim.transform.Find("card");
+            if (card == null) { Core.Log?.Warning("[sync] the host prompt has no card to add the opt-out button to."); return; }
+            var crt = card.GetComponent<RectTransform>();
+            crt.sizeDelta = new Vector2(crt.sizeDelta.x, crt.sizeDelta.y + 48f);
+
+            var (go, btn, _) = S1API.UI.UIFactory.ButtonWithLabel("DontAsk", "Don't ask again", card, DooDesch.UI.Theme.Button, 420, 40);
+            var rt = go.GetComponent<RectTransform>();
+            rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0); rt.pivot = new Vector2(0.5f, 0);
+            rt.anchoredPosition = new Vector2(0, 66); rt.sizeDelta = new Vector2(420, 40);
+            btn.onClick.AddListener((UnityEngine.Events.UnityAction)(() =>
+            {
+                try { onClick(); }
+                catch (Exception e) { Core.Log?.Error("[sync] the opt-out button failed: " + e); }
+            }));
+            DooDesch.UI.Interactions.PolishButtons(card);
         }
 
 #if DEBUG
@@ -140,7 +174,7 @@ namespace SideHustle.Menu
             if (root == null) return;
             _scrim = DooDesch.UI.Components.CountdownDialog(root,
                 "Host this save publicly?",
-                "Open 'Kings of Cul-de-Sac' as a public Side Hustle lobby so others can join with matching mods - or just play it solo.",
+                "Open 'Kings of Cul-de-Sac' as a public lobby, or play solo.",
                 "Host publicly", "Just play",
                 onConfirm: DestroyScrim, onCancel: DestroyScrim, out var countdown);
             if (countdown != null) countdown.text = "";
@@ -150,13 +184,13 @@ namespace SideHustle.Menu
         private static GameObject _scrim;
         private static void DestroyScrim()
         {
-            if (_scrim != null) { try { UnityEngine.Object.Destroy(_scrim); } catch { } _scrim = null; }
+            if (_scrim != null) { Safe.Try("closing the host prompt", () => UnityEngine.Object.Destroy(_scrim)); _scrim = null; }
         }
 
         private static string SafeOrg(Il2CppScheduleOne.Persistence.SaveInfo save)
         {
             try { return string.IsNullOrEmpty(save.OrganisationName) ? "this save" : save.OrganisationName; }
-            catch { return "this save"; }
+            catch (Exception e) { Safe.Report("reading the organisation name for the host prompt", e); return "this save"; }
         }
     }
 }

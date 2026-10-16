@@ -32,6 +32,11 @@ namespace SideHustle.Sync
         /// <summary>Client-side hint for the manual checklist (near-miss guidance from the folder watcher);
         /// never part of the manifest.</summary>
         public string ManualNote;
+
+        /// <summary>The identity of this entry in progress reporting: the display name, else the file name. Exactly
+        /// what the plan rows are keyed by (<c>SyncDownloadProgress.PlanFrom</c>) and what every
+        /// <see cref="SyncProgressEvent"/> carries.</summary>
+        public string Key => Mod?.Name ?? Mod?.File ?? "mod";
     }
 
     internal sealed class SyncDiff
@@ -149,38 +154,86 @@ namespace SideHustle.Sync
 
         /// <summary>Download every auto-fetchable entry (ts: Thunderstore, GitHub releases) that is not yet
         /// available locally. Returns false when one failed (the caller re-computes the diff and shows what is
-        /// still missing).</summary>
+        /// still missing).
+        ///
+        /// <paramref name="progress"/> receives explicit <see cref="SyncProgressEvent"/>s keyed by
+        /// <see cref="DiffEntry.Key"/>: Started, Bytes, then exactly one of Ready (hash verified, in the cache) or
+        /// Failed(reason) per entry.
+        ///
+        /// Cancelling <paramref name="ct"/> stops the transfer, deletes the partial file, leaves the remaining entries
+        /// as they were (still Download) and returns false; check <c>ct.IsCancellationRequested</c> to tell it from a
+        /// failure. It never throws for a cancellation.</summary>
         internal static async System.Threading.Tasks.Task<bool> DownloadMissingAsync(SyncDiff diff,
-            IProgress<(string Label, long Done, long Total)> progress, System.Threading.CancellationToken ct)
+            IProgress<SyncProgressEvent> progress, System.Threading.CancellationToken ct)
+        {
+            try { return await DownloadPendingAsync(diff, progress, ct).ConfigureAwait(false); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                Core.Log?.Msg("[sync] download cancelled.");
+                return false;
+            }
+        }
+
+        /// <summary>Adapts the byte callback of the shared Thunderstore downloader to a keyed event.</summary>
+        private sealed class BytesToEvents : IProgress<(string Label, long Done, long Total)>
+        {
+            private readonly string _key;
+            private readonly IProgress<SyncProgressEvent> _sink;
+            internal BytesToEvents(string key, IProgress<SyncProgressEvent> sink) { _key = key; _sink = sink; }
+            public void Report((string Label, long Done, long Total) v) => _sink?.Report(SyncProgressEvent.Progress(_key, v.Done, v.Total));
+        }
+
+        private static async System.Threading.Tasks.Task<bool> DownloadPendingAsync(SyncDiff diff,
+            IProgress<SyncProgressEvent> progress, System.Threading.CancellationToken ct)
         {
             TsIndex index = null;   // fetched lazily - a gh-only diff never needs the Thunderstore index
             bool allOk = true;
-            foreach (var e in diff.Entries.Where(x => x.Status == DiffStatus.Download))
+
+            // An entry that could not be fetched: one event, one Unresolved line, one log line, and it becomes a
+            // hand-install through Downgrade (not by setting the status, which would skip the note).
+            void Fail(DiffEntry e, string reason, string unresolvedLabel)
             {
+                Core.Log?.Warning($"[sync] '{e.Mod.File}': {reason}; falling back to the manual link.");
+                diff.Unresolved.Add($"{unresolvedLabel} - {reason}");
+                progress?.Report(SyncProgressEvent.Failed(e.Key, reason));
+                Downgrade(e, char.ToUpperInvariant(reason[0]) + reason.Substring(1));
+                allOk = false;
+            }
+
+            foreach (var e in diff.Entries.Where(x => x.Status == DiffStatus.Download).ToList())
+            {
+                ct.ThrowIfCancellationRequested();
+                string key = e.Key;
+                progress?.Report(SyncProgressEvent.Started(key));
+
                 if (GhReleases.CanAutoFetch(e.Mod.Source))
                 {
-                    progress?.Report((e.Mod.File, 0, 0));
                     byte[] bytes = null;
-                    try { bytes = await GhReleases.TryFetchAsync(e.Mod.Source.Substring(3), e.Mod.Version, e.Mod.Sha256, ct).ConfigureAwait(false); }
+                    string ghWhy = null;
+                    try
+                    {
+                        bytes = await GhReleases.TryFetchAsync(e.Mod.Source.Substring(3), e.Mod.Version, e.Mod.Sha256, ct,
+                            failed: w => ghWhy = w,
+                            onBytes: (d, t) => progress?.Report(SyncProgressEvent.Progress(key, d, t))).ConfigureAwait(false);
+                    }
                     catch (OperationCanceledException) { throw; }
-                    catch (Exception ex) { Core.Log?.Warning($"[sync] '{e.Mod.File}': GitHub fetch failed: {ex.Message}"); }
+                    catch (Exception ex) { ghWhy = ex.Message; Core.Log?.Warning($"[sync] '{e.Mod.File}': GitHub fetch failed: {ex.Message}"); }
+
                     string ghPromoted = bytes != null
                         ? ManualInstall.PromoteBytes(bytes, e.Mod.File, e.Mod.Sha256.ToLowerInvariant()) : null;
                     if (ghPromoted != null)
                     {
                         e.Status = DiffStatus.Cached;
                         e.SourcePath = ghPromoted;
+                        progress?.Report(SyncProgressEvent.Ready(key));
                     }
                     else
                     {
-                        Core.Log?.Warning($"[sync] '{e.Mod.File}': no GitHub release asset matched the host's hash; falling back to the manual link.");
-                        diff.Unresolved.Add($"{e.Mod.Name ?? e.Mod.File} {e.Mod.Version} - no published file matches the host's build");
-                        // Through Downgrade, not by hand: setting the status directly skipped the note, so the one
-                        // case where the checklist genuinely cannot be worked through - the host is running something
-                        // they built themselves, which exists nowhere to download - looked exactly like a mod still
-                        // waiting to be fetched. The player then hunts a file that was never published.
-                        Downgrade(e, "No download matches the host's build");
-                        allOk = false;
+                        // The one case where the checklist genuinely cannot be worked through is a host running a
+                        // build they made themselves, which exists nowhere to download - say that, not "failed".
+                        string reason = bytes != null ? "the file could not be saved to the cache"
+                            : ghWhy ?? "no published file matches the host's build";
+                        Fail(e, reason, $"{e.Mod.Name ?? e.Mod.File} {e.Mod.Version}");
                     }
                     continue;
                 }
@@ -190,14 +243,16 @@ namespace SideHustle.Sync
                 // would silently vanish from the profile inputs while the checklist (which lists manual/dropped rows)
                 // never shows it. Demote it to what it actually is - a mod the player has to fetch by hand.
                 if (!TsIndex.SplitDependency(e.Mod.Source.Substring(3), out var fullName, out var version))
-                { Downgrade(e, "No usable download link"); allOk = false; continue; }
-                string dir = await ThunderstoreClient.EnsurePackageAsync(ProfileEngine.GameRoot, index, fullName, version, progress, ct).ConfigureAwait(false);
+                { Fail(e, "no usable download link", e.Mod.Name ?? e.Mod.File); continue; }
+
+                string tsWhy = null;
+                string dir = await ThunderstoreClient.EnsurePackageAsync(ProfileEngine.GameRoot, index, fullName, version,
+                    new BytesToEvents(key, progress), ct, failed: w => tsWhy = w).ConfigureAwait(false);
+                ct.ThrowIfCancellationRequested();   // EnsurePackageAsync reports a cancellation as a plain null
                 if (dir == null)
                 {
-                    Core.Log?.Warning($"[sync] '{e.Mod.File}': {fullName} {version} could not be downloaded; falling back to the manual link.");
-                    diff.Unresolved.Add($"{fullName} {version} - could not be downloaded");
-                    Downgrade(e, "Thunderstore would not hand it over");
-                    allOk = false; continue;
+                    Fail(e, tsWhy ?? "Thunderstore would not hand it over", $"{fullName} {version}");
+                    continue;
                 }
                 string src = PackageCache.FindExtractedFile(dir, e.Mod.File);
                 string sha = src != null ? ProfileBuilder.Sha256OfFile(src) : null;
@@ -205,6 +260,7 @@ namespace SideHustle.Sync
                 {
                     e.Status = DiffStatus.Cached;
                     e.SourcePath = src;
+                    progress?.Report(SyncProgressEvent.Ready(key));
                 }
                 else
                 {
@@ -213,6 +269,7 @@ namespace SideHustle.Sync
                     // "host runs their own build with a released version number" case, so SAY that - otherwise the
                     // player is told "Thunderstore" on the consent screen and then handed a manual checklist.
                     Core.Log?.Warning($"[sync] '{e.Mod.File}': downloaded {fullName} {version} does not match the host's hash; skipping.");
+                    progress?.Report(SyncProgressEvent.Failed(key, $"host's build differs from Thunderstore {version}"));
                     Downgrade(e, $"Host's build differs from Thunderstore {version}");
                     allOk = false;
                 }
@@ -232,7 +289,7 @@ namespace SideHustle.Sync
                     index ??= await ThunderstoreClient.GetIndexAsync(ProfileEngine.GameRoot, false, ct).ConfigureAwait(false);
                     foreach (var e in tsEntries)
                         if (TsIndex.SplitDependency(e.Mod.Source.Substring(3), out var fn, out var ver))
-                            await EnsureLibDependenciesAsync(diff, index, fn, ver, progress, ct).ConfigureAwait(false);
+                            await EnsureLibDependenciesAsync(diff, index, fn, ver, ct).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception e) { Core.Log?.Warning("[sync] library dependencies could not be resolved: " + e.Message); }
@@ -266,8 +323,7 @@ namespace SideHustle.Sync
         /// work, and the session runs either way).
         /// </summary>
         private static async System.Threading.Tasks.Task EnsureLibDependenciesAsync(SyncDiff diff, TsIndex index,
-            string fullName, string version, IProgress<(string Label, long Done, long Total)> progress,
-            System.Threading.CancellationToken ct, int depth = 0)
+            string fullName, string version, System.Threading.CancellationToken ct, int depth = 0)
         {
             if (index == null || depth >= MaxLibDepth || diff.LibPackageDirs.Count >= MaxLibPackages) return;
             var deps = index.Find(fullName)?.Get(version)?.Dependencies;
@@ -285,8 +341,9 @@ namespace SideHustle.Sync
 
                 try
                 {
-                    dir = await ThunderstoreClient.EnsurePackageAsync(ProfileEngine.GameRoot, index, depName, depVersion, progress, ct)
+                    dir = await ThunderstoreClient.EnsurePackageAsync(ProfileEngine.GameRoot, index, depName, depVersion, null, ct)
                         .ConfigureAwait(false);
+                    ct.ThrowIfCancellationRequested();
                 }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception e) { Core.Log?.Warning($"[sync] dependency '{dep}' could not be fetched: {e.Message}"); continue; }
@@ -299,7 +356,7 @@ namespace SideHustle.Sync
                     diff.LibPackageDirs.Add(dir);
                     Core.Log?.Msg($"[sync] library dependency '{dep}' fetched for the session profile.");
                 }
-                await EnsureLibDependenciesAsync(diff, index, depName, depVersion, progress, ct, depth + 1).ConfigureAwait(false);
+                await EnsureLibDependenciesAsync(diff, index, depName, depVersion, ct, depth + 1).ConfigureAwait(false);
             }
         }
 
@@ -457,7 +514,11 @@ namespace SideHustle.Sync
                 }
                 return false;
             }
-            catch { return false; }
+            catch (Exception ex)
+            {
+                Core.Log?.Warning($"[sync] reusing your own copy of '{m.File}' failed: {ex.Message}");
+                return false;
+            }
         }
 
         // Same-version acceptance is only safe when the client's local copy is the SAME Thunderstore package the
@@ -472,7 +533,11 @@ namespace SideHustle.Sync
                 string local = ModMatcher.ConfirmedFullName(m.File);
                 return local != null && string.Equals(local, full, StringComparison.OrdinalIgnoreCase);
             }
-            catch { return false; }
+            catch (Exception ex)
+            {
+                Core.Log?.Warning($"[sync] could not confirm the package identity of '{m.File}': {ex.Message}");
+                return false;
+            }
         }
 
         // Side Hustle must ride into every sync profile (it drives the rejoin + the switch-back UI); S1API is

@@ -17,6 +17,9 @@ namespace SideHustle.Boot
     {
         public override void OnPreInitialization()
         {
+            // The shared profile code (compiled into this assembly) reports through the plugin's logger.
+            SideHustle.Shared.SharedLog.Warn = s => LoggerInstance.Warning("[boot] " + s);
+            SideHustle.Shared.SharedLog.Info = s => LoggerInstance.Msg("[boot] " + s);
             try { Run(); }
             catch (Exception e) { LoggerInstance.Error("[boot] picker failed; booting the full mod set: " + e); }
         }
@@ -60,7 +63,12 @@ namespace SideHustle.Boot
 
         private static string GameRootFromProcess()
         {
-            try { return Path.GetDirectoryName(Environment.ProcessPath); } catch { return null; }
+            try { return Path.GetDirectoryName(Environment.ProcessPath); }
+            catch (Exception e)
+            {
+                SideHustle.Shared.SharedLog.Warning("could not determine the game folder from the process path: " + e.Message);
+                return null;
+            }
         }
 
         private static bool PathsEqual(string a, string b)
@@ -71,7 +79,11 @@ namespace SideHustle.Boot
                                      Path.GetFullPath(b).TrimEnd('\\', '/'),
                                      StringComparison.OrdinalIgnoreCase);
             }
-            catch { return string.Equals(a, b, StringComparison.OrdinalIgnoreCase); }
+            catch (Exception e)
+            {
+                SideHustle.Shared.SharedLog.Warning($"could not compare '{a}' and '{b}' as paths; comparing the text: {e.Message}");
+                return string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+            }
         }
     }
 }

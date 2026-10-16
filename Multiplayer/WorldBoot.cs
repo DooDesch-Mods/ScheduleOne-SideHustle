@@ -18,20 +18,33 @@ namespace SideHustle.Multiplayer
     {
         internal const string ScratchName = "SideHustleScratch";
 
+        // The probes below run every frame while a session loads; a repeating failure is logged once per site.
+        private static readonly System.Collections.Generic.HashSet<string> _warned = new System.Collections.Generic.HashSet<string>();
+        private static void WarnOnce(string site, Exception e)
+        {
+            if (_warned.Add(site)) Core.Log?.Warning($"[mp] {site} failed: {e.Message}");
+        }
+
         private static LoadManager LoadOrNull()
         {
-            try { return Singleton<LoadManager>.Instance; } catch { return null; }
+            try { return Singleton<LoadManager>.Instance; }
+            catch (Exception e) { WarnOnce("LoadManager lookup", e); return null; }
         }
 
         internal static string ScratchPath()
         {
             try { return Path.Combine(Singleton<SaveManager>.Instance.IndividualSavesContainerPath, ScratchName); }
-            catch { return null; }
+            catch (Exception e) { WarnOnce("scratch path lookup", e); return null; }
         }
 
         internal static bool IsInGame
         {
-            get { var lm = LoadOrNull(); try { return lm != null && lm.IsGameLoaded; } catch { return false; } }
+            get
+            {
+                var lm = LoadOrNull();
+                try { return lm != null && lm.IsGameLoaded; }
+                catch (Exception e) { WarnOnce("IsGameLoaded", e); return false; }
+            }
         }
 
         /// <summary>The world is fully loaded and interactive (host or client end-state).</summary>
@@ -44,17 +57,26 @@ namespace SideHustle.Multiplayer
                        && lm.LoadStatus == LoadManager.ELoadStatus.None
                        && SceneManager.GetActiveScene().name == "Main";
             }
-            catch { return false; }
+            catch (Exception e) { WarnOnce("IsWorldReady", e); return false; }
         }
 
         internal static string CurrentScene
         {
-            get { try { return SceneManager.GetActiveScene().name; } catch { return "?"; } }
+            get
+            {
+                try { return SceneManager.GetActiveScene().name; }
+                catch (Exception e) { WarnOnce("scene name", e); return "?"; }
+            }
         }
 
         internal static string LoadStatus
         {
-            get { var lm = LoadOrNull(); try { return lm != null ? lm.LoadStatus.ToString() : "?"; } catch { return "?"; } }
+            get
+            {
+                var lm = LoadOrNull();
+                try { return lm != null ? lm.LoadStatus.ToString() : "?"; }
+                catch (Exception e) { WarnOnce("LoadStatus", e); return "?"; }
+            }
         }
 
         /// <summary>
@@ -78,7 +100,11 @@ namespace SideHustle.Multiplayer
                     if (lm == null) return false;
                     return lm.IsGameLoaded || lm.IsLoading || lm.LoadStatus != LoadManager.ELoadStatus.None;
                 }
-                catch { return true; }   // unreadable: assume it is moving, so a watchdog never cuts a live load short
+                catch (Exception e)
+                {
+                    WarnOnce("LoadStarted", e);
+                    return true;   // unreadable: assume it is moving, so a watchdog never cuts a live load short
+                }
             }
         }
 
@@ -91,7 +117,7 @@ namespace SideHustle.Multiplayer
             {
                 var lm = LoadOrNull();
                 try { return lm != null && lm.LoadStatus == LoadManager.ELoadStatus.LoadingScene; }
-                catch { return false; }
+                catch (Exception e) { WarnOnce("IsLoadingScene", e); return false; }
             }
         }
 
@@ -107,7 +133,7 @@ namespace SideHustle.Multiplayer
                 if (lm == null) return scene + "|?";
                 return scene + "|" + lm.LoadStatus + "|" + lm.GetLoadStatusText();
             }
-            catch { return "?"; }
+            catch (Exception e) { WarnOnce("ProgressSignature", e); return "?"; }
         }
 
         /// <summary>Build a fresh scratch save and start it. For a host, the lobby must already exist + be owned by
@@ -118,7 +144,7 @@ namespace SideHustle.Multiplayer
             {
                 string folder = ScratchPath();
                 if (folder == null) { Core.Log?.Warning("[mp] scratch path unavailable."); return false; }
-                BuildScratchSave(folder, orgName);
+                if (!BuildScratchSave(folder, orgName)) return false;
 
                 var nowDt = Il2CppSystem.DateTime.Now;
                 var md = new MetaData(new DateTimeData(nowDt), new DateTimeData(nowDt),
@@ -141,8 +167,10 @@ namespace SideHustle.Multiplayer
             {
                 var sm = Singleton<SaveManager>.Instance;
                 if (sm == null) { Core.Log?.Warning("[mp] SaveManager unavailable for new game."); return null; }
-                string folder = Path.Combine(sm.IndividualSavesContainerPath, "SaveGame_" + (slot + 1));
-                BuildScratchSave(folder, orgName);   // the SetupScreen.StartGame recipe (copy + Game/Metadata json)
+                string folder = SaveSlotFolder(slot);
+                if (folder == null) { Core.Log?.Error("[mp] save folder for slot " + (slot + 1) + " unavailable; no new game created."); return null; }
+                if (!IsSaveSlotFree(slot)) { Core.Log?.Error("[mp] slot " + (slot + 1) + " is not empty; refusing to create a new game over it."); return null; }
+                if (!BuildScratchSave(folder, orgName)) return null;   // the SetupScreen.StartGame recipe (copy + Game/Metadata json)
                 Singleton<LoadManager>.Instance.RefreshSaveInfo();
                 var saves = LoadManager.SaveGames;
                 return saves != null && slot >= 0 && slot < saves.Length ? saves[slot] : null;
@@ -226,8 +254,9 @@ namespace SideHustle.Multiplayer
         private static void CloseLoadingScreenHard()
         {
             Il2CppScheduleOne.UI.LoadingScreen ls = null;
-            try { ls = Singleton<Il2CppScheduleOne.UI.LoadingScreen>.Instance; } catch { /* not spawned yet */ }
-            if (ls == null) return;
+            try { ls = Singleton<Il2CppScheduleOne.UI.LoadingScreen>.Instance; }
+            catch (Exception e) { Core.Log?.Warning("[mp] loading screen lookup failed: " + e.Message); }
+            if (ls == null) { Core.Log?.Msg("[mp] no loading screen to close."); return; }
 
             try { ls.Close(); }
             catch (Exception e) { Core.Log?.Warning("[mp] LoadingScreen.Close threw (expected after a scene-less load): " + e.Message); }
@@ -238,6 +267,23 @@ namespace SideHustle.Multiplayer
                 if (ls.Canvas != null) ls.Canvas.enabled = false;
             }
             catch (Exception e) { Core.Log?.Warning("[mp] could not force the loading screen off: " + e.Message); }
+        }
+
+        /// <summary>
+        /// Take down whatever session is half or fully up and drop the Steam lobby membership: a loaded world exits to
+        /// the menu through the game's own path (which also leaves the lobby); a load that never finished is torn down
+        /// by hand (see <see cref="AbortLoadToMenu"/>); and a lobby that never got as far as a load is left directly.
+        /// Shared by every coordinator's abort path.
+        /// </summary>
+        /// <returns>true when a loaded world was exited - the menu scene reloads and the caller must defer reopening
+        /// the hub to that reload; false when the menu is still on screen.</returns>
+        internal static bool TakeDownSession()
+        {
+            bool wasInGame = IsInGame;
+            if (wasInGame) ExitToMenu();
+            else AbortLoadToMenu();
+            LobbyCoordinator.LeaveCurrentLobby();   // no-op when the paths above already left it
+            return wasInGame;
         }
 
         internal static void CleanupScratch()
@@ -252,10 +298,12 @@ namespace SideHustle.Multiplayer
 
         // --- the SetupScreen.StartGame recipe ---
 
-        private static void BuildScratchSave(string folder, string orgName)
+        /// <summary>Copies the DefaultSave template into <paramref name="folder"/> and writes Game/Metadata json.
+        /// False (with an error logged) when the folder holds a real save and so was left untouched.</summary>
+        private static bool BuildScratchSave(string folder, string orgName)
         {
             if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
-            ClearFolderContents(folder);
+            if (!ClearFolderContents(folder)) return false;
             CopyFilesRecursively(Path.Combine(Application.streamingAssetsPath, "DefaultSave"), folder);
 
             string gameJson = new GameData(orgName, UnityEngine.Random.Range(0, int.MaxValue), new GameSettings()).GetJson();
@@ -264,13 +312,71 @@ namespace SideHustle.Multiplayer
             string metaJson = new MetaData(new DateTimeData(nowDt), new DateTimeData(nowDt),
                                            Application.version, Application.version, false).GetJson();
             File.WriteAllText(Path.Combine(folder, "Metadata.json"), metaJson);
+            return true;
         }
 
-        private static void ClearFolderContents(string folderPath)
+        private static readonly System.Text.RegularExpressions.Regex SaveSlotName =
+            new System.Text.RegularExpressions.Regex(@"^SaveGame_\d+$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        /// <summary>The folder of save slot <paramref name="slot"/> (0..4), or null when the save container is unknown.</summary>
+        internal static string SaveSlotFolder(int slot)
+        {
+            try
+            {
+                var sm = Singleton<SaveManager>.Instance;
+                if (sm == null) { Core.Log?.Warning("[mp] SaveManager unavailable; save folder unknown."); return null; }
+                return Path.Combine(sm.IndividualSavesContainerPath, "SaveGame_" + (slot + 1));
+            }
+            catch (Exception e) { Core.Log?.Warning("[mp] save folder lookup failed: " + e.Message); return null; }
+        }
+
+        /// <summary>
+        /// A slot is free only when its folder does not exist or holds nothing at all. Whether the game could READ the
+        /// save is irrelevant: a corrupt or half-written save is still the player's data, and a folder that exists
+        /// with content is never a candidate for a new game.
+        /// </summary>
+        internal static bool IsSaveSlotFree(int slot)
+        {
+            string folder = SaveSlotFolder(slot);
+            if (folder == null) return false;
+            try
+            {
+                if (!Directory.Exists(folder)) return true;
+                bool empty = !Directory.EnumerateFileSystemEntries(folder).GetEnumerator().MoveNext();
+                if (!empty) Core.Log?.Msg($"[mp] save slot {slot + 1} has content ({folder}); not offered as free.");
+                return empty;
+            }
+            catch (Exception e)
+            {
+                Core.Log?.Warning($"[mp] could not inspect save slot {slot + 1}: {e.Message}; treating it as occupied.");
+                return false;
+            }
+        }
+
+        /// <summary>The first slot (0..4) whose folder is missing or empty, or -1 when none is.</summary>
+        internal static int FirstFreeSaveSlot()
+        {
+            for (int i = 0; i < 5; i++)
+                if (IsSaveSlotFree(i)) return i;
+            return -1;
+        }
+
+        /// <summary>Empties a folder before a fresh world is written into it. A real "SaveGame_N" folder that has any
+        /// content is refused: nothing the mod does may delete a player's save. Only the scratch folder (and an empty
+        /// slot folder) are ever cleared.</summary>
+        private static bool ClearFolderContents(string folderPath)
         {
             var dir = new DirectoryInfo(folderPath);
+            bool hasContent = dir.EnumerateFileSystemInfos().GetEnumerator().MoveNext();
+            if (!hasContent) return true;
+            if (SaveSlotName.IsMatch(dir.Name))
+            {
+                Core.Log?.Error($"[mp] refusing to clear '{folderPath}': it is a save slot with content.");
+                return false;
+            }
             foreach (var f in dir.GetFiles()) f.Delete();
             foreach (var d in dir.GetDirectories()) d.Delete(true);
+            return true;
         }
 
         private static void CopyFilesRecursively(string sourcePath, string targetPath)

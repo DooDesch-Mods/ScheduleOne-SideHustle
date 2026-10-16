@@ -23,6 +23,13 @@ namespace SideHustle.Mods
         private static List<string> _pending;
         private static bool _read;
 
+        /// <summary>How many times a failed file has been tried. A file that fails stays pending so a later session
+        /// retries it, but not for ever: after <see cref="MaxAttempts"/> it is given up on with a line saying so.</summary>
+        private static readonly Dictionary<string, int> _attempts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        private const int MaxAttempts = 2;
+        private static bool _loading;
+        private static bool _probeLogged;
+
         /// <summary>Whether anything is still waiting. False on a normal boot, where the gate never armed.</summary>
         internal static bool Any => Pending.Count > 0;
 
@@ -49,17 +56,47 @@ namespace SideHustle.Mods
         {
             var waiting = Pending;
             if (waiting.Count == 0) return 0;
-
-            Core.Log?.Msg($"[gate] loading {waiting.Count} held-back mod(s) for {why}...");
-            int registered = 0;
-            // Copied first: Load can take a while and a failure has to leave the list shorter, not unchanged.
-            foreach (string file in waiting.ToArray())
+            if (_loading)
             {
-                waiting.Remove(file);
-                if (LoadOne(file)) registered++;
+                Core.Log?.Warning($"[gate] a load of held-back mods is already running; ignoring the request for {why}.");
+                return 0;
             }
-            Core.Log?.Msg($"[gate] {registered} mod(s) now running ({MelonMod.RegisteredMelons.Count} total).");
-            return registered;
+
+            _loading = true;
+            try
+            {
+                Core.Log?.Msg($"[gate] loading {waiting.Count} held-back mod(s) for {why}...");
+                int registered = 0;
+                // Copied first: Load can take a while and the list changes as files settle.
+                foreach (string file in waiting.ToArray())
+                    if (Settle(file, LoadOne(file, out bool retry), retry)) registered++;
+                Core.Log?.Msg($"[gate] {registered} mod(s) now running ({MelonMod.RegisteredMelons.Count} total, {waiting.Count} still held back).");
+                return registered;
+            }
+            finally { _loading = false; }
+        }
+
+        /// <summary>Take a file off the pending list once it has loaded, or once there is no point trying again;
+        /// otherwise leave it for the next session that asks. Returns <paramref name="loaded"/>.</summary>
+        private static bool Settle(string file, bool loaded, bool retry)
+        {
+            string name = Path.GetFileName(file);
+            if (loaded) { Pending.Remove(file); _attempts.Remove(file); return true; }
+            if (!retry)
+            {
+                Core.Log?.Warning($"[gate] {name} cannot be loaded and will not be retried.");
+                Pending.Remove(file);
+                return false;
+            }
+            _attempts.TryGetValue(file, out int tries);
+            _attempts[file] = ++tries;
+            if (tries >= MaxAttempts)
+            {
+                Core.Log?.Warning($"[gate] {name} failed {tries} times; giving up on it for this run.");
+                Pending.Remove(file);
+            }
+            else Core.Log?.Warning($"[gate] {name} failed to load; it stays held back and is tried again next time.");
+            return false;
         }
 
         internal static bool IsPending(string file)
@@ -85,8 +122,7 @@ namespace SideHustle.Mods
             foreach (string file in closure)
             {
                 if (!IsPending(file)) continue;   // already running: nothing to do, and never twice
-                Pending.Remove(file);
-                bool loaded = LoadOne(file);
+                bool loaded = Settle(file, LoadOne(file, out bool retry), retry);
                 if (string.Equals(file, target, StringComparison.OrdinalIgnoreCase)) ok = loaded;
             }
             return ok;
@@ -94,14 +130,19 @@ namespace SideHustle.Mods
 
         /// <summary>One file, both steps, and a line saying which of them failed. A mod that loads but does not
         /// register is the failure mode worth naming: nothing throws and nothing runs.</summary>
-        internal static bool LoadOne(string file)
+        internal static bool LoadOne(string file) => LoadOne(file, out _);
+
+        /// <param name="retry">Set when a later attempt could succeed (a throw, a refused registration); false for a
+        /// file that is gone or holds no melon.</param>
+        private static bool LoadOne(string file, out bool retry)
         {
+            retry = false;
             string name = Path.GetFileName(file);
             if (!File.Exists(file)) { Core.Log?.Warning("[gate] gone before it could load: " + name); return false; }
 
             MelonAssembly asm;
             try { asm = MelonAssembly.LoadMelonAssembly(file); }
-            catch (Exception e) { Core.Log?.Error("[gate] " + name + " threw while loading: " + e); return false; }
+            catch (Exception e) { retry = true; Core.Log?.Error("[gate] " + name + " threw while loading: " + e); return false; }
             if (asm?.LoadedMelons == null) { Core.Log?.Warning("[gate] " + name + " carries no melon."); return false; }
 
             bool any = false;
@@ -113,6 +154,7 @@ namespace SideHustle.Mods
                 if (ok) { any = true; Core.Log?.Msg($"[gate]   {melon.Info?.Name} {melon.Info?.Version}"); }
                 else Core.Log?.Warning($"[gate]   {melon.Info?.Name}: loaded but did not register.");
             }
+            retry = !any;
             return any;
         }
 
@@ -145,10 +187,12 @@ namespace SideHustle.Mods
             foreach (var melon in MelonMod.RegisteredMelons)
             {
                 string file = null;
-                try { file = Path.GetFileName(melon.MelonAssembly?.Location); } catch { }
+                try { file = Path.GetFileName(melon.MelonAssembly?.Location); }
+                catch (Exception e) { WarnProbe("a running mod's file name", e); }
                 if (string.IsNullOrEmpty(file)) continue;
                 string version = null;
-                try { version = melon.Info?.Version; } catch { }
+                try { version = melon.Info?.Version; }
+                catch (Exception e) { WarnProbe("a running mod's version", e); }
                 running[file] = version ?? "";
             }
 
@@ -177,7 +221,20 @@ namespace SideHustle.Mods
                 var parts = v.Split('.');
                 return parts.Length >= 3 ? string.Join(".", parts[0], parts[1], parts[2]) : v;
             }
-            catch { return null; }
+            catch (Exception e)
+            {
+                Core.Log?.Warning($"[gate] could not read the version of '{Path.GetFileName(path)}': {e.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>A probe of the running mods that throws on one melon is skipped for that melon; logged once,
+        /// since the same melon fails the same way on every call.</summary>
+        private static void WarnProbe(string what, Exception e)
+        {
+            if (_probeLogged) return;
+            _probeLogged = true;
+            Core.Log?.Warning($"[gate] could not read {what}; skipping it: {e.Message}");
         }
 
         /// <summary>
@@ -193,15 +250,21 @@ namespace SideHustle.Mods
             var running = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var melon in MelonMod.RegisteredMelons)
             {
-                try { running.Add(Path.GetFileName(melon.MelonAssembly?.Location) ?? ""); } catch { }
+                try { running.Add(Path.GetFileName(melon.MelonAssembly?.Location) ?? ""); }
+                catch (Exception e) { WarnProbe("a running mod's file name", e); }
             }
 
             int loaded = 0;
             foreach (var entry in wanted)
             {
                 if (running.Contains(entry.Key)) continue;
-                if (LoadOne(entry.Value)) loaded++;
-                Pending.RemoveAll(p => string.Equals(Path.GetFileName(p), entry.Key, StringComparison.OrdinalIgnoreCase));
+                bool ok = LoadOne(entry.Value, out bool retry);
+                if (ok) loaded++;
+                // Off the list on success or when it can never load; a retryable failure stays for the next session.
+                if (ok || !retry)
+                    Pending.RemoveAll(p => string.Equals(Path.GetFileName(p), entry.Key, StringComparison.OrdinalIgnoreCase));
+                else
+                    Core.Log?.Warning($"[gate] {entry.Key} failed to load for {why}; it stays held back.");
             }
             if (loaded > 0) Core.Log?.Msg($"[gate] {loaded} mod(s) loaded for {why} without restarting.");
             return loaded;
@@ -238,7 +301,8 @@ namespace SideHustle.Mods
                 foreach (var m in MelonMod.RegisteredMelons)
                 {
                     string loc = null;
-                    try { loc = m.MelonAssembly?.Location; } catch { }
+                    try { loc = m.MelonAssembly?.Location; }
+                    catch (Exception e) { WarnProbe("a running mod's location", e); }
                     if (!string.IsNullOrEmpty(loc)) loaded.Add(Path.GetFileName(loc));
                 }
                 string dir = MelonLoader.Utils.MelonEnvironment.ModsDirectory;

@@ -48,8 +48,15 @@ namespace SideHustle.Profiles
 
         internal static CacheManifest ReadManifest(string packageDir)
         {
-            try { return JsonSerializer.Deserialize<CacheManifest>(File.ReadAllText(Path.Combine(packageDir, ManifestName))); }
-            catch { return null; }
+            string file = Path.Combine(packageDir ?? "", ManifestName);
+            try { return JsonSerializer.Deserialize<CacheManifest>(File.ReadAllText(file)); }
+            catch (FileNotFoundException) { return null; }
+            catch (DirectoryNotFoundException) { return null; }
+            catch (Exception e)
+            {
+                Shared.SharedLog.WarnOnce("manifest:" + file, $"the cache manifest '{file}' is unreadable: {e.Message}");
+                return null;
+            }
         }
 
         /// <summary>
@@ -61,7 +68,7 @@ namespace SideHustle.Profiles
         {
             try
             {
-                if (Directory.Exists(destDir)) Directory.Delete(destDir, true);
+                DeleteTreeNoFollow(destDir);
                 Directory.CreateDirectory(destDir);
                 string destFull = Path.GetFullPath(destDir + Path.DirectorySeparatorChar);
 
@@ -75,7 +82,8 @@ namespace SideHustle.Profiles
                         string target = Path.GetFullPath(Path.Combine(destDir, rel));
                         if (!target.StartsWith(destFull, StringComparison.OrdinalIgnoreCase))
                         {
-                            Directory.Delete(destDir, true);
+                            Shared.SharedLog.Warning($"'{zipPath}' holds an entry that escapes its folder ('{entry.FullName}'); the package is rejected.");
+                            DeleteTreeNoFollow(destDir);
                             return null;   // traversal attempt - reject the whole package
                         }
                         Directory.CreateDirectory(Path.GetDirectoryName(target) ?? destDir);
@@ -96,11 +104,31 @@ namespace SideHustle.Profiles
                 File.WriteAllText(Path.Combine(destDir, ManifestName), JsonSerializer.Serialize(manifest, JsonOpts));
                 return manifest;
             }
-            catch
+            catch (Exception e)
             {
-                try { if (Directory.Exists(destDir)) Directory.Delete(destDir, true); } catch { /* ignore */ }
+                Shared.SharedLog.Warning($"extracting '{zipPath}' failed: {e.GetType().Name}: {e.Message}");
+                DeleteTreeNoFollow(destDir);
                 return null;
             }
+        }
+
+        /// <summary>Delete a directory tree without ever following a reparse point out of it. A junction or symlink
+        /// at the root is removed as a link (its target is untouched); inside the tree, .NET removes a link as a link.
+        /// Failure is logged, not thrown - a leftover folder is retried by the next extraction.</summary>
+        internal static void DeleteTreeNoFollow(string dir)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return;
+                if ((File.GetAttributes(dir) & FileAttributes.ReparsePoint) != 0)
+                {
+                    Shared.SharedLog.Warning($"'{dir}' is a link; removing the link only, not what it points to.");
+                    Directory.Delete(dir, false);
+                    return;
+                }
+                Directory.Delete(dir, true);
+            }
+            catch (Exception e) { Shared.SharedLog.Warning($"could not remove '{dir}': {e.Message}"); }
         }
 
         /// <summary>The on-disk path of a classified DLL inside a package dir (packages nest them differently).</summary>
@@ -112,7 +140,11 @@ namespace SideHustle.Profiles
                                 .OrderBy(p => p.Length)   // prefer the shallowest occurrence
                                 .FirstOrDefault();
             }
-            catch { return null; }
+            catch (Exception e)
+            {
+                Shared.SharedLog.WarnOnce("find:" + packageDir, $"could not search '{packageDir}' for {fileName}: {e.Message}");
+                return null;
+            }
         }
 
         /// <summary>All occurrences of a DLL name inside a package dir, shallowest first. Dual-branch packages can
@@ -126,7 +158,11 @@ namespace SideHustle.Profiles
                                 .OrderBy(p => p.Length)
                                 .ToList();
             }
-            catch { return new List<string>(); }
+            catch (Exception e)
+            {
+                Shared.SharedLog.WarnOnce("findall:" + packageDir, $"could not search '{packageDir}' for {fileName}: {e.Message}");
+                return new List<string>();
+            }
         }
 
         // Thunderstore MelonLoader packages nest their payload under Mods/ (or MelonLoader/Mods/), Plugins/ and

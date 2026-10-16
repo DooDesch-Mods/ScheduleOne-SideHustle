@@ -68,7 +68,11 @@ namespace SideHustle.Shared
                 Cache[key] = result;
                 return result;
             }
-            catch { return ModRuntime.Unknown; }
+            catch (Exception e)
+            {
+                SharedLog.WarnOnce("rt:" + path, $"could not classify '{path}' (treated as unknown, which loads): {e.Message}");
+                return ModRuntime.Unknown;
+            }
         }
 
         private static ModRuntime ClassifyMetadata(string path)
@@ -131,7 +135,12 @@ namespace SideHustle.Shared
                 // fires on a readable-but-neutral file and cannot mislabel e.g. "Mono.Cecil.dll" as a Mono build.
                 return ModRuntime.Universal;
             }
-            catch { return ModRuntime.Unknown; }
+            catch (Exception e)
+            {
+                // A native or locked file: the name suffix decides in ClassifyFile.
+                SharedLog.WarnOnce("rtmeta:" + path, $"'{path}' has no readable .NET metadata ({e.GetType().Name}: {e.Message}); classifying by name.");
+                return ModRuntime.Unknown;
+            }
         }
 
         internal static string ToTag(ModRuntime r) => r switch

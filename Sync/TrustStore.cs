@@ -39,7 +39,11 @@ namespace SideHustle.Sync
                     ? JsonSerializer.Deserialize<Dictionary<string, Entry>>(File.ReadAllText(p), JsonOpts)
                     : null;
             }
-            catch { _map = null; }
+            catch (Exception e)
+            {
+                Core.Log?.Warning("[sync] the trusted-hosts list is unreadable; nobody is trusted until it is rebuilt: " + e.Message);
+                _map = null;
+            }
             return _map ??= new Dictionary<string, Entry>();
         }
 
@@ -74,7 +78,7 @@ namespace SideHustle.Sync
                 Directory.CreateDirectory(Path.GetDirectoryName(p));
                 File.WriteAllText(p, JsonSerializer.Serialize(Map(), JsonOpts));
             }
-            catch { /* best-effort */ }
+            catch (Exception e) { Core.Log?.Warning("[sync] could not save the trusted-hosts list (trust lasts until the game closes): " + e.Message); }
         }
     }
 }

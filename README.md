@@ -11,7 +11,7 @@
 > **[SideHustle.doodesch.de](https://sidehustle.doodesch.de)** - who is hosting, which gamemode, how full it is,
 > and the exact mods that session runs. Check before you launch; you still join from inside the game.
 
-![Version](https://img.shields.io/badge/version-2.2.3-blue)
+![Version](https://img.shields.io/badge/version-2.5.0-blue)
 ![Game](https://img.shields.io/badge/game-Schedule%20I-purple)
 ![MelonLoader](https://img.shields.io/badge/MelonLoader-0.7.3+-green)
 ![S1API](https://img.shields.io/badge/S1API-required-orange)
@@ -40,18 +40,25 @@ mod registers itself and shows up under the Side Hustle entry.
 - **Configure before you host.** Hosting opens a native-style setup form: set the exact player count (up to the
   lobby cap), choose a public or private (friends-only) lobby with an optional password, and adjust any settings
   the gamemode exposes (sliders, toggles, choices, text) - all handed to the gamemode when it starts.
-- **Public server browser.** Find and join open sessions for a gamemode, shown as cards with the host, player
-  count and a lock for password-protected lobbies; filtered so each gamemode only lists its own lobbies. Bigger
-  lobbies (well past the vanilla 4 players) come built in - no extra lobby mod needed.
+- **Lobby browser.** Find and join open lobbies for a gamemode, shown as cards with the host, player count and a
+  lock for password-protected lobbies. Search by name, sort, and hide full, locked or other-version lobbies; the
+  list refreshes itself every few seconds. Bigger lobbies (well past the vanilla 4 players) come built in - no extra
+  lobby mod needed.
+- **The host form remembers.** Player count, visibility, lobby name and Discord invite come back the next time you
+  host, per gamemode and for vanilla co-op. "Host again" skips the form. Passwords are never stored.
+- **Discord invite.** A host can put a Discord invite on the lobby; guests see a Discord button on the lobby card
+  and in the Lobby app on the phone.
 - **Play with anyone, not just friends.** Schedule I normally kicks joiners who aren't on the host's Steam friends
   list. While you host a Side Hustle gamemode that kick is lifted, so anyone can join your public or
   password-protected lobbies. Normal co-op outside Side Hustle is unaffected.
 - **Custom display name.** Each gamemode has its own "Your name" field on its Host / Join screen. Fill it in and
   other players see that name - the in-game nametag over your character, scoreboards and the server browser -
-  instead of your Steam name. A privacy option for public matches; per gamemode, per session, and never saved.
-- **Discover what's being played.** The menu also lists gamemodes you don't have installed that have live public
-  lobbies right now, with a "Download Mod" button so you can go get them. Toggle it off in the settings; gamemode
-  authors can opt their gamemode out of being advertised.
+  instead of your Steam name. A privacy option for public matches, remembered per gamemode.
+- **Discover gamemodes.** The menu also lists released gamemodes you don't have installed, and any gamemode with a
+  live public lobby right now, with a "Download Mod" button or a one-click install into a mod profile. Toggle it off
+  in the settings; gamemode authors can opt their gamemode out of being advertised.
+- **No dead ends.** Every download, search and wait has a Cancel or a Try again. If a session cannot start, the hub
+  says why.
 - **Host controls + friend invites.** The host can kick a player from the session, and every lobby member - not just
   the host - can invite Steam friends from the pause-menu panel.
 - **World gamemodes.** Gamemodes that need the actual game world get a throwaway session booted for them,
@@ -119,13 +126,19 @@ Install with a mod manager (r2modman / Gale) from the Schedule I community; the 
 
 ## Configuration
 
-Settings live in `UserData/MelonPreferences.cfg`
-under `SideHustle_01_Main`.
+Open **Side Hustle > Settings** (the last row of the gamemode list) to change these in game. They are stored in
+`UserData/MelonPreferences.cfg` under `SideHustle_01_Main`.
 
 | Setting | Default | What it does |
 |---|---|---|
-| `Enabled` | `true` | Show the Side Hustle menu entry. Off hides it without uninstalling (return to the main menu to apply). |
-| `ShowUninstalledGamemodes` | `true` | Also list gamemodes you don't have installed that currently have live public lobbies, with a Download link. Off shows only your installed gamemodes. |
+| `Enabled` | `true` | Show the Side Hustle menu entry. Off hides it without uninstalling (only in the cfg). |
+| `ShowUninstalledGamemodes` | `true` | Also list gamemodes you don't have installed. |
+| `AskHostOnContinue` | `true` | Clicking Continue or a save slot offers to open it as a public lobby. |
+| `AcceptStrangerMessages` | `true` | Anyone looking at your public lobby can send you a short message. |
+| `MenuStatePanel` | `true` | Info column on the right of the main menu (needs Sideload 1.13.0+). |
+| `JoinChatPanel` | `true` | Chat column on the screens you pass through while joining. |
+| `DeferModsUntilLobby` | `false` | Load only Side Hustle and Sideload at startup; the rest loads when you host or join. Takes effect after a restart. |
+| `AlwaysLoadMods` | `""` | File names that load at startup even with `DeferModsUntilLobby` on, comma-separated. |
 
 ## For mod authors
 
@@ -151,15 +164,21 @@ SideHustle.API.Register(new GamemodeDescriptor
 
 For a multiplayer gamemode set `Support` to `Multiplayer` or `Hybrid` and add `OnHostMultiplayer` /
 `OnJoinMultiplayer`. Side Hustle creates and tracks the lobby and (for `World` gamemodes) boots the
-session, then hands you a `LaunchContext` with the host/client role, lobby id, player count and the
-host's settings. Registration replaces by `Id`, so re-registering is safe. Call `ctx.ReturnToHub()`
-from your gamemode when it finishes to return to the menu.
+session, then hands you a `LaunchContext` with the role (`Host`, `Client` or `Singleplayer`), lobby id,
+player count and the host's settings. Re-registering your own `Id` is safe; `Register` logs every problem
+it finds in a descriptor. Call `ctx.ReturnToHub()` from your gamemode when it finishes to return to the menu.
 
-## Roadmap
+Since API version 3 (`API.ApiVersion`, `API.Has(...)`) a gamemode can also:
 
-Side Hustle 1.1.0 adds multiplayer (Host / Join), the public server browser, and world gamemodes - so
-both singleplayer and multiplayer gamemodes launch straight from the menu. See the
-[wiki](https://docs.doodesch.de/mods/sidehustle/) for the full roadmap and API reference.
+- listen to `SessionStarted` / `SessionEnded` and `PlayerJoined` / `PlayerLeft`, and read `API.Players`;
+- show a short message on screen with `API.ShowNotice`;
+- send its own messages to the other players with `API.SendToAll` / `API.SendTo` and receive them with
+  `API.OnMessage`, without its own networking code.
+
+`OnExitToHub` runs exactly once per session, also when Side Hustle aborts a session that failed to start.
+`Examples/SideHustleLink.cs` is a copy-in file that keeps Side Hustle optional, and `Examples/ExampleGamemode`
+is a complete gamemode to start from. The full reference is on the
+[docs site](https://docs.doodesch.de/mods/sidehustle/).
 
 ## Compatibility
 

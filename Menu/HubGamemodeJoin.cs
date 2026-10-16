@@ -35,24 +35,53 @@ namespace SideHustle.Menu
         private static void ShowGhostBrowser(Ghost g)
         {
             if (_clone == null || g == null) return;
-            _back = () => ShowUninstalledChoice(g);
+            _back = ShowGamemodeList;
+            if (RouteToHub("lobbies", g.GamemodeId, false)) return;
             ClearFormHost();
-            SetTmp(_clone.transform, "Title", "Join: " + g.Name);
-            var host = CreateFormHost("SH_GhostBrowser", 560f);
-            var content = JoinBrowserView.Build(host, () => ShowUninstalledChoice(g), () => RefreshGhostBrowser(g));
-            JoinBrowserView.Populate(content, g.Rows, row => StartGhostJoin(g, row));
+            SetTmp(_clone.transform, "Title", "Join " + g.Name);
+            var host = CreateFormHost("SH_GhostBrowser");
+            JoinBrowserView.Build(host, new JoinBrowserView.Options
+            {
+                // The cache the gamemode list was drawn from is shown at once; the browser then re-queries on its own.
+                Initial = new List<LobbyRow>(g.Rows),
+                Query = done => ServerBrowser.BeginQueryAdvertised(results =>
+                {
+                    if (_cloneScreen == null || !_cloneScreen.IsOpen || _formHost == null || _formHost.name != "SH_GhostBrowser")
+                    {
+                        Core.Log?.Msg("[browser] dropped a lobby answer for a screen that is gone.");
+                        return;
+                    }
+#if DEBUG
+                    results = DebugSeedAdvertised(results);
+#endif
+                    var mine = (results ?? new List<LobbyRow>())
+                        .Where(l => string.Equals(l.GamemodeId, g.GamemodeId, StringComparison.OrdinalIgnoreCase)).ToList();
+                    g.Rows = mine;
+                    done(mine);
+                }),
+                OnJoin = row => StartGhostJoin(g, row),
+                OnBack = ShowGamemodeList,
+                Extras = GhostExtras(g),
+            });
         }
 
-        // Refresh: re-query the advertised lobbies and rebuild this gamemode's browser from the fresh set.
-        private static void RefreshGhostBrowser(Ghost g)
+        // What the not-installed choice screen offered besides joining, as footer buttons: the ghost row opens the
+        // browser straight away, so these must not get lost on the way.
+        private static List<KeyValuePair<string, Action>> GhostExtras(Ghost g)
         {
-            RefreshAdvertised(0f);
-            var fresh = _advertisedCache;
-            if (fresh != null)
+            var extras = new List<KeyValuePair<string, Action>>();
+            if (DownloadLink.IsAllowed(g.Url))
+                extras.Add(new KeyValuePair<string, Action>("Download the mod", () => DownloadLink.Open(g.Url)));
+            else if (Sync.NexusLookup.CanLookUp(g.Name))
             {
-                g.Rows = fresh.Where(l => string.Equals(l.GamemodeId, g.GamemodeId, StringComparison.OrdinalIgnoreCase)).ToList();
+                Sync.NexusLookup.Prefetch(new[] { g.Name });
+                extras.Add(new KeyValuePair<string, Action>("Find it on Nexus", () => DownloadLink.Open(DownloadLink.NexusUrl(g.Name))));
             }
-            ShowGhostBrowser(g);
+            else Core.Log?.Msg($"[browser] '{g.GamemodeId}' has no trusted download link and no Nexus lookup.");
+            var catalogued = GamemodeCatalogue.Find(g.GamemodeId);
+            if (catalogued != null)
+                extras.Add(new KeyValuePair<string, Action>("Add to a profile", () => StartCatalogueInstall(catalogued, () => ShowGhostBrowser(g))));
+            return extras;
         }
 
         /// <summary>A session was picked: password gate, fetch that host's mod list, consent.</summary>
@@ -85,18 +114,35 @@ namespace SideHustle.Menu
         private static void ReadGhostManifest(Ghost g, LobbyRow row)
         {
             _back = () => ShowGhostBrowser(g);
-            ShowRows(g.Name, new List<Row>
+            int gen = ++_joinGen;
+            ShowManifestWait(g.Name, "Reading the host's mod list...", 0, () => ShowGhostBrowser(g));
+            RequestLobbyData(row.LobbyId);
+            WaitForGhostManifest(g, row, 0, gen);
+        }
+
+        /// <summary>Ask Steam for a lobby's full data; a failed ask is logged because the wait loops that follow would
+        /// otherwise just run out with no hint why.</summary>
+        private static void RequestLobbyData(ulong lobbyId)
+        {
+            try { Il2CppSteamworks.SteamMatchmaking.RequestLobbyData(new Il2CppSteamworks.CSteamID(lobbyId)); }
+            catch (Exception e) { Core.Log?.Warning($"[mp] could not ask Steam for the data of lobby {lobbyId}: {e.Message}"); }
+        }
+
+        /// <summary>The wait screen for a lobby read: what is being read, which try this is, and a way out.</summary>
+        private static void ShowManifestWait(string title, string headline, int attempt, Action cancel)
+        {
+            ShowRows(title, new List<Row>
             {
-                new Row { Name = "Reading the host's mod list...", Subtitle = "Fetching the details from Steam.", Disabled = true }
+                new Row { Name = headline, Subtitle = $"Asking Steam - try {attempt + 1} of {JoinManifestAttempts}.", Disabled = true },
+                new Row { Name = "Cancel", Subtitle = "Back to the lobby list.", OnClick = () => { InvalidateJoinChecks(); cancel(); } }
             });
-            try { Il2CppSteamworks.SteamMatchmaking.RequestLobbyData(new Il2CppSteamworks.CSteamID(row.LobbyId)); } catch { }
-            WaitForGhostManifest(g, row, 0);
+            HubFlowWait("Mods compared", attempt > 0 ? $"Try {attempt + 1} of {JoinManifestAttempts}" : "Reading the host's list");
         }
 
         // Steam delivers the big chunked values late on a lobby-LIST snapshot, so re-request and retry before giving up.
-        private static void WaitForGhostManifest(Ghost g, LobbyRow row, int attempt)
+        private static void WaitForGhostManifest(Ghost g, LobbyRow row, int attempt, int gen)
         {
-            if (_cloneScreen == null || !_cloneScreen.IsOpen) return;
+            if (JoinStale(gen)) return;
             if (VanillaLobby.TryReadPayloads(row.LobbyId, out var manifest, out _, out var mhash) && manifest.Mods.Count > 0)
             {
                 BeginGhostCompare(g, row, manifest, mhash);
@@ -105,42 +151,46 @@ namespace SideHustle.Menu
             if (attempt >= JoinManifestAttempts)
             {
                 Core.Log?.Warning("[mp] gamemode join: no mod list on the lobby - " + VanillaLobby.DescribeReadFailure(row.LobbyId));
-                ShowGhostNoManifest(g);
+                ShowGhostNoManifest(g, row);
                 return;
             }
-            try { Il2CppSteamworks.SteamMatchmaking.RequestLobbyData(new Il2CppSteamworks.CSteamID(row.LobbyId)); } catch { }
+            if (attempt > 0) ShowManifestWait(g.Name, "Reading the host's mod list...", attempt, () => ShowGhostBrowser(g));
+            RequestLobbyData(row.LobbyId);
             System.Threading.Tasks.Task.Run(async () =>
             {
                 await System.Threading.Tasks.Task.Delay(700);
-                MainThread.Post(() => WaitForGhostManifest(g, row, attempt + 1));
+                MainThread.Post(() => WaitForGhostManifest(g, row, attempt + 1, gen));
             });
         }
 
         // An older host (or one whose gamemode could not resolve its own files) advertises no mod list: the player
         // can still get the mod the old way, by hand.
-        private static void ShowGhostNoManifest(Ghost g)
+        private static void ShowGhostNoManifest(Ghost g, LobbyRow row = null)
         {
             _back = ShowGamemodeList;
             bool canLookUp = DownloadLink.IsAllowed(g.Url) || Sync.NexusLookup.CanLookUp(g.Name);
-            ShowRows(g.Name, new List<Row>
+            var noManifest = new List<Row>
             {
                 new Row
                 {
                     Name = "This host can't install it for you",
-                    Subtitle = "The lobby doesn't advertise its mod files (older Side Hustle on the host).",
+                    Subtitle = "The host's Side Hustle is too old to share its mod files.",
                     Disabled = true
                 },
                 new Row
                 {
-                    Name = DownloadLink.IsAllowed(g.Url) ? "Download Mod" : "Find it on Nexus",
-                    Subtitle = canLookUp ? "Install it yourself, then join from the gamemode list." : "No trusted download link provided.",
+                    Name = DownloadLink.IsAllowed(g.Url) ? "Download the mod" : "Find it on Nexus",
+                    Subtitle = canLookUp ? "Install it yourself first." : "No trusted download link.",
                     OnClick = canLookUp
                         ? (Action)(() => DownloadLink.Open(DownloadLink.IsAllowed(g.Url) ? g.Url : DownloadLink.NexusUrl(g.Name)))
                         : null,
                     Disabled = !canLookUp
                 },
                 new Row { Name = "Back", Subtitle = "Back to the gamemode list.", OnClick = ShowGamemodeList }
-            });
+            };
+            if (row != null)
+                noManifest.Insert(noManifest.Count - 1, new Row { Name = "Try again", Subtitle = "Read the host's mod list again.", OnClick = () => ReadGhostManifest(g, row) });
+            ShowRows(g.Name, noManifest);
         }
 
         // The gamemode's own mod did not arrive (download failed, or it is a hand-install nobody grabbed): offer the
@@ -150,17 +200,17 @@ namespace SideHustle.Menu
         /// screen used to say only that something was missing, which left the player with no idea whether to retry, wait
         /// or install by hand. The reasons are the difference between a dead end and a next step.
         /// </summary>
-        private static void ShowGhostMissingMod(Ghost g, IReadOnlyList<string> reasons = null)
+        private static void ShowGhostMissingMod(Ghost g, IReadOnlyList<string> reasons = null, LobbyRow row = null)
         {
             _back = ShowGamemodeList;
             bool canLookUp = DownloadLink.IsAllowed(g.Url) || Sync.NexusLookup.CanLookUp(g.Name);
             var rows = new List<Row>
             {
-                new Row { Name = "The gamemode itself is still missing", Subtitle = "Nothing was installed, so joining would not work.", Disabled = true },
+                new Row { Name = "The gamemode itself is still missing", Subtitle = "Nothing was installed.", Disabled = true },
                 new Row
                 {
-                    Name = DownloadLink.IsAllowed(g.Url) ? "Download Mod" : "Find it on Nexus",
-                    Subtitle = canLookUp ? "Install it by hand, then join from the gamemode list." : "No trusted download link provided.",
+                    Name = DownloadLink.IsAllowed(g.Url) ? "Download the mod" : "Find it on Nexus",
+                    Subtitle = canLookUp ? "Install it by hand first." : "No trusted download link.",
                     OnClick = canLookUp
                         ? (Action)(() => DownloadLink.Open(DownloadLink.IsAllowed(g.Url) ? g.Url : DownloadLink.NexusUrl(g.Name)))
                         : null,
@@ -168,6 +218,8 @@ namespace SideHustle.Menu
                 },
                 new Row { Name = "Back", Subtitle = "Back to the gamemode list.", OnClick = ShowGamemodeList }
             };
+            if (row != null)
+                rows.Insert(rows.Count - 1, new Row { Name = "Try again", Subtitle = "Fetch the mods again.", OnClick = () => StartGhostJoin(g, row) });
 
             // Insert the WHY between the headline and the manual link, so it is read before the button is pressed.
             if (reasons != null && reasons.Count > 0)
@@ -176,7 +228,7 @@ namespace SideHustle.Menu
                 foreach (var r in reasons)
                 {
                     if (string.IsNullOrWhiteSpace(r)) continue;
-                    rows.Insert(at++, new Row { Name = r, Subtitle = "Could not be fetched automatically.", Disabled = true });
+                    rows.Insert(at++, new Row { Name = r, Subtitle = "Could not be downloaded.", Disabled = true });
                     if (at > 4) break;   // a wall of rows stops being read; the log carries the full list
                 }
             }
@@ -198,7 +250,7 @@ namespace SideHustle.Menu
                 MainThread.Post(() =>
                 {
                     if (_cloneScreen == null || !_cloneScreen.IsOpen) return;
-                    if (diff == null) { ShowGhostNoManifest(g); return; }
+                    if (diff == null) { ShowGhostNoManifest(g, row); return; }
                     ShowGhostConsent(g, row, manifest, diff, mhash);
                 });
             });
@@ -211,16 +263,15 @@ namespace SideHustle.Menu
             SyncManualInstallView.PrefetchLinks(diff);
             ClearFormHost();
             SetTmp(_clone.transform, "Title", g.Name);
-            var host = CreateFormHost("SH_GhostConsent", 560f);
+            var host = CreateFormHost("SH_GhostConsent");
             // enforced: a gamemode session always runs the host's set - joining "as you are" is not on offer here,
             // because without the gamemode's own mod there is nothing to join with.
             SyncConsentView.Build(host, manifest, diff, enforced: true, hasPrefs: false,
                 row?.OwnerSteamId ?? 0UL, row?.HostName, row?.AcceptsMessages ?? false,
-                onSyncJoin: () => GhostSyncAndJoin(g, row, manifest, diff, mhash),
+                onSyncJoin: () => GhostSyncAndJoin(g, row, manifest, diff, mhash, () => ShowGhostConsent(g, row, manifest, diff, mhash)),
                 onPlainJoin: null,
                 onBack: () => ShowGhostBrowser(g),
-                enforcedNote: $"You don't have {g.Name} yet - Side Hustle installs it into a separate session profile, "
-                              + "restarts, and joins the lobby. Your own mods stay untouched.");
+                enforcedNote: $"You don't have {g.Name} yet. Side Hustle installs it, restarts and joins the lobby - your own mods stay untouched.");
         }
 
         /// <summary>
@@ -260,12 +311,10 @@ namespace SideHustle.Menu
             _ghostRetried = false;
             int gen = ++_joinGen;
 
-            ShowRows(g.Name, new List<Row>
-            {
-                new Row { Name = "Checking your mods...", Subtitle = "Reading the host's list.", Disabled = true }
-            });
-            try { Il2CppSteamworks.SteamMatchmaking.RequestLobbyData(new Il2CppSteamworks.CSteamID(row.LobbyId)); } catch { }
-            WaitForInstalledManifest(g, row, joinAnyway, gen, 0);
+            Action cancel = () => ShowBrowser(desc);
+            ShowManifestWait(g.Name, "Checking your mods...", 0, cancel);
+            RequestLobbyData(row.LobbyId);
+            WaitForInstalledManifest(g, row, joinAnyway, gen, 0, cancel);
             return true;
         }
 
@@ -277,14 +326,14 @@ namespace SideHustle.Menu
         /// safeguard silently did not apply during ordinary metadata propagation. A safeguard that fails open exactly
         /// when it is slow to answer is worse than none, because nobody can tell the difference.
         /// </summary>
-        private static void WaitForInstalledManifest(Ghost g, LobbyRow row, Action joinAnyway, int gen, int attempt)
+        private static void WaitForInstalledManifest(Ghost g, LobbyRow row, Action joinAnyway, int gen, int attempt, Action cancel)
         {
             if (gen != _joinGen) return;                                  // the player moved on
             if (_cloneScreen == null || !_cloneScreen.IsOpen) return;
 
             SyncManifest manifest = null; string mhash = null; bool got = false;
             try { got = VanillaLobby.TryReadPayloads(row.LobbyId, out manifest, out _, out mhash) && manifest.Mods.Count > 0; }
-            catch { got = false; }
+            catch (Exception e) { got = false; Core.Log?.Warning("[mp] join: reading the host's mod list threw: " + e.Message); }
 
             if (got) { BeginInstalledCompare(g, row, manifest, mhash, joinAnyway, gen); return; }
 
@@ -294,14 +343,16 @@ namespace SideHustle.Menu
                 // own files. Joining beats refusing - the comparison is a safeguard, not something the session needs.
                 Core.Log?.Msg("[mp] join: no mod list on the lobby after " + JoinManifestAttempts +
                               " tries - joining without a comparison. " + VanillaLobby.DescribeReadFailure(row.LobbyId));
+                ShowToast("Mod check skipped: no mod list from the host.", DooDesch.UI.Severity.Warning);
                 joinAnyway();
                 return;
             }
-            try { Il2CppSteamworks.SteamMatchmaking.RequestLobbyData(new Il2CppSteamworks.CSteamID(row.LobbyId)); } catch { }
+            if (attempt > 0) ShowManifestWait(g.Name, "Checking your mods...", attempt, cancel);
+            RequestLobbyData(row.LobbyId);
             System.Threading.Tasks.Task.Run(async () =>
             {
                 await System.Threading.Tasks.Task.Delay(700);
-                MainThread.Post(() => WaitForInstalledManifest(g, row, joinAnyway, gen, attempt + 1));
+                MainThread.Post(() => WaitForInstalledManifest(g, row, joinAnyway, gen, attempt + 1, cancel));
             });
         }
 
@@ -312,6 +363,7 @@ namespace SideHustle.Menu
             {
                 new Row { Name = "Checking your mods...", Subtitle = "Comparing your set with the host's.", Disabled = true }
             });
+            HubFlowWait("Mods compared", "Comparing");
             System.Threading.Tasks.Task.Run(() =>
             {
                 SyncDiff diff = null;
@@ -340,60 +392,71 @@ namespace SideHustle.Menu
             SyncManualInstallView.PrefetchLinks(diff);
             ClearFormHost();
             SetTmp(_clone.transform, "Title", g.Name);
-            var host = CreateFormHost("SH_JoinModCheck", 560f);
+            var host = CreateFormHost("SH_JoinModCheck");
             SyncConsentView.Build(host, manifest, diff, enforced: false, hasPrefs: false,
                 row?.OwnerSteamId ?? 0UL, row?.HostName, row?.AcceptsMessages ?? false,
-                onSyncJoin: () => GhostSyncAndJoin(g, row, manifest, diff, mhash),
+                onSyncJoin: () => GhostSyncAndJoin(g, row, manifest, diff, mhash, () => ShowInstalledConsent(g, row, manifest, diff, mhash, joinAnyway)),
                 onPlainJoin: joinAnyway,
                 onBack: () => ShowGamemodeList(),
                 enforcedNote: null);
         }
 
-        private static void GhostSyncAndJoin(Ghost g, LobbyRow row, SyncManifest manifest, SyncDiff diff, string mhash)
+        private static void GhostSyncAndJoin(Ghost g, LobbyRow row, SyncManifest manifest, SyncDiff diff, string mhash, Action consentBack)
         {
             // Mods nobody can fetch automatically (a Nexus link, or one with no source at all) get the checklist -
             // the same one the co-op sync uses, including the "Open Nexus" lookup.
-            if (diff.Entries.Any(e => e.Status == DiffStatus.Manual || e.Status == DiffStatus.Dropped)
+            if (!SyncManualInstallView.HasHandInstall(diff) && diff.Entries.Any(e => e.Status == DiffStatus.Dropped))
+                Core.Log?.Msg("[mp] join: every unsynced mod is dropped (nothing to install by hand); skipping the checklist.");
+            if (SyncManualInstallView.HasHandInstall(diff)
                 && _clone != null && _cloneScreen != null && _cloneScreen.IsOpen)
             {
                 _back = () => ShowGhostConsent(g, row, manifest, diff, mhash);
                 ClearFormHost();
                 SetTmp(_clone.transform, "Title", "Manual installs");
-                var mh = CreateFormHost("SH_GhostManual", 560f);
+                var mh = CreateFormHost("SH_GhostManual");
                 SyncManualInstallView.Build(mh, diff,
                     row?.OwnerSteamId ?? 0UL, row?.HostName, row?.AcceptsMessages ?? false,
-                    onContinue: () => GhostBuildAndRestart(g, row, diff, mhash),
+                    onContinue: () => GhostBuildAndRestart(g, row, diff, mhash, consentBack),
                     onBack: () => ShowGhostConsent(g, row, manifest, diff, mhash));
                 return;
             }
-            GhostBuildAndRestart(g, row, diff, mhash);
+            GhostBuildAndRestart(g, row, diff, mhash, consentBack);
         }
 
-        private static void GhostBuildAndRestart(Ghost g, LobbyRow row, SyncDiff diff, string mhash)
+        private static void GhostBuildAndRestart(Ghost g, LobbyRow row, SyncDiff diff, string mhash,
+            Action cancelBack = null)
         {
+            var ct = SyncRun.Begin();
+            _syncBack = cancelBack ?? (() => ShowGhostBrowser(g));
             if (_clone != null && _cloneScreen != null && _cloneScreen.IsOpen)
             {
                 _back = null;
                 ClearFormHost();
                 SetTmp(_clone.transform, "Title", "Installing " + g.Name);
-                var host = CreateFormHost("SH_GhostInstalling", 560f);
+                var host = CreateFormHost("SH_GhostInstalling");
                 // The real progress view, not a static card: this is the part of the flow that takes time, so it is the
                 // part that has to show what is happening. The card said nothing while several megabytes came down.
                 _installUi = InstallProgressView.Build(host, "Installing " + g.Name,
-                    SyncDownloadProgress.PlanFrom(diff), diff.Unresolved, onCancel: null);
+                    SyncDownloadProgress.PlanFrom(diff), diff.Unresolved, onCancel: () => StopSyncDownload("cancel button"));
             }
 
             var sink = _installUi != null ? new SyncDownloadProgress(_installUi, diff) : null;
             System.Threading.Tasks.Task.Run(async () =>
             {
                 bool allFetched = false;
-                try { allFetched = await SyncResolver.DownloadMissingAsync(diff, sink, System.Threading.CancellationToken.None); }
+                try { allFetched = await SyncResolver.DownloadMissingAsync(diff, sink, ct); }
+                catch (OperationCanceledException) { Core.Log?.Msg("[mp] gamemode join: downloads stopped by the player."); }
                 catch (Exception e) { Core.Log?.Warning("[mp] gamemode join: downloads failed: " + e.Message); }
+
+                // Cancelled: the screen is already back where it came from, so nothing may build or restart here.
+                if (ct.IsCancellationRequested) return;
 
                 var inputs = SyncResolver.ToInputs(diff);
                 SyncResolver.ResolveExtras(diff, out var pluginInputs, out var userLibInputs);
                 MainThread.Post(() =>
                 {
+                    if (ct.IsCancellationRequested) { Core.Log?.Msg("[mp] gamemode join: cancelled before the restart; not building the profile."); return; }
+                    SyncRun.End(ct);
                     // The gamemode's own mod is the point of the whole flow: without it a restart lands the player in
                     // the menu with nothing gained, so stop here and say why instead.
                     string ownFile = "";
@@ -406,7 +469,7 @@ namespace SideHustle.Menu
                     if (!ok)
                     {
                         Core.Log?.Error("[mp] gamemode join: the gamemode's own mod could not be installed; staying in the menu.");
-                        ShowGhostMissingMod(g, diff.Unresolved);
+                        ShowGhostMissingMod(g, diff.Unresolved, row);
                         return;
                     }
 
@@ -424,10 +487,10 @@ namespace SideHustle.Menu
                         _back = null;
                         ClearFormHost();
                         SetTmp(_clone.transform, "Title", "Still missing");
-                        var mh2 = CreateFormHost("SH_GhostManualRetry", 560f);
+                        var mh2 = CreateFormHost("SH_GhostManualRetry");
                         SyncManualInstallView.Build(mh2, diff,
                             row?.OwnerSteamId ?? 0UL, row?.HostName, row?.AcceptsMessages ?? false,
-                            onContinue: () => GhostBuildAndRestart(g, row, diff, mhash),
+                            onContinue: () => GhostBuildAndRestart(g, row, diff, mhash, cancelBack),
                             onBack: () => ShowGhostBrowser(g));
                         return;
                     }
@@ -454,7 +517,8 @@ namespace SideHustle.Menu
                     // One shared commit point for both sync paths - see CommittedRestart.
                     CommittedRestart.Then(g.Name, () =>
                         Mods.ModSwitcher.RelaunchIntoSyncProfile("gmjoin-" + g.GamemodeId, inputs, tokens, prefsOverlay: null,
-                            logLabel: $"installing {inputs.Count} mod(s) to join '{g.Name}'", pluginInputs, userLibInputs));
+                            logLabel: $"installing {inputs.Count} mod(s) to join '{g.Name}'", pluginInputs, userLibInputs),
+                        onCancel: cancelBack ?? (() => ShowGhostBrowser(g)));
                 });
             });
         }
@@ -514,7 +578,7 @@ namespace SideHustle.Menu
             {
                 if (attempt < RejoinDataAttempts)
                 {
-                    RejoinNotice.Update($"Looking for the session... attempt {attempt + 1} of {RejoinDataAttempts}");
+                    RejoinNotice.Update($"Looking for the lobby... attempt {attempt + 1} of {RejoinDataAttempts}");
                     try { Il2CppSteamworks.SteamMatchmaking.RequestLobbyData(new Il2CppSteamworks.CSteamID(lobbyId)); }
                     catch (Exception e) { Core.Log?.Warning("[mp] lobby data re-request failed: " + e.Message); }
                     System.Threading.Tasks.Task.Run(async () =>
@@ -545,7 +609,7 @@ namespace SideHustle.Menu
             if (!string.IsNullOrEmpty(wantHash) && liveHash != wantHash)
             {
                 Core.Log?.Warning($"[mp] lobby {lobbyId} now advertises a different mod set - not joining with the old one.");
-                ShowInstalledButLobbyGone(desc, $"{desc.DisplayName} is installed - the host changed their mods, pick the session again.");
+                ShowInstalledButLobbyGone(desc, $"{desc.DisplayName} is installed, but the host changed their mods.");
                 return;
             }
 
@@ -554,7 +618,7 @@ namespace SideHustle.Menu
             // check and the game's loading screen is covered too.
             RejoinNotice.Update($"Joining {desc.DisplayName} - loading the world...");
             CloseHubScreen();
-            MultiplayerCoordinator.StartJoin(desc, new LobbyRow
+            bool started = MultiplayerCoordinator.StartJoin(desc, new LobbyRow
             {
                 LobbyId = lobbyId,
                 GamemodeId = desc.Id,
@@ -564,6 +628,7 @@ namespace SideHustle.Menu
                 MaxPlayers = info.MaxPlayers,
                 BuildId = info.BuildId,
             });
+            if (!started) ShowRefusal(MultiplayerCoordinator.LastRefusal);
         }
 
         // The install worked but the session is not there anymore: land on this gamemode's own screen, so the player
@@ -577,7 +642,7 @@ namespace SideHustle.Menu
                 if (_cloneScreen == null) return;
                 if (!_cloneScreen.IsOpen) { ShowGamemodeList(); _cloneScreen.Open(); }
                 OpenGamemode(desc);
-                ShowToastSafe(message ?? $"{desc.DisplayName} is installed - that session has closed, pick another one.");
+                ShowToastSafe(message ?? $"{desc.DisplayName} is installed, but that lobby has closed.");
             }
             catch (Exception e) { Core.Log?.Warning("[mp] could not show the post-install screen: " + e.Message); }
         }
@@ -585,7 +650,7 @@ namespace SideHustle.Menu
         private static void ShowToastSafe(string message)
         {
             try { DooDesch.UI.Toast.Init(DialogRootStatic()); DooDesch.UI.Toast.Show(message, DooDesch.UI.Severity.Info); }
-            catch { /* menu mid-transition */ }
+            catch (Exception e) { Core.Log?.Warning("[hub] could not show a toast (menu mid-transition): " + e.Message + " - " + message); }
         }
     }
 }

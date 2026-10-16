@@ -52,7 +52,11 @@ namespace SideHustle.Sync
                 using var reader = new StreamReader(deflate, Encoding.UTF8);
                 return reader.ReadToEnd();
             }
-            catch { return null; }
+            catch (Exception e)
+            {
+                Core.Log?.Warning("[sync] the published mod list could not be decoded (corrupt or truncated): " + e.Message);
+                return null;
+            }
         }
 
         /// <summary>The short manifest hash (16 hex chars of SHA256) over BOTH payload texts. Computed on the

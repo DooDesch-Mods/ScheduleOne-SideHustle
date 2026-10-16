@@ -1,7 +1,7 @@
 namespace SideHustle.Multiplayer
 {
     /// <summary>How a hosted lobby is exposed.</summary>
-    public enum LobbyVisibility
+    internal enum LobbyVisibility
     {
         /// <summary>Listed in the in-hub server browser; anyone can join (optionally gated by a password).</summary>
         Public,
@@ -13,7 +13,7 @@ namespace SideHustle.Multiplayer
     /// Choices the host makes on the Host-config screen before opening a lobby. <see cref="ConfigBlob"/> carries the
     /// gamemode's chosen settings (encoded key=value) to the gamemode and to joining clients.
     /// </summary>
-    public sealed class HostOptions
+    internal sealed class HostOptions
     {
         /// <summary>Maximum players for the lobby. Defaults to the game's native cap; BiggerLobbies allows more.</summary>
         public int MaxPlayers = 4;
@@ -34,6 +34,10 @@ namespace SideHustle.Multiplayer
         /// <summary>Optional mode label the host is running (key sh_mode), e.g. "Infection" or "Custom - Infection";
         /// shown on the browser card so joiners see the selected mode. Null when the gamemode has no presets.</summary>
         public string ModeLabel = null;
+
+        /// <summary>The host's Discord invite code (just the code, validated by <c>DiscordInvite</c>), published as
+        /// <c>sh_discord</c>. Null or empty publishes nothing.</summary>
+        public string DiscordCode = null;
 
         /// <summary>True when a Public lobby is password-gated (shows a lock in the browser).</summary>
         public bool HasPassword => Visibility == LobbyVisibility.Public && !string.IsNullOrEmpty(Password);

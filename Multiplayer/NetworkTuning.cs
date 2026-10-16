@@ -52,7 +52,8 @@ namespace SideHustle.Multiplayer
                     return;   // not applied -> retried on the next host/join
                 }
                 bool ok = SteamAPI_ISteamNetworkingUtils_SetGlobalConfigValueInt32(utils, P2P_Transport_ICE_Enable, ICE_Enable_All);
-                try { SteamAPI_ISteamNetworkingUtils_InitRelayNetworkAccess(utils); } catch { }   // relay fallback for strict NAT
+                try { SteamAPI_ISteamNetworkingUtils_InitRelayNetworkAccess(utils); }   // relay fallback for strict NAT
+                catch (Exception e) { Core.Log?.Warning("[mp] relay warmup failed; direct routes still work: " + e.Message); }
                 _applied = ok;
                 Core.Log?.Msg($"[mp] P2P ICE candidates -> allow-all ({(ok ? "ok" : "rejected")}) + relay warmup.");
             }

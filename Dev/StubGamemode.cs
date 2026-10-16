@@ -9,7 +9,7 @@ namespace SideHustle.Dev
 {
     /// <summary>
     /// DEBUG-only sample gamemode so the menu list is non-empty before a real consumer is loaded. It registers
-    /// as a menu-space MULTIPLAYER gamemode exposing one of every host-setting control (slider/toggle/segmented/
+    /// as a menu-space HYBRID gamemode (solo and lobbies) exposing one of every host-setting control (slider/toggle/segmented/
     /// text), so the Host-config form can be exercised end to end - register -> list -> Host -> form -> launch ->
     /// return - without depending on a heavier gamemode mod. Excluded from Release builds (csproj Compile Remove Dev/**).
     /// </summary>
@@ -23,10 +23,13 @@ namespace SideHustle.Dev
             {
                 Id = "sidehustle.debugstub",
                 DisplayName = "Debug Stub",
-                Description = "Sample multiplayer gamemode for testing the hub + host form.",
+                Description = "Sample hybrid gamemode for testing the hub + host form.",
                 Author = "DooDesch",
-                Support = GamemodeSupport.Multiplayer,
+                // Side Hustle's own package icon, embedded for Debug builds only (see the csproj).
+                IconResource = "SideHustle.Dev.stub-icon.png",
+                Support = GamemodeSupport.Hybrid,
                 Surface = GamemodeSurface.MenuSpace,
+                OnLaunchSingleplayer = Launch,
                 OnHostMultiplayer = Launch,
                 OnJoinMultiplayer = Launch,
                 OnExitToHub = _ => Close(),

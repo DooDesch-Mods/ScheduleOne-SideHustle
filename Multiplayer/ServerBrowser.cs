@@ -57,7 +57,12 @@ namespace SideHustle.Multiplayer
         private static bool SteamReady()
         {
             bool up;
-            try { up = SteamManager.Initialized; } catch { up = false; }
+            try { up = SteamManager.Initialized; }
+            catch (Exception e)
+            {
+                up = false;
+                if (!_warnedNoSteam) Core.Log?.Warning("[mp] could not ask Steam whether it is up (treated as down): " + e.Message);
+            }
             if (up) { _warnedNoSteam = false; return true; }
             if (!_warnedNoSteam)
             {
@@ -182,7 +187,8 @@ namespace SideHustle.Multiplayer
                     rows.Add(Sync.VanillaLobby.ReadSummary(id.m_SteamID));
                     // Warm the FULL lobby data (incl. the big chunked manifest) in our Steam cache while the player
                     // browses, so a later sync-check reads complete data on the first try instead of racing propagation.
-                    try { SteamMatchmaking.RequestLobbyData(id); } catch { }
+                    try { SteamMatchmaking.RequestLobbyData(id); }
+                    catch (Exception e) { Core.Log?.Msg($"[sync] could not warm the data of lobby {id.m_SteamID}: {e.Message}"); }
                 }
             }
             catch (Exception e) { Core.Log?.Warning("[sync] vanilla-lobby parse error: " + e.Message); }
@@ -277,7 +283,8 @@ namespace SideHustle.Multiplayer
 
                     var info = LobbyCoordinator.ReadInfo(id.m_SteamID);
                     int members = 1;
-                    try { members = SteamMatchmaking.GetNumLobbyMembers(id); } catch { /* ignore */ }
+                    try { members = SteamMatchmaking.GetNumLobbyMembers(id); }
+                    catch (Exception e) { Core.Log?.Msg($"[mp] could not count the members of lobby {id.m_SteamID} (shown as 1): {e.Message}"); }
                     rows.Add(new LobbyRow
                     {
                         LobbyId = id.m_SteamID,

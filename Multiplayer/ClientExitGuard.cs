@@ -27,7 +27,6 @@ namespace SideHustle.Multiplayer
     {
         private static HarmonyLib.Harmony _harmony;
         private static bool _installed;
-        private static MethodInfo _setGameLoaded;
 
         internal static void Install()
         {
@@ -36,8 +35,8 @@ namespace SideHustle.Multiplayer
             try
             {
                 _harmony = new HarmonyLib.Harmony("doodesch.sidehustle.clientexit");
-                var target = AccessTools.Method(typeof(LoadManager), nameof(LoadManager.ExitToMenu));
-                if (target == null) { Core.Log?.Warning("[exitguard] LoadManager.ExitToMenu not found - client-exit guard inactive."); return; }
+                var target = Internal.GameTargets.LoadManagerExitToMenu.Value;
+                if (target == null) return;   // GameTargets already logged the missing target
 
                 _harmony.Patch(target,
                     prefix: new HarmonyMethod(typeof(ClientExitGuard).GetMethod(nameof(ExitPrefix), AccessTools.all)),
@@ -57,7 +56,14 @@ namespace SideHustle.Multiplayer
                 string scene = SceneManager.GetActiveScene().name;
                 return scene == "Main" || scene == "Tutorial";
             }
-            catch { return false; }
+            catch (Exception e) { WarnOnce("IsClientInGame", e); return false; }
+        }
+
+        // Per-frame and per-click probes fail the same way every time; one log line per site is enough.
+        private static readonly System.Collections.Generic.HashSet<string> _warned = new System.Collections.Generic.HashSet<string>();
+        private static void WarnOnce(string site, Exception e)
+        {
+            if (_warned.Add(site)) Core.Log?.Warning($"[exitguard] {site} failed: {e.Message}");
         }
 
         private static void ExitPrefix()
@@ -66,11 +72,11 @@ namespace SideHustle.Multiplayer
             {
                 if (!IsClientInGame()) return;
                 var lm = Singleton<LoadManager>.Instance;
-                if (lm == null) return;
+                if (lm == null) { Core.Log?.Warning("[exitguard] LoadManager singleton missing at exit; vanilla exit runs unguarded."); return; }
 
                 bool loaded = false, loading = false;
-                try { loaded = lm.IsGameLoaded; } catch { }
-                try { loading = lm.IsLoading; } catch { }
+                try { loaded = lm.IsGameLoaded; } catch (Exception e) { WarnOnce("read IsGameLoaded", e); }
+                try { loading = lm.IsLoading; } catch (Exception e) { WarnOnce("read IsLoading", e); }
                 Core.Log?.Msg($"[exitguard] client exit-to-menu: IsGameLoaded={loaded}, IsLoading={loading}, scene={SceneManager.GetActiveScene().name}.");
 
                 // Cause A: the vanilla guard would early-return because IsGameLoaded is false even though we are
@@ -113,14 +119,19 @@ namespace SideHustle.Multiplayer
                 var lm = Singleton<LoadManager>.Instance;
                 if (lm != null)
                 {
-                    try { lm.StopAllCoroutines(); } catch { }   // stop a hung LoadAsClient WaitUntil that never returns
+                    try { lm.StopAllCoroutines(); }   // stop a hung LoadAsClient WaitUntil that never returns
+                    catch (Exception e) { Core.Log?.Warning("[exitguard] could not stop the load coroutines: " + e.Message); }
                     TrySetLoading(lm, false);
                 }
-                try { if (Player.Local != null) Player.Local.RequestSavePlayer(); } catch { }
-                try { var lob = Singleton<Lobby>.Instance; if (lob != null && lob.IsInLobby) lob.LeaveLobby(); } catch { }
-                try { InstanceFinder.ClientManager?.StopConnection(); } catch { }
+                try { if (Player.Local != null) Player.Local.RequestSavePlayer(); }
+                catch (Exception e) { Core.Log?.Warning("[exitguard] could not save the local player before leaving: " + e.Message); }
+                try { var lob = Singleton<Lobby>.Instance; if (lob != null && lob.IsInLobby) lob.LeaveLobby(); }
+                catch (Exception e) { Core.Log?.Warning("[exitguard] could not leave the lobby: " + e.Message); }
+                try { InstanceFinder.ClientManager?.StopConnection(); }
+                catch (Exception e) { Core.Log?.Warning("[exitguard] could not stop the client connection: " + e.Message); }
                 if (lm != null) TrySetGameLoaded(lm, false);
-                try { UnityEngine.Time.timeScale = 1f; } catch { }
+                try { UnityEngine.Time.timeScale = 1f; }
+                catch (Exception e) { Core.Log?.Warning("[exitguard] could not reset the time scale: " + e.Message); }
                 try { SceneManager.LoadScene("Menu"); } catch (Exception e) { Core.Log?.Warning("[exitguard] menu load failed: " + e.Message); }
             }
             finally { _recovering = false; }
@@ -137,10 +148,11 @@ namespace SideHustle.Multiplayer
             try
             {
                 bool isClient = false, isServer = false;
-                try { isClient = InstanceFinder.IsClient; isServer = InstanceFinder.IsServer; } catch { }
+                try { isClient = InstanceFinder.IsClient; isServer = InstanceFinder.IsServer; }
+                catch (Exception e) { WarnOnce("watchdog network flags", e); }
                 var lm = Singleton<LoadManager>.Instance;
                 bool loaded = false;
-                if (lm != null) { try { loaded = lm.IsGameLoaded; } catch { } }
+                if (lm != null) { try { loaded = lm.IsGameLoaded; } catch (Exception e) { WarnOnce("watchdog IsGameLoaded", e); } }
                 string scene = SceneManager.GetActiveScene().name;
                 bool inGameplay = scene == "Main" || scene == "Tutorial";
 
@@ -158,36 +170,26 @@ namespace SideHustle.Multiplayer
                     ForceClientExit();
                 }
             }
-            catch { }
+            catch (Exception e) { WarnOnce("TickWatchdog", e); }
         }
 
-        // IsGameLoaded has a protected setter; reach it once through the Il2CppInterop-generated set_ method.
-        private static bool TrySetGameLoaded(LoadManager lm, bool value)
-        {
-            try
-            {
-                _setGameLoaded ??= typeof(LoadManager).GetMethod("set_IsGameLoaded",
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                if (_setGameLoaded == null) return false;
-                _setGameLoaded.Invoke(lm, new object[] { value });
-                return true;
-            }
-            catch (Exception e) { Core.Log?.Warning("[exitguard] set IsGameLoaded failed: " + e.Message); return false; }
-        }
+        // IsGameLoaded has a protected setter; reach it through the Il2CppInterop-generated set_ method.
+        private static bool TrySetGameLoaded(LoadManager lm, bool value) =>
+            InvokeSetter(Internal.GameTargets.LoadManagerSetIsGameLoaded.Value, lm, value, "IsGameLoaded");
 
         // IsLoading also has a non-public setter; reach it the same way to clear a hung load state.
-        private static MethodInfo _setLoading;
-        private static bool TrySetLoading(LoadManager lm, bool value)
+        private static bool TrySetLoading(LoadManager lm, bool value) =>
+            InvokeSetter(Internal.GameTargets.LoadManagerSetIsLoading.Value, lm, value, "IsLoading");
+
+        private static bool InvokeSetter(MethodBase setter, LoadManager lm, bool value, string name)
         {
+            if (setter == null) return false;   // GameTargets logged the missing setter
             try
             {
-                _setLoading ??= typeof(LoadManager).GetMethod("set_IsLoading",
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                if (_setLoading == null) return false;
-                _setLoading.Invoke(lm, new object[] { value });
+                setter.Invoke(lm, new object[] { value });
                 return true;
             }
-            catch { return false; }
+            catch (Exception e) { Core.Log?.Warning($"[exitguard] set {name} failed: {e.Message}"); return false; }
         }
     }
 }

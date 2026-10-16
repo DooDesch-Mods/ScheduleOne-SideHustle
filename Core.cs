@@ -21,6 +21,7 @@ namespace SideHustle
         public static MelonLogger.Instance Log { get; private set; }
 
         private bool _inMenu;
+        private bool _hubAutoOpened;    // the main menu opened in the hub once for this menu load
         private int _reopenHubFrames;   // >0 = reopen the hub list this many frames after a session returns to Menu
         private int _runtimeNoticeFrames;         // >0 = show the wrong-runtime notice this many frames after Menu
         private string _runtimeNoticeProfileId;   // the named profile the notice belongs to
@@ -28,6 +29,9 @@ namespace SideHustle
         private string _continueHost;   // encoded host options to host directly after a Host-triggered policy restart
         private string _vanillaJoinPayload;   // encoded lobby+mhash to auto-rejoin after a mod-sync restart
         private string _gamemodeJoinPayload;  // encoded lobby+gamemode+mhash to join after installing that gamemode
+        private string _reopenGamemodeId;     // a gamemode whose hub page to open after the restore-to-full restart
+        private bool _restoreRequested;       // RestoreAndRestart was asked for once this run; never again on a re-init
+        private bool _restoreRepeatLogged;
 
         public override void OnInitializeMelon()
         {
@@ -36,6 +40,10 @@ namespace SideHustle
 
             Preferences.Initialize();
             API.IsReady = true;
+
+            // Every game member reached by name is resolved once, here, so a game update that renamed one is in the
+            // log at startup and the feature behind it switches itself off.
+            Internal.GameTargets.ResolveAll();
 
             // Native bigger lobbies - raise the co-op cap ourselves (no external BiggerLobbies dependency).
             // Idempotent + single-flight guarded, so a standalone FullHouse.dll or BiggerLobbies alongside is fine.
@@ -49,10 +57,13 @@ namespace SideHustle
             // Keep the boot-time profile picker (a MelonPlugin, shipped embedded) installed and current.
             Profiles.BootInstaller.EnsureInstalled();
             Profiles.ThunderstoreClient.Log = s => Log?.Warning("[profiles] " + s);
+            Shared.SharedLog.Warn = s => Log?.Warning("[shared] " + s);
+            Shared.SharedLog.Info = s => Log?.Msg("[shared] " + s);
             Sync.NexusLookup.Log = s => Log?.Msg("[nexus] " + s);
 
             // The live-publish button (pause-menu lobby panel) patch - inert until a co-op host is eligible.
             Sync.LivePublish.Install();
+            Menu.HubLobbyWidget.Install();
 
             // The host's in-game lobby controls, as a phone app. Registering is load-order proof and a no-op when
             // Sideload is absent, so it goes here unconditionally rather than behind a check.
@@ -63,7 +74,8 @@ namespace SideHustle
             Multiplayer.ClientExitGuard.Install();
 
             // Keep ticking when the window is unfocused, so a post-restart auto-continue still fires.
-            try { UnityEngine.Application.runInBackground = true; } catch { /* ignore */ }
+            try { UnityEngine.Application.runInBackground = true; }
+            catch (Exception e) { Log.Warning("could not keep the game ticking in the background (a post-restart auto-continue may wait for focus): " + e.Message); }
 
 #if DEBUG
             Dev.StubGamemode.Register();
@@ -73,7 +85,8 @@ namespace SideHustle
             // Version read from the assembly, never typed twice: a hardcoded string here silently lies about which
             // build a player is running the moment a release forgets to update it.
             string version = "";
-            try { version = typeof(Core).Assembly.GetName().Version?.ToString(3) ?? ""; } catch { /* ignore */ }
+            try { version = typeof(Core).Assembly.GetName().Version?.ToString(3) ?? ""; }
+            catch (Exception e) { Log.Warning("could not read the Side Hustle version from the assembly: " + e.Message); }
             Log.Msg($"Side Hustle {version} ready - {API.Registered.Count} gamemode(s) registered so far.");
         }
 
@@ -108,6 +121,7 @@ namespace SideHustle
                 // did not, and losing them means the restart happens and the player is left in the menu with no lobby.
                 // Restored into Preferences so every read below (and the staleness exemption) works unchanged.
                 RestorePendingTokens(policySession);
+                if (!policySession && !namedProfileSession) TakeReopenToken();
 
                 // A pending vanilla-sync rejoin means this session base is a SYNC profile, built from the HOST's bytes
                 // on purpose. It must never be measured against the local install: a host running a different build of
@@ -132,9 +146,21 @@ namespace SideHustle
                 // mods. This guarantees a profile is never silently out of date with what's installed.
                 if (policySession && !syncJoinPending && Mods.AltBase.ProfileIsStale())
                 {
-                    Log.Warning("[modpolicy] this gamemode profile is out of date with your installed mods - restoring your full set so it rebuilds fresh.");
-                    Mods.ModSwitcher.RestoreAndRestart();
-                    return;
+                    // Asked ONCE per run. The Menu scene initializes several times in one menu load, and a restore that
+                    // could not start (no helper, no game folder) used to be retried - and re-logged - on each of them.
+                    if (!_restoreRequested)
+                    {
+                        _restoreRequested = true;
+                        Log.Warning("[modpolicy] this gamemode profile is out of date with your installed mods - restoring your full set so it rebuilds fresh.");
+                        Mods.ModSwitcher.RestoreAndRestart();
+                        return;
+                    }
+                    // The restore did not take (the game is still here): carry on in this profile instead of freezing.
+                    if (!_restoreRepeatLogged)
+                    {
+                        _restoreRepeatLogged = true;
+                        Log.Warning("[modpolicy] the restore of your full mod set was already requested this run and has not taken effect; not asking again, continuing in this profile.");
+                    }
                 }
 
                 if (!policySession && !namedProfileSession)
@@ -226,6 +252,27 @@ namespace SideHustle
         /// whose config some other mod had already broken. The file this reads is ours alone and is deleted as it is
         /// read, so a token can never fire twice.
         /// </summary>
+        /// <summary>
+        /// A gamemode session that ran in its own mod profile ends with a restart back to the full mod set, and that
+        /// restart used to leave the player on the bare main menu. The session's last act writes the gamemode id beside
+        /// the real game folder; this launch picks it up and opens that gamemode's page again, so a rematch is one click.
+        /// </summary>
+        private void TakeReopenToken()
+        {
+            var tokens = Sync.PendingHandoff.TakeAll();
+            if (!tokens.TryGetValue(Internal.HubBridge.ReopenGamemodeToken, out var id) || id.Length == 0) return;
+            _reopenGamemodeId = id;
+            _reopenHubFrames = 90;
+            Log.Msg($"[hub] back on the full mod set after '{id}'; reopening its page.");
+        }
+
+        private static void ReopenGamemode(string id)
+        {
+            var desc = API.Registered.FirstOrDefault(d => d.Id == id);
+            if (desc == null) Log.Warning($"[hub] '{id}' is not installed in this mod set; showing the gamemode list instead.");
+            Hub.OpenGamemode(desc);   // null opens the list
+        }
+
         private static void RestorePendingTokens(bool policySession)
         {
             if (!policySession) return;
@@ -261,6 +308,7 @@ namespace SideHustle
             if (sceneName == "Menu")
             {
                 _inMenu = false;
+                _hubAutoOpened = false;
                 Sync.SyncCoordinator.OnLeftMenu();   // a world is loading; the next menu is the one AFTER a session
                 _reopenHubFrames = 0;
                 // Clear the deferred-reopen payloads too: they are only consumed while the frame counter counts down,
@@ -269,6 +317,7 @@ namespace SideHustle
                 _vanillaJoinPayload = null;
                 _gamemodeJoinPayload = null;
                 _continueId = null;
+                _reopenGamemodeId = null;
                 _continueHost = null;
                 Menu.RejoinNotice.Hide();   // a rejoin that never fired must not leave its notice on the world
                 _runtimeNoticeFrames = 0;
@@ -283,7 +332,8 @@ namespace SideHustle
         /// until the backend's ~90s TTL swept it, so the lobby browser showed a lobby nobody could join.</summary>
         public override void OnApplicationQuit()
         {
-            try { Sync.VanillaLobby.UnpublishDirectoryBlocking(); } catch { /* shutting down */ }
+            try { Sync.VanillaLobby.UnpublishDirectoryBlocking(); }
+            catch (Exception e) { Log?.Warning("[sync] could not withdraw the web listing on quit (it expires on its own): " + e.Message); }
         }
 
         /// <summary>
@@ -304,6 +354,7 @@ namespace SideHustle
             // The multiplayer coordinator's state machine must advance every frame (its host/join transitions
             // happen during scene loads, not only in the menu).
             Multiplayer.MultiplayerCoordinator.Tick();
+            Multiplayer.LobbyCoordinator.Tick();   // finishes a re-host that had to leave the old lobby first
 
             // Worker-thread completions from the Profiles module (downloads, builds) land on the main thread here.
             Profiles.MainThread.Tick();
@@ -315,6 +366,7 @@ namespace SideHustle
             Menu.SessionNotice.Tick();   // why the last session ended - NOT gated on the menu flag, see SessionNotice
             Menu.RejoinNotice.Tick(UnityEngine.Time.unscaledDeltaTime);   // offers the way out, yields to vanilla popups
             Phone.ChatRelay.Tick();  // liest eingegangene P2P-Nachrichten
+            Internal.ApiPump.Tick();   // public API: queued off-thread calls, session roster, gamemode messages
             Menu.ChatPanel.AnnounceReply();   // in the menu there is no phone to notify on - see the method
             Phone.LobbyApp.Tick();   // pushes one event to the Lobby app when the session state actually moved
             Multiplayer.ClientExitGuard.TickWatchdog();   // recover a kicked/dropped client stranded on a loading screen
@@ -323,12 +375,21 @@ namespace SideHustle
             if (_inMenu)
             {
                 MenuInjector.TickRetry();
+                // The main menu opens in the hub, once per menu load and only when nothing else is about to own the
+                // screen: the reopen paths below open the hub themselves (or a rejoin, a continue, a notice).
+                if (!_hubAutoOpened && MenuInjector.Injected)
+                {
+                    _hubAutoOpened = true;
+                    if (_reopenHubFrames > 0 || _runtimeNoticeFrames > 0) Log.Msg("[hub3] menu load: a reopen path owns the screen.");
+                    else Hub.OpenOnMenuLoad();
+                }
 
                 // One column at a time, and ONE owner. The state column answers a question about the main menu, so
                 // it only belongs up while the main menu is what is on screen; the chat column belongs to a hub
                 // screen and goes with it. Decided here rather than in either panel because the exits that matter
                 // never touch a button - Esc is native, and right-click goes through Hub.TickInput.
-                if (Hub.ScreenOpen) Menu.StatePanel.Suspend();
+                Hub.HubTick(UnityEngine.Time.unscaledDeltaTime);   // the full-screen hub page: shown or hidden, state, launch stations
+                if (Hub.ScreenOpen || Hub.HubShown) Menu.StatePanel.Suspend();
                 else { Menu.ChatPanel.Hide(); Menu.StatePanel.Resume(); }
 
                 Menu.StatePanel.Tick(UnityEngine.Time.unscaledDeltaTime);   // the right-hand state column
@@ -343,7 +404,8 @@ namespace SideHustle
                     if (!string.IsNullOrEmpty(_vanillaJoinPayload)) { var p = _vanillaJoinPayload; _vanillaJoinPayload = null; Sync.SyncCoordinator.ContinueJoin(p); }
                     else if (!string.IsNullOrEmpty(_gamemodeJoinPayload)) { var p = _gamemodeJoinPayload; _gamemodeJoinPayload = null; Hub.ContinueGamemodeJoin(p); }
                     else if (!string.IsNullOrEmpty(_continueId)) { var id = _continueId; var host = _continueHost; _continueId = null; _continueHost = null; Hub.ContinueGamemode(id, host); }
-                    else Hub.OpenScreen();
+                    else if (!string.IsNullOrEmpty(_reopenGamemodeId)) { var id = _reopenGamemodeId; _reopenGamemodeId = null; ReopenGamemode(id); }
+                    else Hub.OpenScreenAfterSession();
                 }
                 if (_runtimeNoticeFrames > 0 && --_runtimeNoticeFrames == 0)
                 {

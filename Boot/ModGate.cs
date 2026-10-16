@@ -52,7 +52,28 @@ namespace SideHustle.Boot
             "Sideload.dll",
         };
 
+        /// <summary>
+        /// Mods that CREATE a lobby, and so cannot be made to wait for one.
+        ///
+        /// The whole premise of the gate is that a lobby decides what runs. A mod whose job is to bring the lobby
+        /// into existence sits on the wrong side of that sentence: hold it back and nothing ever starts a lobby, so
+        /// it is never released, so nothing ever starts a lobby. The instance sits in the main menu for ever and the
+        /// mod writes nothing to the log while it does, which is why this read for months as a broken LocalLobby
+        /// rather than as a deadlock here (DooDesch-Mods/ScheduleOne-SideHustle#25).
+        ///
+        /// Named rather than detected, because there is nothing to detect: a lobby provider is a third-party mod
+        /// that has never heard of Side Hustle and declares no reference to it. <see cref="ReadKeepList"/> is how a
+        /// player adds one this list has not heard of.
+        /// </summary>
+        private static readonly string[] LobbyProviders =
+        {
+            "LocalLobby",
+        };
+
         private static readonly List<string> _deferred = new List<string>();
+
+        /// <summary>The boot plugin's logger, kept for the helpers below that have no logger parameter.</summary>
+        private static MelonLogger.Instance _log;
 
         internal static bool Enabled { get; private set; }
 
@@ -60,15 +81,26 @@ namespace SideHustle.Boot
         /// OnPreModsLoaded, the last moment before MelonLoader reads the folder.</summary>
         internal static void Arm(MelonLogger.Instance log)
         {
+            _log = log;
             Enabled = ReadPreference();
             _keepExtra = ReadKeepList();   // read even when off, so the entry exists to be edited
             if (!Enabled) return;
 
             string modsDir = MelonEnvironment.ModsDirectory;
-            if (string.IsNullOrEmpty(modsDir) || !Directory.Exists(modsDir)) { Enabled = false; return; }
+            if (string.IsNullOrEmpty(modsDir) || !Directory.Exists(modsDir))
+            {
+                log.Warning($"[gate] the Mods folder was not found ('{modsDir}'); loading your mods normally.");
+                Enabled = false;
+                return;
+            }
 
             var found = Collect(modsDir);
-            if (found.Count == 0) { Enabled = false; return; }
+            if (found.Count == 0)
+            {
+                log.Warning($"[gate] no mod DLLs found in '{modsDir}'; the gate is not armed.");
+                Enabled = false;
+                return;
+            }
 
             try
             {
@@ -110,12 +142,16 @@ namespace SideHustle.Boot
 
                 // The gamemodes among them, with what a menu row needs. Written here because the parse already
                 // happened: reading every DLL twice, once in each assembly, would be the same work for the same
-                // answer. "path|name|version|author", one per line.
+                // answer. "path|name|version|author|closure|icon", one per line.
                 var rows = new List<string>();
+                string iconDir = Path.Combine(dir, "gamemode-icons");
+                int icons = 0;
                 foreach (string file in _deferred)
                 {
                     var facts = Facts(file);
                     if (!facts.LooksLikeGamemode) continue;
+                    string icon = WriteHubIcon(iconDir, file, facts, log);
+                    if (icon.Length > 0) icons++;
                     rows.Add(string.Join("|", file,
                         facts.MelonName ?? Path.GetFileNameWithoutExtension(file),
                         facts.MelonVersion ?? "", facts.MelonAuthor ?? "",
@@ -123,12 +159,40 @@ namespace SideHustle.Boot
                         // first version loaded everything ahead of the pick, twenty mods deep, and the game sat
                         // frozen through all of it before one of them stalled the chain entirely. A gamemode needs
                         // its own dependencies and nothing else.
-                        string.Join(";", ClosureOf(file))));
+                        string.Join(";", ClosureOf(file)),
+                        icon));
                 }
                 File.WriteAllLines(Path.Combine(dir, "deferred-gamemodes.txt"), rows);
-                if (rows.Count > 0) log.Msg($"[gate] {rows.Count} of them look like gamemodes; the menu can list them unloaded.");
+                if (rows.Count > 0) log.Msg($"[gate] {rows.Count} of them look like gamemodes, {icons} with a hub icon; the menu can list them unloaded.");
             }
             catch (Exception e) { log.Warning("[gate] could not write the deferred list: " + e.Message); }
+        }
+
+        /// <summary>
+        /// The held-back gamemode's hub icon, copied out of its DLL so the menu can draw it without loading the mod.
+        /// Returns the written path, or "" when the mod embeds none. The name is the convention documented on
+        /// GamemodeDescriptor.IconResource: <c>&lt;AssemblyName&gt;.hub-icon.png</c>.
+        /// </summary>
+        private static string WriteHubIcon(string iconDir, string file, ModFacts facts, MelonLogger.Instance log)
+        {
+            if (facts.HubIcon == null || facts.HubIcon.Length == 0)
+            {
+                log.Msg($"[gate] {Path.GetFileName(file)} embeds no {facts.AssemblyName}.hub-icon.png; the hub shows its initials.");
+                return "";
+            }
+            try
+            {
+                Directory.CreateDirectory(iconDir);
+                string path = Path.Combine(iconDir, (facts.AssemblyName ?? Path.GetFileNameWithoutExtension(file)) + ".png");
+                File.WriteAllBytes(path, facts.HubIcon);
+                log.Msg($"[gate] hub icon of {Path.GetFileName(file)} written ({facts.HubIcon.Length} bytes).");
+                return path;
+            }
+            catch (Exception e)
+            {
+                log.Warning($"[gate] could not write the hub icon of {Path.GetFileName(file)}: {e.Message}");
+                return "";
+            }
         }
 
         /// <summary>
@@ -144,10 +208,17 @@ namespace SideHustle.Boot
             try
             {
                 var asm = MelonAssembly.LoadMelonAssembly(file);
-                if (asm?.LoadedMelons == null) return false;
+                if (asm?.LoadedMelons == null)
+                {
+                    log.Warning("[gate] " + Path.GetFileName(file) + " carries no melon; it will not run.");
+                    return false;
+                }
                 bool any = false;
                 foreach (var melon in asm.LoadedMelons)
+                {
                     if (melon.Register()) any = true;
+                    else log.Warning($"[gate] {Path.GetFileName(file)}: {melon.Info?.Name} loaded but did not register.");
+                }
                 return any;
             }
             catch (Exception e)
@@ -182,10 +253,28 @@ namespace SideHustle.Boot
                 if (asmName != null && !byAssemblyName.ContainsKey(asmName)) byAssemblyName[asmName] = file;
             }
 
+            var identities = UniqueIdentities(found, log);
+
+            // A name on the always-load list that no file answers to loads nothing and says nothing: a typo, a
+            // renamed download or a mod that was removed. Once per entry, at arm time.
+            foreach (string wanted in _keepExtra)
+            {
+                bool matched = false;
+                foreach (string file in found)
+                    if (Names(file, wanted, identities)) { matched = true; break; }
+                if (!matched)
+                    log.Warning($"[gate] AlwaysLoadMods lists '{wanted}', but no mod in the Mods folder matches it.");
+            }
+
             var keep = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var queue = new Queue<string>();
             foreach (string file in found)
-                if (IsAlwaysLoad(file) && keep.Add(file)) queue.Enqueue(file);
+            {
+                string why = WhyAlwaysLoad(file, identities);
+                if (why == null || !keep.Add(file)) continue;
+                queue.Enqueue(file);
+                if (why.Length > 0) log.Msg($"[gate] keeping {Path.GetFileName(file)} - {why}.");
+            }
 
             while (queue.Count > 0)
             {
@@ -254,6 +343,8 @@ namespace SideHustle.Boot
             internal string MelonAuthor;
             internal readonly List<string> References = new List<string>();
             internal readonly List<string> DeclaredDependencies = new List<string>();
+            /// <summary>The embedded <c>&lt;AssemblyName&gt;.hub-icon.png</c>, read only for gamemodes.</summary>
+            internal byte[] HubIcon;
 
             /// <summary>Built against Side Hustle, so it is almost certainly a gamemode - that reference exists to
             /// call API.Register and nothing else does. Enough to put a row in the menu without loading it.</summary>
@@ -301,8 +392,20 @@ namespace SideHustle.Boot
                                 foreach (var one in names)
                                     if (one.Value is string s && s.Length > 0) facts.DeclaredDependencies.Add(s);
                 }
+
+                if (facts.LooksLikeGamemode && facts.AssemblyName != null)
+                {
+                    string iconName = facts.AssemblyName + ".hub-icon.png";
+                    foreach (var resource in def.MainModule.Resources)
+                        if (resource is Mono.Cecil.EmbeddedResource embedded && resource.Name == iconName)
+                        { facts.HubIcon = embedded.GetResourceData(); break; }
+                }
             }
-            catch { /* unreadable: no identity, no edges, and it keeps its place */ }
+            catch (Exception e)
+            {
+                // Unreadable: no identity, no edges, and it keeps its place. Cached below, so this logs once per file.
+                _log?.Warning($"[gate] could not read {Path.GetFileName(file)} for its dependencies: {e.Message}");
+            }
             _facts[file] = facts;
             return facts;
         }
@@ -341,14 +444,83 @@ namespace SideHustle.Boot
 
         private static List<string> ReferencesOf(string file) => Facts(file).References;
 
-        private static bool IsAlwaysLoad(string file)
+        /// <summary>
+        /// Why this file loads at startup, or <c>null</c> when it does not. An empty string means "because it is
+        /// part of the hub", which needs no line in the log.
+        /// </summary>
+        private static string WhyAlwaysLoad(string file, Dictionary<string, string> identities)
         {
-            string name = Path.GetFileName(file);
             foreach (string keep in AlwaysLoad)
-                if (string.Equals(name, keep, StringComparison.OrdinalIgnoreCase)) return true;
+                if (Names(file, keep, identities)) return string.Empty;
+            foreach (string keep in LobbyProviders)
+                if (Names(file, keep, identities)) return "it is what starts a lobby, so it cannot wait for one";
             foreach (string keep in _keepExtra)
-                if (string.Equals(name, keep, StringComparison.OrdinalIgnoreCase)) return true;
-            return false;
+                if (Names(file, keep, identities)) return "you put it on the always-load list";
+            return null;
+        }
+
+        /// <summary>
+        /// Does this file answer to that name - as a file, or as an identity only one file in the folder carries.
+        ///
+        /// The file name alone was not enough. The same mod ships as <c>LocalLobby.dll</c> and as
+        /// <c>LocalLobby-IL2CPP.dll</c> depending on where it came from, and a player who renames a download gets a
+        /// list entry that silently matches nothing.
+        ///
+        /// But an assembly or display name is only USUALLY unique, and a folder holding a mod twice - the current
+        /// build and last week's, renamed - would answer to it twice and load both. So the two halves are not equal:
+        /// a file name matches on its own, an identity only when <see cref="UniqueIdentities"/> found exactly one
+        /// file wearing it. Matching by file name is what this method did before identities existed, so nothing that
+        /// worked yesterday can start being ambiguous today.
+        /// </summary>
+        private static bool Names(string file, string wanted, Dictionary<string, string> identities)
+        {
+            if (string.IsNullOrEmpty(wanted)) return false;
+
+            string bare = wanted.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+                ? wanted.Substring(0, wanted.Length - 4)
+                : wanted;
+
+            if (string.Equals(Path.GetFileNameWithoutExtension(file), bare, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return identities != null
+                && identities.TryGetValue(bare, out string only)
+                && only != null
+                && string.Equals(only, file, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Assembly and Melon names to the ONE file carrying each - or to <c>null</c> where several do, which is the
+        /// whole point of building it.
+        ///
+        /// A name two files answer to cannot decide which of them the allowlist meant, and guessing there loads a mod
+        /// twice or loads the wrong build of it into somebody's lobby for the rest of the session. Ambiguity says so
+        /// in the log and then counts for nothing; the file name still matches on its own, so the player has a way
+        /// out that needs no explanation.
+        /// </summary>
+        private static Dictionary<string, string> UniqueIdentities(List<string> found, MelonLogger.Instance log)
+        {
+            var byIdentity = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var ambiguous = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (string file in found)
+            {
+                var facts = Facts(file);
+                foreach (string identity in new[] { facts.AssemblyName, facts.MelonName })
+                {
+                    if (string.IsNullOrEmpty(identity)) continue;
+                    if (!byIdentity.TryGetValue(identity, out string first)) { byIdentity[identity] = file; continue; }
+                    if (first == null || string.Equals(first, file, StringComparison.OrdinalIgnoreCase)) continue;
+
+                    byIdentity[identity] = null;
+                    if (ambiguous.Add(identity))
+                        log.Warning($"[gate] \"{identity}\" is worn by more than one file ("
+                                    + Path.GetFileName(first) + ", " + Path.GetFileName(file)
+                                    + "), so the always-load list will not match on that name. Name the file instead.");
+                }
+            }
+
+            return byIdentity;
         }
 
         /// <summary>
@@ -381,7 +553,11 @@ namespace SideHustle.Boot
                 }
                 return names.ToArray();
             }
-            catch { return Array.Empty<string>(); }
+            catch (Exception e)
+            {
+                _log?.Warning("[gate] could not read the AlwaysLoadMods list; only the built-in entries stay loaded: " + e.Message);
+                return Array.Empty<string>();
+            }
         }
 
         /// <summary>
@@ -405,7 +581,11 @@ namespace SideHustle.Boot
                     files.AddRange(Directory.GetFiles(sub, "*.dll", SearchOption.TopDirectoryOnly));
                 }
             }
-            catch { /* an unreadable folder means the gate does not apply */ }
+            catch (Exception e)
+            {
+                // An unreadable folder means the gate does not apply (no files found -> not armed).
+                _log?.Warning($"[gate] could not list the Mods folder '{modsDir}': {e.Message}");
+            }
             return files;
         }
 
@@ -429,7 +609,11 @@ namespace SideHustle.Boot
                                 + "Fewer restarts when joining, but a mod that needs to patch the game early may stop working.");
                 return entry.Value;
             }
-            catch { return false; }
+            catch (Exception e)
+            {
+                _log?.Warning("[gate] could not read the DeferModsUntilLobby switch; loading your mods normally: " + e.Message);
+                return false;
+            }
         }
     }
 }

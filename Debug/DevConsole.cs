@@ -49,7 +49,7 @@ namespace SideHustle.Debugging
         private static bool SubmitString(string args)
         {
             try { return !Handle((args ?? "").Trim().Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries)); }
-            catch { return true; }
+            catch (Exception e) { Core.Log?.Error("[dev] console command failed: " + e); return true; }
         }
 
         private static bool SubmitList(Il2CppSystem.Collections.Generic.List<string> args)
@@ -61,7 +61,7 @@ namespace SideHustle.Debugging
                 for (int i = 0; i < args.Count; i++) parts[i] = args[i];
                 return !Handle(parts);
             }
-            catch { return true; }
+            catch (Exception e) { Core.Log?.Error("[dev] console command failed: " + e); return true; }
         }
 
         private static readonly string[][] Listing =
@@ -83,7 +83,19 @@ namespace SideHustle.Debugging
             new[] { "shmanual", "shmanual [steamid] - open the manual-install screen with sample rows" },
             new[] { "shbrowser", "open the vanilla lobby LIST (the screen with Join and Chat)" },
             new[] { "shhub", "open the Side Hustle gamemode list (what the menu entry does)" },
+            new[] { "shsettings", "open the in-game settings form" },
+            new[] { "shcatalog", "open the gamemode list and say which catalogue entries show as not installed" },
+            new[] { "shhostform", "shhostform <gamemodeId|vanilla> - open that host form" },
+            new[] { "shbrowse", "shbrowse <gamemodeId|vanilla> - open that lobby browser" },
+            new[] { "shsyncfake", "a fake three-mod download, about 10 s, cancellable" },
+            new[] { "shrestartfake", "the restarting-to-join notice with its Cancel; nothing restarts" },
             new[] { "shtyping", "is a text field holding the keyboard - which is what blocks Escape" },
+            new[] { "shstart", "shstart <gamemodeId> [sp|host|host2] - start a session; host2 asks twice (double-click guard)" },
+            new[] { "shprofiles", "open the mod profiles screen" },
+            new[] { "shscene", "shscene [dump|find s|cam x y z rx ry rz [fov]|move path x y z [ry]|show|hide path|dim f|light ...|page on|off|reset] - stage the menu scene behind the hub" },
+            new[] { "shrow", "shrow [n [alt]|back|dismiss] - list the hub rows, click row n, right-click it, Back, or close an alert" },
+            new[] { "shreturn", "end the running gamemode session the way its ReturnToHub does" },
+            new[] { "shapi", "shapi [notice|send] - API version, session, players; show a notice or send a test message" },
         };
 
         private static bool Handle(string[] parts)
@@ -121,17 +133,82 @@ namespace SideHustle.Debugging
                     case "shmanual": ManualDemo(parts); break;
                     case "shbrowser": Menu.Hub.OpenVanillaListForTest(); break;
                     case "shhub": Menu.Hub.OpenScreen(); break;
+                    case "shprofiles": Menu.Hub.OpenProfilesForTest(); break;
+                    case "shrow": Menu.Hub.ClickRowForTest(parts); break;
+                    case "shscene": Menu.HubScene.Dev(parts); break;
+                    case "shsettings": Menu.Hub.OpenSettingsForTest(); break;
+                    case "shcatalog": Menu.Hub.OpenCatalogueForTest(); break;
+                    case "shhostform": WithTarget(parts, Menu.Hub.OpenHostFormForTest); break;
+                    case "shbrowse": WithTarget(parts, Menu.Hub.OpenBrowserForTest); break;
+                    case "shsyncfake": Menu.Hub.OpenFakeSyncForTest(); break;
+                    case "shrestartfake": Menu.Hub.OpenFakeRestartForTest(); break;
                     case "shtyping": Typing(); break;
+                    case "shstart": StartSession(parts); break;
+                    case "shreturn": ReturnSession(); break;
+                    case "shapi": ApiState(parts); break;
                 }
             }
             catch (Exception e) { Core.Log?.Warning("[dev] " + cmd + " failed: " + e); }
             return true;
         }
 
+        private static void WithTarget(string[] parts, Action<string> open)
+        {
+            if (parts.Length < 2)
+            {
+                Core.Log?.Warning("[dev] " + parts[0] + " needs a gamemode id or 'vanilla'.");
+                return;
+            }
+            open(parts[1]);
+        }
+
+        private static void StartSession(string[] parts)
+        {
+            if (parts.Length < 2) { Core.Log?.Msg("[dev] shstart <gamemodeId> [sp|host|host2]"); return; }
+            GamemodeDescriptor desc = null;
+            foreach (var d in API.Registered) if (string.Equals(d.Id, parts[1], StringComparison.OrdinalIgnoreCase)) desc = d;
+            if (desc == null) { Core.Log?.Warning("[dev] shstart: no registered gamemode '" + parts[1] + "'."); return; }
+            string how = parts.Length > 2 ? parts[2].ToLowerInvariant() : "sp";
+            if (how == "sp")
+            {
+                Core.Log?.Msg("[dev] shstart: singleplayer '" + desc.Id + "'.");
+                Menu.Hub.LaunchSelected(desc);
+                return;
+            }
+            var opts = new HostOptions { MaxPlayers = 4, Visibility = LobbyVisibility.Private, LobbyName = "shstart" };
+            bool first = MultiplayerCoordinator.StartHost(desc, opts);
+            Core.Log?.Msg("[dev] shstart host: " + (first ? "started" : "refused - " + MultiplayerCoordinator.LastRefusal));
+            if (how == "host2")
+            {
+                bool second = MultiplayerCoordinator.StartHost(desc, opts);
+                Core.Log?.Msg("[dev] shstart second host request: " + (second ? "STARTED (guard failed)" : "refused - " + MultiplayerCoordinator.LastRefusal));
+            }
+        }
+
+        private static void ReturnSession()
+        {
+            var ctx = API.CurrentSession;
+            if (ctx == null) { Core.Log?.Msg("[dev] shreturn: no session is running."); return; }
+            Core.Log?.Msg("[dev] shreturn: ending '" + ctx.Descriptor?.Id + "'.");
+            ctx.ReturnToHub();
+        }
+
+        private static void ApiState(string[] parts)
+        {
+            var ctx = API.CurrentSession;
+            Core.Log?.Msg("[dev] shapi: version " + API.ApiVersion + ", session " + (ctx == null ? "none" : "'" + ctx.Descriptor?.Id + "' as " + ctx.Role)
+                          + ", " + API.Players.Count + " player(s)");
+            foreach (var p in API.Players) Core.Log?.Msg("[dev]   " + p.SteamId + " '" + p.DisplayName + "'" + (p.IsHost ? " host" : "") + (p.IsLocal ? " local" : ""));
+            string what = parts.Length > 1 ? parts[1].ToLowerInvariant() : "";
+            if (what == "notice") API.ShowNotice("Side Hustle test notice.");
+            else if (what == "send" && ctx != null)
+                Core.Log?.Msg("[dev] shapi send: " + (API.SendToAll(ctx.Descriptor.Id, "test", "hello") ? "sent" : "refused"));
+        }
+
         private static void Help()
         {
             Core.Log?.Msg("[dev] Side Hustle console commands:");
-            foreach (string[] one in Listing) Core.Log?.Msg("  " + one[0].PadRight(12) + one[1]);
+            foreach (string[] one in Listing) Core.Log?.Msg("  " + one[0].PadRight(14) + one[1]);
         }
 
         private static void Diag()
@@ -285,7 +362,7 @@ namespace SideHustle.Debugging
         private static string LateDir()
         {
             try { return System.IO.Path.Combine(MelonLoader.Utils.MelonEnvironment.ModsDirectory, "_late"); }
-            catch { return ""; }
+            catch (Exception e) { Core.Log?.Warning("[dev] could not resolve the Mods folder: " + e.Message); return ""; }
         }
 
         /// <summary>
@@ -438,7 +515,7 @@ namespace SideHustle.Debugging
 
         private static ulong LocalId()
         {
-            try { return SteamUser.GetSteamID().m_SteamID; } catch { return 0UL; }
+            try { return SteamUser.GetSteamID().m_SteamID; } catch (Exception e) { Core.Log?.Warning("[dev] could not read our Steam id: " + e.Message); return 0UL; }
         }
     }
 }

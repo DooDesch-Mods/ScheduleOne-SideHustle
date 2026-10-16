@@ -39,7 +39,7 @@ namespace SideHustle.Profiles
             {
                 byte[] bytes = null;
                 try { bytes = await ThunderstoreClient.DownloadBytesAsync(url, CancellationToken.None).ConfigureAwait(false); }
-                catch { /* offline / rejected: leave uncached, no icon */ }
+                catch (Exception e) { ThunderstoreClient.Log?.Invoke($"icon {url} could not be fetched (no icon): {e.Message}"); }
 
                 MainThread.Post(() =>
                 {
@@ -65,7 +65,7 @@ namespace SideHustle.Profiles
                 target.preserveAspect = true;
                 target.enabled = true;
             }
-            catch { /* the row was torn down between the null check and here */ }
+            catch (Exception e) { Shared.SharedLog.WarnOnce("icon-set", "an icon could not be applied to its row (torn down mid-update?): " + e.Message); }
         }
 
         private static Sprite Build(byte[] bytes)
@@ -74,12 +74,20 @@ namespace SideHustle.Profiles
             {
                 var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear };
                 tex.hideFlags = HideFlags.DontUnloadUnusedAsset;
-                if (!tex.LoadImage(bytes)) return null;
+                if (!tex.LoadImage(bytes))
+                {
+                    ThunderstoreClient.Log?.Invoke($"an icon image ({bytes.Length} bytes) is not a readable picture.");
+                    return null;
+                }
                 var sp = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f), 100f);
                 if (sp != null) sp.hideFlags = HideFlags.DontUnloadUnusedAsset;
                 return sp;
             }
-            catch { return null; }
+            catch (Exception e)
+            {
+                ThunderstoreClient.Log?.Invoke("an icon image could not be decoded: " + e.Message);
+                return null;
+            }
         }
     }
 }

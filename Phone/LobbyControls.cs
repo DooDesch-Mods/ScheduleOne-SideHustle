@@ -31,14 +31,14 @@ namespace SideHustle.Phone
 
         internal static bool IsHost
         {
-            get { try { return LobbyCoordinator.IsInLobby && LobbyCoordinator.IsHost; } catch { return false; } }
+            get { try { return LobbyCoordinator.IsInLobby && LobbyCoordinator.IsHost; } catch (Exception e) { Menu.Safe.Report("asking whether we host the lobby", e); return false; } }
         }
 
         /// <summary>In a lobby at all, host or not. The app's three states are "hosting", "in someone else's
         /// session" and "nothing running", and only this tells the last two apart.</summary>
         internal static bool InLobby
         {
-            get { try { return LobbyCoordinator.IsInLobby; } catch { return false; } }
+            get { try { return LobbyCoordinator.IsInLobby; } catch (Exception e) { Menu.Safe.Report("asking whether we are in a lobby", e); return false; } }
         }
 
         private static CSteamID Sid => new CSteamID(LobbyCoordinator.CurrentLobbyId);
@@ -46,7 +46,7 @@ namespace SideHustle.Phone
         private static string Read(string key)
         {
             try { return SteamMatchmaking.GetLobbyData(Sid, key) ?? ""; }
-            catch { return ""; }
+            catch (Exception e) { Menu.Safe.Report("reading lobby key " + key, e); return ""; }
         }
 
         /// <summary>
@@ -76,6 +76,64 @@ namespace SideHustle.Phone
         internal static bool IsPublic => Read(LobbyCoordinator.KeyVisibility) != "priv";
         internal static bool Enforcing => Read(VanillaLobby.KeyEnforce) == "1";
 
+        /// <summary>True for a lobby a gamemode started (it carries the gamemode id). Those lobbies ship the
+        /// gamemode's own mod set to joiners, so the vanilla mod-set requirement does not apply to them.</summary>
+        internal static bool GamemodeLobby => LobbyCoordinator.IsGamemodeLobby(LobbyCoordinator.CurrentLobbyId);
+
+        /// <summary>The Discord invite code the lobby carries, or "".</summary>
+        internal static string DiscordCode
+        {
+            get
+            {
+                string raw = Read(Menu.DiscordInvite.Key);
+                return Menu.DiscordInvite.IsCode(raw) ? raw : "";
+            }
+        }
+
+        /// <summary>
+        /// Set, replace or clear (empty input) the lobby's Discord invite. "ok", "invalid" for text that is not an
+        /// invite, "error" when Steam refused the write.
+        /// </summary>
+        internal static string SetDiscord(string input)
+        {
+            input = (input ?? "").Trim();
+            string code = "";
+            if (input.Length > 0 && !Menu.DiscordInvite.TryParse(input, out code))
+            {
+                Core.Log?.Msg("[lobby] the Discord field did not hold an invite; nothing changed.");
+                return "invalid";
+            }
+            if (!Write(Menu.DiscordInvite.Key, code)) return "error";
+            RememberDiscord(code);
+            Core.Log?.Msg(code.Length > 0 ? "[lobby] Discord invite set." : "[lobby] Discord invite removed.");
+            return "ok";
+        }
+
+        // The host form prefills from the last session of the same gamemode (or vanilla), so a change made here is
+        // what the next form starts with.
+        private static void RememberDiscord(string code)
+        {
+            string gm = Read(LobbyCoordinator.KeyGamemode);
+            string key = string.IsNullOrEmpty(gm) ? Config.Preferences.VanillaHostKey : gm;
+            var saved = Config.Preferences.GetHost(key);
+            if (saved == null) return;
+            saved.DiscordCode = code;
+            Config.Preferences.SetHost(key, saved);
+        }
+
+        /// <summary>Open the invite the lobby carries. A click handler only; "ok", or "none" without an invite.</summary>
+        internal static string OpenDiscord()
+        {
+            string code = DiscordCode;
+            if (code.Length == 0)
+            {
+                Core.Log?.Warning("[lobby] Open Discord was asked for but the lobby carries no invite.");
+                return "none";
+            }
+            Menu.DiscordInvite.Open(code);
+            return "ok";
+        }
+
         /// <summary>Whether this lobby advertises a mod list at all. Without one there is nothing a mod-set
         /// requirement could check a joiner against, so the switch that asks for one has to be able to say so.</summary>
         internal static bool PublishesModList => !string.IsNullOrEmpty(Read(VanillaLobby.KeyMHash));
@@ -91,7 +149,7 @@ namespace SideHustle.Phone
                     int real = SteamMatchmaking.GetLobbyMemberLimit(Sid);
                     if (real >= 2) return real;
                 }
-                catch { /* fall through to the advertised value */ }
+                catch (Exception e) { Menu.Safe.Report("reading the lobby seat limit (using the advertised value)", e); }
                 int.TryParse(Read(LobbyCoordinator.KeyMax), out int advertised);
                 return advertised >= 2 ? advertised : 4;
             }
@@ -99,14 +157,14 @@ namespace SideHustle.Phone
 
         internal static int Members
         {
-            get { try { return Math.Max(1, LobbyCoordinator.MemberCount); } catch { return 1; } }
+            get { try { return Math.Max(1, LobbyCoordinator.MemberCount); } catch (Exception e) { Menu.Safe.Report("counting lobby members", e); return 1; } }
         }
 
         /// <summary>The most seats this session can hand out: whatever FullHouse raised the transport to when the
         /// lobby was created. Going past it advertises a seat that cannot be filled.</summary>
         internal static int SeatCeiling
         {
-            get { try { return Math.Max(2, LobbyCaps.MaxClients()); } catch { return 4; } }
+            get { try { return Math.Max(2, LobbyCaps.MaxClients()); } catch (Exception e) { Menu.Safe.Report("reading the seat ceiling", e); return 4; } }
         }
 
         internal static bool SetLobbyName(string name)
@@ -186,6 +244,11 @@ namespace SideHustle.Phone
         /// </remarks>
         internal static bool SetEnforce(bool enforce)
         {
+            if (GamemodeLobby)
+            {
+                Core.Log?.Warning("[lobby] a gamemode lobby cannot require the vanilla mod set; the switch is ignored.");
+                return false;
+            }
             string mhash = Read(VanillaLobby.KeyMHash);
 
             // Arm the gate FIRST, then advertise. It can publish a missing mod list on the way, so a lobby whose hash
@@ -255,8 +318,8 @@ namespace SideHustle.Phone
                 CSteamID sid = Sid;
                 if (sid.m_SteamID == 0UL) return list;
                 ulong owner = 0UL, me = 0UL;
-                try { owner = SteamMatchmaking.GetLobbyOwner(sid).m_SteamID; } catch { }
-                try { me = SteamUser.GetSteamID().m_SteamID; } catch { }
+                try { owner = SteamMatchmaking.GetLobbyOwner(sid).m_SteamID; } catch (Exception e) { Menu.Safe.Report("reading the lobby owner", e); }
+                try { me = SteamUser.GetSteamID().m_SteamID; } catch (Exception e) { Menu.Safe.Report("reading our own Steam id", e); }
 
                 int n = SteamMatchmaking.GetNumLobbyMembers(sid);
                 for (int i = 0; i < n; i++)
@@ -264,7 +327,7 @@ namespace SideHustle.Phone
                     CSteamID m = SteamMatchmaking.GetLobbyMemberByIndex(sid, i);
                     if (m.m_SteamID == 0UL) continue;
                     string name = "";
-                    try { name = SteamFriends.GetFriendPersonaName(m); } catch { }
+                    try { name = SteamFriends.GetFriendPersonaName(m); } catch (Exception e) { Menu.Safe.Report("reading a member name", e); }
                     list.Add(new Member
                     {
                         SteamId = m.m_SteamID,
@@ -295,7 +358,7 @@ namespace SideHustle.Phone
                 string advertised = Read(LobbyCoordinator.KeyHostName);
                 if (!string.IsNullOrWhiteSpace(advertised)) return advertised;
                 try { return SteamFriends.GetFriendPersonaName(SteamMatchmaking.GetLobbyOwner(Sid)); }
-                catch { return ""; }
+                catch (Exception e) { Menu.Safe.Report("reading the host name", e); return ""; }
             }
         }
 

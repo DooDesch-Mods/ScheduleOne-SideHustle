@@ -115,9 +115,10 @@ namespace SideHustle.Shared
                 doc.Profiles ??= new List<ProfileDef>();
                 return doc;
             }
-            catch
+            catch (Exception e)
             {
                 writable = false;   // unparseable: readable default, but never overwrite what might be user data
+                SharedLog.Warning($"profiles.json could not be read ({e.GetType().Name}: {e.Message}); using an empty list and leaving the file as it is.");
                 return new ProfilesFile();
             }
         }
@@ -135,7 +136,11 @@ namespace SideHustle.Shared
                 else File.Move(tmp, path);
                 return true;
             }
-            catch { return false; }
+            catch (Exception e)
+            {
+                SharedLog.Warning($"profiles.json could not be saved ({e.GetType().Name}: {e.Message}); the change is not persisted.");
+                return false;
+            }
         }
     }
 }

@@ -15,7 +15,7 @@ namespace SideHustle.Multiplayer
     /// Applies a gamemode's opt-in world-hygiene flags for the duration of a session. Each flag maps to one or more
     /// Harmony prefixes, installed LAZILY on first use and gated by a static "active" flag, so they only affect a
     /// session that opted in and are completely inert otherwise:
-    ///  - SkipIntro: prefix on Player.PlayerLoaded sets HasCompletedIntro=true BEFORE the intro gate runs, so the
+    ///  - SkipIntro: prefix on Player.OnLocalPlayerLoaded sets HasCompletedIntro=true BEFORE the intro gate runs, so the
     ///    new-game intro cutscene + character creator never start (Player.cs gate on HasCompletedIntro).
     ///  - BlockVanillaQuests: prefix on Quest.Begin returns false, so no vanilla quest activates (on a fresh world
     ///    quests auto-start AFTER load, so blocking Begin catches them all; host-authoritative). Allow-list exempts
@@ -80,36 +80,18 @@ namespace SideHustle.Multiplayer
             {
                 _harmony = new HarmonyLib.Harmony("doodesch.sidehustle.hygiene");
 
-                var playerLoaded = AccessTools.Method(typeof(Player), "PlayerLoaded");
-                if (playerLoaded != null)
-                    _harmony.Patch(playerLoaded, prefix: Hook(nameof(PlayerLoadedPrefix)));
-                else Core.Log?.Warning("[hygiene] Player.PlayerLoaded not found - SkipIntro will not work.");
-
-                var questBegin = AccessTools.Method(typeof(Quest), "Begin");
-                if (questBegin != null)
-                    _harmony.Patch(questBegin, prefix: Hook(nameof(QuestBeginPrefix)));
-                else Core.Log?.Warning("[hygiene] Quest.Begin not found - BlockVanillaQuests will not work.");
-
-                var saveNoArg = AccessTools.Method(typeof(SaveManager), nameof(SaveManager.Save), Type.EmptyTypes);
-                if (saveNoArg != null) _harmony.Patch(saveNoArg, prefix: Hook(nameof(SaveGatePrefix)));
-                var savePath = AccessTools.Method(typeof(SaveManager), nameof(SaveManager.Save), new[] { typeof(string) });
-                if (savePath != null) _harmony.Patch(savePath, prefix: Hook(nameof(SaveGatePrefix)));
-                if (saveNoArg == null && savePath == null) Core.Log?.Warning("[hygiene] SaveManager.Save not found - BlockSaveDuringSession will not work.");
-
-                var noiseEvent = AccessTools.Method(typeof(NPCAwareness), "NoiseEvent");
-                if (noiseEvent != null) _harmony.Patch(noiseEvent, prefix: Hook(nameof(NoiseEventPrefix)));
-                var visionEvent = AccessTools.Method(typeof(NPCAwareness), "VisionEvent");
-                if (visionEvent != null) _harmony.Patch(visionEvent, prefix: Hook(nameof(VisionEventPrefix)));
-                var sendImpact = AccessTools.Method(typeof(NPC), "SendImpact");
-                if (sendImpact != null) _harmony.Patch(sendImpact, prefix: Hook(nameof(NpcImpactPrefix)));
-                var checkAiming = AccessTools.Method(typeof(Equippable_RangedWeapon), "CheckAimingAtNPC");
-                if (checkAiming != null) _harmony.Patch(checkAiming, prefix: Hook(nameof(WeaponAimPrefix)));
-
-                var takeDamage = AccessTools.Method(typeof(PlayerHealth), nameof(PlayerHealth.TakeDamage), new[] { typeof(float), typeof(bool), typeof(bool) });
-                if (takeDamage != null) _harmony.Patch(takeDamage, prefix: Hook(nameof(TakeDamagePrefix)));
-                var sendDie = AccessTools.Method(typeof(PlayerHealth), nameof(PlayerHealth.SendDie));
-                if (sendDie != null) _harmony.Patch(sendDie, prefix: Hook(nameof(SendDiePrefix)));
-                if (takeDamage == null && sendDie == null) Core.Log?.Warning("[hygiene] PlayerHealth.TakeDamage/SendDie not found - DisableVanillaPlayerDeath will not work.");
+                // Each patch is independent: a target the game no longer has (logged by GameTargets) disables only
+                // the flag that depends on it.
+                PatchPrefix(Internal.GameTargets.PlayerOnLocalPlayerLoaded, nameof(OnLocalPlayerLoadedPrefix));
+                PatchPrefix(Internal.GameTargets.QuestBegin, nameof(QuestBeginPrefix));
+                PatchPrefix(Internal.GameTargets.SaveManagerSave, nameof(SaveGatePrefix));
+                PatchPrefix(Internal.GameTargets.SaveManagerSavePath, nameof(SaveGatePrefix));
+                PatchPrefix(Internal.GameTargets.NpcAwarenessNoiseEvent, nameof(NoiseEventPrefix));
+                PatchPrefix(Internal.GameTargets.NpcAwarenessVisionEvent, nameof(VisionEventPrefix));
+                PatchPrefix(Internal.GameTargets.NpcSendImpact, nameof(NpcImpactPrefix));
+                PatchPrefix(Internal.GameTargets.RangedWeaponCheckAimingAtNpc, nameof(WeaponAimPrefix));
+                PatchPrefix(Internal.GameTargets.PlayerHealthTakeDamage, nameof(TakeDamagePrefix));
+                PatchPrefix(Internal.GameTargets.PlayerHealthSendDie, nameof(SendDiePrefix));
 
                 Core.Log?.Msg("[hygiene] patches installed.");
             }
@@ -119,11 +101,27 @@ namespace SideHustle.Multiplayer
         private static HarmonyMethod Hook(string name) =>
             new HarmonyMethod(typeof(GamemodeHygiene).GetMethod(name, AccessTools.all));
 
-        // Set the intro flag before PlayerLoaded's `if (!_hasCompletedIntro ...)` gate -> intro never starts.
-        // The flag is a private auto-property since 0.4.6f11; the interop wrapper exposes it with a setter.
-        private static void PlayerLoadedPrefix(Player __instance)
+        private static void PatchPrefix(Internal.GameTarget<System.Reflection.MethodBase> target, string prefix)
         {
-            try { if (SkipIntroActive && __instance != null) __instance._hasCompletedIntro = true; } catch { }
+            var method = target.Value;
+            if (method == null) return;   // GameTargets logged the missing target
+            try { _harmony.Patch(method, prefix: Hook(prefix)); }
+            catch (Exception e) { Core.Log?.Warning($"[hygiene] patching {target.Name} failed - {target.Feature} disabled: {e.Message}"); }
+        }
+
+        // The prefixes run on hot paths (every noise, vision and damage event); a repeating failure is logged once per site.
+        private static readonly System.Collections.Generic.HashSet<string> _warned = new System.Collections.Generic.HashSet<string>();
+        private static void WarnOnce(string site, Exception e)
+        {
+            if (_warned.Add(site)) Core.Log?.Warning($"[hygiene] {site} failed: {e.Message}");
+        }
+
+        // Set the intro flag before OnLocalPlayerLoaded's `if (!_hasCompletedIntro ...)` gate -> intro never starts.
+        // The flag is a private auto-property since 0.4.6f11; the interop wrapper exposes it with a setter.
+        private static void OnLocalPlayerLoadedPrefix(Player __instance)
+        {
+            try { if (SkipIntroActive && __instance != null) __instance._hasCompletedIntro = true; }
+            catch (Exception e) { WarnOnce("OnLocalPlayerLoaded prefix", e); }
         }
 
         // Return false = skip Quest.Begin, so no vanilla quest activates while a quest-blocking session is active -
@@ -132,7 +130,7 @@ namespace SideHustle.Multiplayer
         {
             if (!BlockQuestsActive) return true;
             try { if (__instance != null && _allowedQuestTitles.Count > 0 && _allowedQuestTitles.Contains(__instance.title)) return true; }
-            catch { }
+            catch (Exception e) { WarnOnce("Quest.Begin allow-list check", e); }
             return false;
         }
 
@@ -148,7 +146,7 @@ namespace SideHustle.Multiplayer
                 if (!SuppressNpcCombatActive || nEvent == null) return true;
                 if (nEvent.type == ENoiseType.Gunshot || nEvent.type == ENoiseType.Explosion) return false;
             }
-            catch { }
+            catch (Exception e) { WarnOnce("NoiseEvent prefix", e); }
             return true;
         }
 
@@ -159,7 +157,7 @@ namespace SideHustle.Multiplayer
                 if (!SuppressNpcCombatActive || vEvent == null) return true;
                 if (vEvent.State == EVisualState.DischargingWeapon || vEvent.State == EVisualState.Brandishing) return false;
             }
-            catch { }
+            catch (Exception e) { WarnOnce("VisionEvent prefix", e); }
             return true;
         }
 

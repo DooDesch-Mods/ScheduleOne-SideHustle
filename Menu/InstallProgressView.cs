@@ -30,8 +30,6 @@ namespace SideHustle.Menu
     /// </summary>
     internal static class InstallProgressView
     {
-        private const float Pad = 30f;
-
         internal sealed class Controller
         {
             internal Text Status;
@@ -84,7 +82,7 @@ namespace SideHustle.Menu
                     SetStatus($"Downloading {Math.Min(pp.Done + 1, Math.Max(1, pp.Total))} of {Math.Max(1, pp.Total)}...");
                     UpdateBar();
                 }
-                catch { /* the view was torn down mid-report */ }
+                catch (Exception e) { Fault("reporting progress", e); }
             }
 
             internal void SetApplying()
@@ -94,8 +92,8 @@ namespace SideHustle.Menu
                 SetStatus("Applying to the profile...");
                 // Past the download phase there is nothing left to cancel (the token is only observed while
                 // downloading), so retire the button rather than let it show a misleading "Cancelling...".
-                try { if (CancelButton != null) CancelButton.interactable = false; } catch { }
-                try { Components.SetProgressBar(BarFill, 1f); } catch { }
+                try { if (CancelButton != null) CancelButton.interactable = false; } catch (Exception e) { Fault("retiring the cancel button", e); }
+                try { Components.SetProgressBar(BarFill, 1f); } catch (Exception e) { Fault("filling the bar", e); }
             }
 
             internal void ShowSuccess(string message)
@@ -108,7 +106,7 @@ namespace SideHustle.Menu
                     if (BarFill != null) { BarFill.color = Theme.Success; Components.SetProgressBar(BarFill, 1f); }
                     if (CancelButton != null) CancelButton.interactable = false;
                 }
-                catch { }
+                catch (Exception e) { Fault("showing success", e); }
             }
 
             internal void ShowError(string message, Action onRetry, Action onBack)
@@ -124,21 +122,12 @@ namespace SideHustle.Menu
                     if (Footer == null) return;
                     if (CancelButton != null) UnityEngine.Object.Destroy(CancelButton.gameObject);
 
-                    var (backGO, backBtn, _) = UIFactory.ButtonWithLabel("Back", "Back", Footer, Theme.Button, 140, 40);
-                    var brt = backGO.GetComponent<RectTransform>();
-                    brt.anchorMin = new Vector2(0, 0.5f); brt.anchorMax = new Vector2(0, 0.5f); brt.pivot = new Vector2(0, 0.5f);
-                    brt.anchoredPosition = Vector2.zero;
-                    backBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => onBack?.Invoke()));
-
-                    var (retryGO, retryBtn, _2) = UIFactory.ButtonWithLabel("Retry", "Try again", Footer, Theme.Accent, 180, 40);
-                    var rrt = retryGO.GetComponent<RectTransform>();
-                    rrt.anchorMin = new Vector2(1, 0.5f); rrt.anchorMax = new Vector2(1, 0.5f); rrt.pivot = new Vector2(1, 0.5f);
-                    rrt.anchoredPosition = Vector2.zero;
-                    retryBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => onRetry?.Invoke()));
+                    Scaffold.FooterButton(Footer, "Back", Theme.Button, left: true, onClick: onBack);
+                    Scaffold.FooterButton(Footer, "Try again", Theme.Accent, left: false, onClick: onRetry);
 
                     Interactions.PolishButtons(Footer);
                 }
-                catch { }
+                catch (Exception e) { Fault("showing the error", e); }
             }
 
             internal void SetCancelling()
@@ -149,7 +138,7 @@ namespace SideHustle.Menu
                     if (CancelLabel != null) CancelLabel.text = "Cancelling...";
                     SetStatus("Cancelling...");
                 }
-                catch { }
+                catch (Exception e) { Fault("showing the cancel state", e); }
             }
 
             /// <summary>Terminal WARNING state: the install itself worked, but with a runtime problem the player
@@ -166,15 +155,11 @@ namespace SideHustle.Menu
                     if (Footer == null) return;
                     if (CancelButton != null) UnityEngine.Object.Destroy(CancelButton.gameObject);
 
-                    var (backGO, backBtn, _) = UIFactory.ButtonWithLabel("Back", "Back", Footer, Theme.Button, 140, 40);
-                    var brt = backGO.GetComponent<RectTransform>();
-                    brt.anchorMin = new Vector2(0, 0.5f); brt.anchorMax = new Vector2(0, 0.5f); brt.pivot = new Vector2(0, 0.5f);
-                    brt.anchoredPosition = Vector2.zero;
-                    backBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => onBack?.Invoke()));
+                    Scaffold.FooterButton(Footer, "Back", Theme.Button, left: true, onClick: onBack);
 
                     Interactions.PolishButtons(Footer);
                 }
-                catch { }
+                catch (Exception e) { Fault("showing the warning", e); }
             }
 
             /// <summary>Post-terminal per-row runtime note ("Mono variant skipped" / "Mono build - will not
@@ -186,7 +171,39 @@ namespace SideHustle.Menu
                 {
                     SetRow(key, $"{(warn ? "!" : "+")}  {key}  -  {note}", warn ? Theme.WarningText : Theme.TextMuted);
                 }
-                catch { }
+                catch (Exception e) { Fault("setting a row note", e); }
+            }
+
+            // Sync downloads report explicit steps keyed by DiffEntry.Key (see SyncProgressEvent) instead of the
+            // profile engine's "a new member means the previous one finished" inference above.
+            internal void SyncStarted(string key)
+            {
+                if (Terminal) return;
+                ActiveKey = key; ActiveBytes = 0;
+                if (Plan.ContainsKey(key) && !Done.Contains(key)) SetRow(key, $">  {key}  -  starting...", Theme.AccentBorder);
+            }
+
+            internal void SyncBytes(string key, long done, long total)
+            {
+                if (Terminal || Done.Contains(key)) return;
+                ActiveKey = key;
+                ActiveBytes = total > 0 ? Math.Min(done, total) : done;
+                if (Plan.ContainsKey(key))
+                    SetRow(key, total > 0 ? $">  {key}  -  {Mb(done)} / {Mb(total)}" : $">  {key}  -  {Mb(done)}", Theme.AccentBorder);
+                UpdateBar();
+            }
+
+            internal void SyncReady(string key)
+            {
+                if (Terminal) return;
+                MarkDone(key);
+            }
+
+            internal void SyncFailed(string key, string reason)
+            {
+                if (Terminal) return;
+                SetRow(key, string.IsNullOrEmpty(reason) ? $"-  {key}  -  failed" : $"-  {key}  -  failed: {reason}", Theme.DangerText);
+                if (string.Equals(key, ActiveKey, StringComparison.OrdinalIgnoreCase)) { ActiveKey = null; ActiveBytes = 0; }
             }
 
             private void MarkDone(string key)
@@ -210,7 +227,17 @@ namespace SideHustle.Menu
                         done += Math.Min(ActiveBytes, SizeOf(active));
                     Components.SetProgressBar(BarFill, (float)done / TotalBytes);
                 }
-                catch { }
+                catch (Exception e) { Fault("updating the bar", e); }
+            }
+
+            // The view can be torn down mid-report; that is expected once, and a broken painter would otherwise log
+            // on every progress tick.
+            private bool _faulted;
+            private void Fault(string what, Exception e)
+            {
+                if (_faulted) return;
+                _faulted = true;
+                Core.Log?.Warning($"[install] progress view fault while {what}: {e.Message}");
             }
 
             private void SetRow(string key, string text, Color color)
@@ -236,7 +263,7 @@ namespace SideHustle.Menu
             var header = UIFactory.Panel("header", formHost, Theme.Clear);
             var hrt = header.GetComponent<RectTransform>();
             hrt.anchorMin = new Vector2(0, 1); hrt.anchorMax = new Vector2(1, 1); hrt.pivot = new Vector2(0.5f, 1);
-            hrt.offsetMin = new Vector2(Pad, -96); hrt.offsetMax = new Vector2(-Pad, 0);
+            hrt.offsetMin = new Vector2(Scaffold.Pad, -96); hrt.offsetMax = new Vector2(-Scaffold.Pad, 0);
 
             var title = UIFactory.Text("headline", headline, header.transform, Theme.H3, TextAnchor.UpperLeft, FontStyle.Bold);
             title.color = Theme.TextPrimary; title.raycastTarget = false;
@@ -254,26 +281,17 @@ namespace SideHustle.Menu
             brt2.anchorMin = new Vector2(0, 1); brt2.anchorMax = new Vector2(1, 1); brt2.pivot = new Vector2(0.5f, 1);
             brt2.offsetMin = new Vector2(0, -78); brt2.offsetMax = new Vector2(0, -68);
 
-            var footer = UIFactory.Panel("footer", formHost, Theme.Clear);
-            var frt = footer.GetComponent<RectTransform>();
-            frt.anchorMin = new Vector2(0, 0); frt.anchorMax = new Vector2(1, 0); frt.pivot = new Vector2(0.5f, 0);
-            frt.offsetMin = new Vector2(Pad, 0); frt.offsetMax = new Vector2(-Pad, 56);
-            c.Footer = footer.transform;
+            var page = Scaffold.Create(formHost, topInset: 102f, spacing: 4f);
+            c.Footer = page.Footer;
+            var content = page.Content;
 
-            var (cancelGO, cancelBtn, cancelLbl) = UIFactory.ButtonWithLabel("Cancel", "Cancel", footer.transform, Theme.Button, 160, 40);
-            var crt = cancelGO.GetComponent<RectTransform>();
-            crt.anchorMin = new Vector2(0, 0.5f); crt.anchorMax = new Vector2(0, 0.5f); crt.pivot = new Vector2(0, 0.5f);
-            crt.anchoredPosition = Vector2.zero;
-            c.CancelButton = cancelBtn; c.CancelLabel = cancelLbl;
-            cancelBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() => { c.SetCancelling(); onCancel?.Invoke(); }));
-
-            var listArea = UIFactory.Panel("list", formHost, Theme.Clear);
-            var lrt = listArea.GetComponent<RectTransform>();
-            lrt.anchorMin = new Vector2(0, 0); lrt.anchorMax = new Vector2(1, 1);
-            lrt.offsetMin = new Vector2(Pad, 64); lrt.offsetMax = new Vector2(-Pad, -102);
-
-            var content = Components.ScrollList(listArea.transform, out var scroll, 4f, Theme.ScrimPanel);
-            SmoothScroll.Attach(scroll);
+            // A Cancel that nothing listens to is a dead button. It is only built when the caller has something to stop.
+            if (onCancel != null)
+            {
+                var cancelBtn = Scaffold.FooterButton(page.Footer, "Cancel", Theme.Button, left: true,
+                    onClick: () => { c.SetCancelling(); onCancel(); });
+                c.CancelButton = cancelBtn; c.CancelLabel = cancelBtn.GetComponentInChildren<Text>();
+            }
 
             if (plan != null)
                 foreach (var row in plan)
@@ -282,7 +300,7 @@ namespace SideHustle.Menu
                     c.TotalBytes += Controller.SizeOf(row);
                     string label = row.Cached ? $"=  {row.Key}  -  already cached" : $"·  {row.Key}  -  queued";
                     var color = row.Cached ? Theme.TextMuted : Theme.TextPrimary;
-                    if (row.NameLooksMono) { label += "  -  looks like a Mono build"; color = Theme.WarningText; }
+                    if (row.NameLooksMono) { label += "  -  may be for the other game version"; color = Theme.WarningText; }
                     c.Rows[row.Key] = NoteRow(content, label, color);
                 }
 
@@ -296,15 +314,8 @@ namespace SideHustle.Menu
 
         private static Text NoteRow(RectTransform content, string text, Color color)
         {
-            var row = UIFactory.Panel("note", content, Theme.Clear);
-            var rle = row.AddComponent<LayoutElement>();
-            rle.minHeight = 30f; rle.preferredHeight = 30f; rle.flexibleWidth = 1;
-            var t = UIFactory.Text("text", text, row.transform, Theme.Body, TextAnchor.MiddleLeft);
-            t.color = color; t.raycastTarget = false;
-            var rt = t.rectTransform;
-            rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
-            rt.offsetMin = new Vector2(12, 0); rt.offsetMax = new Vector2(-12, 0);
-            return t;
+            Scaffold.Note(content, text, color);
+            return content.GetChild(content.childCount - 1).GetComponentInChildren<Text>();
         }
     }
 }

@@ -9,74 +9,57 @@ namespace SideHustle.Menu
     /// Drives the shared <see cref="InstallProgressView"/> from a mod-SYNC download, so a player waiting for a
     /// gamemode's mods sees which file is coming down and how far along it is.
     ///
-    /// Both sync paths used to pass <c>null</c> for progress and show a static "INSTALLING AND RESTARTING" card, so the
-    /// screen said nothing during the one part of the flow that actually takes time - the exact moment a player starts
-    /// wondering whether it has hung. The mod-profile installer already had the whole progress UI; only the sink was
-    /// missing here.
+    /// <c>SyncResolver.DownloadMissingAsync</c> reports explicit <see cref="Sync.SyncProgressEvent"/>s keyed by
+    /// <see cref="Sync.DiffEntry.Key"/>: Started, Bytes, then Ready (hash verified) or Failed(reason). A row is
+    /// finished only on Ready; nothing is inferred from the next file starting, so a failed or skipped download can no
+    /// longer show up as done.
     ///
-    /// A separate class from the profile installer's own sink because the two report DIFFERENT shapes:
-    /// <c>SyncResolver.DownloadMissingAsync</c> reports <c>(Label, Done, Total)</c> bytes per file, while the profile
-    /// engine reports its own ProfileProgress. Sharing one adapter would mean inventing a common type for two things
-    /// that genuinely differ.
-    ///
-    /// Coalescing matters: a download reports on every buffer, which is hundreds of callbacks a second on a fast line.
-    /// Only ONE main-thread post is in flight at a time and it always renders the LATEST sample, so the bar keeps up
-    /// without queueing a frame's worth of stale updates behind it.
+    /// Reports arrive on worker threads. Started / Ready / Failed are queued and applied in order on the main thread;
+    /// Bytes are coalesced (hundreds a second on a fast line) so only the latest sample per key is painted, and only
+    /// ONE main-thread post is in flight at a time.
     /// </summary>
-    internal sealed class SyncDownloadProgress : IProgress<(string Label, long Done, long Total)>
+    internal sealed class SyncDownloadProgress : IProgress<Sync.SyncProgressEvent>
     {
         private readonly InstallProgressView.Controller _ui;
         private readonly object _lock = new object();
-        private (string Label, long Done, long Total) _latest;
+        private readonly Queue<Sync.SyncProgressEvent> _steps = new Queue<Sync.SyncProgressEvent>();
+        private Sync.SyncProgressEvent? _latestBytes;
         private bool _posted;
 
-        private readonly Sync.SyncDiff _diff;
+        private readonly HashSet<string> _pending;                 // keys that were Download when the sink was built
+        private readonly HashSet<string> _ready = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _failed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly int _total;
         private static SyncDownloadProgress _active;
 
         internal SyncDownloadProgress(InstallProgressView.Controller ui, Sync.SyncDiff diff)
         {
             _ui = ui;
-            _diff = diff;
             // The DENOMINATOR is fixed now, before anything is fetched. Recomputing it later would shrink it as entries
             // complete, and a bar whose scale moves under it can go backwards.
-            _total = diff == null ? 0 : diff.Entries.Count(e => e.Status == Sync.DiffStatus.Download);
+            _pending = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (diff != null)
+                foreach (var e in diff.Entries)
+                    if (e.Status == Sync.DiffStatus.Download) _pending.Add(e.Key);
+            _total = _pending.Count;
             _active = this;
         }
 
-        /// <summary>
-        /// Pumped per frame from the hub. Counts how many mods have actually LANDED - an entry leaves
-        /// DiffStatus.Download only after its bytes passed hash verification and were promoted into the cache.
-        ///
-        /// Bytes are not usable as the source here: GitHub reports (file, 0, 0) and never reports a size or a
-        /// completion, so a byte-driven bar sits at zero for exactly the mods this flow fetches most. Counting verified
-        /// mods needs no sizes, cannot run backwards, and cannot claim progress that did not happen.
-        /// </summary>
+        /// <summary>Per-frame hook from the hub. Painting is driven by events now; this only re-paints the bar so a
+        /// frame that skipped a post still shows the current count.</summary>
         internal static void Tick()
         {
             var a = _active;
-            if (a == null || a._ui == null || a._ui.Terminal || a._total <= 0 || a._diff == null) return;
-            try
-            {
-                int done = a._diff.Entries.Count(e => e.Status != Sync.DiffStatus.Download);
-                done -= (a._diff.Entries.Count - a._total);   // entries that were never pending do not count as progress
-                if (done < 0) done = 0;
-                if (done > a._total) done = a._total;
-                a.Paint(done);
-            }
-            catch (Exception e) { Fault("counting verified mods", e); }
+            if (a == null || a._ui == null || a._ui.Terminal || a._total <= 0) return;
+            try { a.Paint(); }
+            catch (Exception e) { Fault("painting the progress", e); }
         }
 
         /// <summary>
-        /// Put the screen into its finished state, then retire the sink. Deterministic on purpose: the last entry's
-        /// status flips after the download loop returns, so whether a polled tick lands before the restart is a race -
-        /// and it lost, which is why the bar read "2 of 3" while the restart notice was already up. An artificial delay
-        /// would hide that race rather than remove it.
-        ///
-        /// This is also the state the player keeps LOOKING at while the restart notice sits over it, so every row has
-        /// to read finished, not just the bar: <see cref="InstallProgressView.Controller.ShowSuccess"/> marks the plan
-        /// rows off its own keys, which is what the byte-driven path could never do (the resolver reports a DLL file
-        /// name, the rows are keyed by display name).
+        /// Put the screen into its finished state, then retire the sink. Deterministic on purpose: whether a queued
+        /// event lands before the restart notice is a race, and it lost once (the bar read "2 of 3" while the restart
+        /// notice was already up). Every row has to read finished, not just the bar:
+        /// <see cref="InstallProgressView.Controller.ShowSuccess"/> marks the plan rows off its own keys.
         /// </summary>
         internal static void Complete()
         {
@@ -85,7 +68,8 @@ namespace SideHustle.Menu
             if (a == null || a._ui == null) return;
             try
             {
-                a.Paint(a._total);
+                a._ready.UnionWith(a._pending);
+                a.Paint();
                 a._ui.ShowSuccess(a._total > 0
                     ? $"{a._total} of {a._total} mods ready"
                     : "Mods ready");
@@ -110,8 +94,9 @@ namespace SideHustle.Menu
             Core.Log?.Warning($"[sync] progress view fault while {what}: {e.Message}");
         }
 
-        private void Paint(int done)
+        private void Paint()
         {
+            int done = _ready.Count;
             if (_ui.BarFill != null)
             {
                 float f = _total > 0 ? (float)done / _total : 0f;
@@ -124,33 +109,74 @@ namespace SideHustle.Menu
             if (_ui.Status != null)
             {
                 string cur = done >= _total || string.IsNullOrEmpty(_ui.ActiveKey) ? "" : "  -  " + _ui.ActiveKey;
-                _ui.Status.text = $"{done} of {_total} mods ready{cur}";
+                string bad = _failed.Count > 0 ? $", {_failed.Count} failed" : "";
+                _ui.Status.text = $"{done} of {_total} mods ready{bad}{cur}";
             }
         }
 
-        public void Report((string Label, long Done, long Total) value)
+        public void Report(Sync.SyncProgressEvent value)
         {
             lock (_lock)
             {
-                _latest = value;
+                if (value.Kind == Sync.SyncProgressKind.Bytes) _latestBytes = value;
+                else
+                {
+                    // A finished entry supersedes any pending byte sample of its own.
+                    if (_latestBytes.HasValue && string.Equals(_latestBytes.Value.Key, value.Key, StringComparison.OrdinalIgnoreCase))
+                        _latestBytes = null;
+                    _steps.Enqueue(value);
+                }
                 if (_posted) return;
                 _posted = true;
             }
-            MainThread.Post(() =>
-            {
-                (string Label, long Done, long Total) s;
-                lock (_lock) { s = _latest; _posted = false; }
-                try { Apply(s); } catch (Exception e) { Fault("applying a download report", e); }
-            });
+            MainThread.Post(Drain);
         }
 
-        /// <summary>A report only says which file is being fetched now. What counts as DONE is decided by the tick
-        /// above, from verified status - a start is not a completion, and the coalescer above may drop any single
-        /// report, so nothing that matters may be inferred from one arriving.</summary>
-        private void Apply((string Label, long Done, long Total) s)
+        private void Drain()
+        {
+            List<Sync.SyncProgressEvent> batch;
+            Sync.SyncProgressEvent? bytes;
+            lock (_lock)
+            {
+                batch = new List<Sync.SyncProgressEvent>(_steps);
+                _steps.Clear();
+                bytes = _latestBytes;
+                _latestBytes = null;
+                _posted = false;
+            }
+            try
+            {
+                foreach (var ev in batch) Apply(ev);
+                if (bytes.HasValue) Apply(bytes.Value);
+                if (_ui != null && !_ui.Terminal) Paint();
+            }
+            catch (Exception e) { Fault("applying a download report", e); }
+        }
+
+        private void Apply(Sync.SyncProgressEvent ev)
         {
             if (_ui == null || _ui.Terminal) return;
-            _ui.ActiveKey = s.Label ?? "";
+            if (string.IsNullOrEmpty(ev.Key)) return;
+            switch (ev.Kind)
+            {
+                case Sync.SyncProgressKind.Started:
+                    _ui.SyncStarted(ev.Key);
+                    break;
+                case Sync.SyncProgressKind.Bytes:
+                    if (_ready.Contains(ev.Key) || _failed.Contains(ev.Key)) break;   // a late sample after the end
+                    _ui.SyncBytes(ev.Key, ev.Done, ev.Total);
+                    break;
+                case Sync.SyncProgressKind.Ready:
+                    if (_pending.Contains(ev.Key)) _ready.Add(ev.Key);
+                    _failed.Remove(ev.Key);
+                    _ui.SyncReady(ev.Key);
+                    break;
+                case Sync.SyncProgressKind.Failed:
+                    _ready.Remove(ev.Key);
+                    if (_pending.Contains(ev.Key)) _failed.Add(ev.Key);
+                    _ui.SyncFailed(ev.Key, ev.Reason);
+                    break;
+            }
         }
 
         /// <summary>Turn a diff into the plan rows the view lists, so the player sees every file up front instead of
@@ -163,7 +189,7 @@ namespace SideHustle.Menu
             {
                 if (e == null || e.Mod == null) continue;
                 if (e.Status != Sync.DiffStatus.Download && e.Status != Sync.DiffStatus.Cached) continue;
-                string name = e.Mod.Name ?? e.Mod.File ?? "mod";
+                string name = e.Key;
                 rows.Add(new InstallPlanRow
                 {
                     FullName = name,

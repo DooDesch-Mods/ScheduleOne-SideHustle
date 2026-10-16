@@ -1,0 +1,45 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+<!-- Browser stand-in for the engine's defaults: every box a column flexbox, border-box, no margins, and the
+     game font resolved to Open Sans. Not shipped; the csproj excludes preview.html, s1-mock.js and preview/. -->
+<style>
+  html { background: #000; }
+  * { box-sizing: border-box; margin: 0; }
+  div, body, img, input { display: flex; flex-direction: column; min-width: 0; }
+  img { object-fit: cover; }
+  input { border: 0; outline: 0; font-family: inherit; }
+  body { width: 960px; height: 900px; background: #000 url(preview/bg.jpg) center/cover no-repeat; overflow: hidden; }
+  body { font-family: "Open Sans", sans-serif !important; }
+  #scen { position: fixed; right: 8px; top: 8px; flex-direction: row; gap: 4px; z-index: 99; }
+  #scen button { font: 11px sans-serif; }
+</style>
+<link rel="stylesheet" href="hub.css">
+</head>
+<body>
+<div class="top">
+  <div class="brand">
+    <img class="word" src="wordmark.png">
+    <div class="ver" id="ver"></div>
+  </div>
+  <div class="tabs" id="tabs"></div>
+</div>
+<div class="page">
+  <div class="main" id="main"></div>
+  <div class="side" id="side"></div>
+</div>
+<div id="scen">
+  <button onclick="S1_PREVIEW.scenario('idle')">idle</button>
+  <button onclick="S1_PREVIEW.scenario('hosting')">hosting</button>
+  <button onclick="S1_PREVIEW.scenario('joining')">joining</button>
+  <button onclick="S1_PREVIEW.scenario('failed')">failed</button>
+  <button onclick="S1_PREVIEW.scenario('steam')">steam down</button>
+  <button onclick="S1_PREVIEW.scenario('empty')">empty</button>
+  <button onclick="S1_PREVIEW.scenario('seats')">seats</button>
+  <button onclick="S1_PREVIEW.scenario('return')">return</button>
+  <button onclick="S1_PREVIEW.scenario('vanillacont')">vanilla last</button>
+  <button onclick="S1_PREVIEW.back()">back</button>
+</div>
+<script src="s1-mock.js"></script>
+<script src="hub.js"></script>
+</body></html>

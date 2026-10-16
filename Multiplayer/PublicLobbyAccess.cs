@@ -9,7 +9,7 @@ namespace SideHustle.Multiplayer
     /// Lets players who are NOT Steam friends of the host join a Side Hustle-hosted lobby.
     ///
     /// Vanilla Schedule I kicks every non-friend: when a joining client sends its name to the host, the server RPC
-    /// <c>Player.RpcLogic___SendPlayerNameData</c> asks <c>PlatformFriends.IsLocalPlayerFriendsWith(id)</c> and, for
+    /// <c>Player.RpcLogic___SetPlayerNameAndId_Server</c> asks <c>PlatformFriends.IsLocalPlayerFriendsWith(id)</c> and, for
     /// anyone who is not a friend, calls <c>Owner.Kick("Not friends with host")</c> a few seconds after the connection
     /// is up. That makes public lobbies useless for anyone outside the host's friends list (the connection establishes
     /// over Steam relay, world data even starts streaming, then the host drops it).
@@ -53,14 +53,11 @@ namespace SideHustle.Multiplayer
             try
             {
                 _harmony = new HarmonyLib.Harmony("doodesch.sidehustle.publiclobby");
-                var target = AccessTools.Method(typeof(PlatformFriends), nameof(PlatformFriends.IsLocalPlayerFriendsWith));
-                if (target != null)
-                {
-                    _harmony.Patch(target, postfix: new HarmonyMethod(
-                        typeof(PublicLobbyAccess).GetMethod(nameof(FriendCheckPostfix), AccessTools.all)));
-                    Core.Log?.Msg("[mp] public-lobby access installed (non-friends may join a hosted lobby).");
-                }
-                else Core.Log?.Warning("[mp] PlatformFriends.IsLocalPlayerFriendsWith not found - the host will keep kicking non-friends.");
+                var target = Internal.GameTargets.PlatformFriendsIsLocalPlayerFriendsWith.Value;
+                if (target == null) return;   // GameTargets logged the missing target
+                _harmony.Patch(target, postfix: new HarmonyMethod(
+                    typeof(PublicLobbyAccess).GetMethod(nameof(FriendCheckPostfix), AccessTools.all)));
+                Core.Log?.Msg("[mp] public-lobby access installed (non-friends may join a hosted lobby).");
             }
             catch (Exception e) { Core.Log?.Warning("[mp] public-lobby patch install failed: " + e.Message); }
         }
@@ -99,11 +96,10 @@ namespace SideHustle.Multiplayer
         //   3. re-test with two accounts that are NOT Steam friends, both on f12. That is the one thing neither the
         //      reflection check nor a local emulator run can establish: the strict mode asks the OTHER clients, so a
         //      single machine cannot show that a stranger gets in.
-        private const string AuthTypeName = "Il2CppScheduleOne.Networking.FishNetSteamAuthenticator";
-
-        private static object _authInstance;      // cached authenticator, resolved once per session
+        // The authenticator TYPE and its members are resolved by GameTargets (they are game metadata and never change
+        // within a run). The INSTANCE is not cached: it is a scene component that is destroyed and recreated with the
+        // world, so every SetAuthMode call looks up the live one.
         private static object _modeAnyone, _modeDefault;
-        private static System.Reflection.MethodInfo _setAuthMode;
         private static bool _typeAbsent;     // this build has no authenticator at all - final
         private static bool _shapeChanged;   // it exists but not as we know it - final
 
@@ -146,7 +142,10 @@ namespace SideHustle.Multiplayer
             if (_giveUpIn <= 0f)
             {
                 _hasWish = false;
-                Core.Log?.Warning("[mp] the Steam authenticator never came up - this lobby stays friends-only.");
+                string want = _wantAnyone ? "Anyone" : "FriendOfAnyExistingPlayer";
+                Core.Log?.Warning($"[mp] the Steam auth mode '{want}' was not applied within {RetryWindowSeconds:F0}s"
+                                  + (_lastApplyError != null ? $" (last error: {_lastApplyError})" : " (no authenticator instance appeared)")
+                                  + (_wantAnyone ? " - this lobby may refuse non-friends." : " - the previous mode stays in place."));
                 return;
             }
             _retryIn -= dt;
@@ -155,60 +154,72 @@ namespace SideHustle.Multiplayer
             Apply();
         }
 
+        private static string _lastApplyError;
+
         private static void Apply()
         {
             try
             {
-                if (!ResolveAuthenticator()) return;
+                if (!ResolveMembers()) return;
                 object mode = _wantAnyone ? _modeAnyone : _modeDefault;
                 if (mode == null) return;
-                _setAuthMode.Invoke(_authInstance, new[] { mode });
+                object instance = FindAuthenticator();
+                if (instance == null) return;
+                Internal.GameTargets.AuthenticatorSetAuthMode.Value.Invoke(instance, new[] { mode });
                 _applied = true;
+                _lastApplyError = null;
                 Core.Log?.Msg($"[mp] steam auth mode -> {(_wantAnyone ? "Anyone" : "FriendOfAnyExistingPlayer")} (public-lobby access).");
             }
             catch (Exception e)
             {
-                // A cached instance can outlive its scene - the call then throws on a destroyed object and would
-                // keep throwing forever. Drop it so the next attempt resolves a live one.
-                _authInstance = null;
+                _lastApplyError = e.Message;
                 Core.Log?.Warning("[mp] could not set the Steam auth mode: " + e.Message);
             }
         }
 
-        private static bool ResolveAuthenticator()
+        /// <summary>Resolves the authenticator type, SetAuthMode and the two enum values (once). False while any is
+        /// missing; a missing TYPE or a changed shape is final.</summary>
+        private static bool ResolveMembers()
         {
-            if (_authInstance != null && _setAuthMode != null) return true;
-            // Only a MISSING TYPE is cached as final. A type that exists but had no instance yet is retried, because
-            // the authenticator is a scene component and the first host can easily run before it is there.
+            if (_modeAnyone != null && _modeDefault != null) return true;
             if (_typeAbsent || _shapeChanged) return false;
 
-            Type t = null;
-            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                try { t = asm.GetType(AuthTypeName, false); } catch { t = null; }
-                if (t != null) break;
-            }
+            var t = Internal.GameTargets.AuthenticatorType.Value;
             if (t == null)
             {
-                if (!_typeAbsent) Core.Log?.Msg("[mp] no Steam authenticator in this build - the friend-check patch covers it.");
                 _typeAbsent = true;
+                Core.Log?.Msg("[mp] no Steam authenticator in this build - the friend-check patch covers it.");
                 return false;
             }
-
-            _setAuthMode = t.GetMethod("SetAuthMode", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-            var enumType = t.GetNestedType("ESteamAuthMode");
-            if (_setAuthMode == null || enumType == null)
+            var setAuthMode = Internal.GameTargets.AuthenticatorSetAuthMode.Value;
+            var enumType = Internal.GameTargets.AuthenticatorModeEnum.Value;
+            if (setAuthMode == null || enumType == null)
             {
-                Core.Log?.Warning("[mp] the Steam authenticator changed shape - public lobbies may reject non-friends.");
                 _shapeChanged = true;
+                Core.Log?.Warning("[mp] the Steam authenticator changed shape - public lobbies may reject non-friends.");
                 return false;
             }
             try
             {
                 _modeAnyone = Enum.Parse(enumType, "Anyone");
                 _modeDefault = Enum.Parse(enumType, "FriendOfAnyExistingPlayer");
+                return true;
             }
-            catch { }
+            catch (Exception e)
+            {
+                _shapeChanged = true;
+                _modeAnyone = _modeDefault = null;
+                Core.Log?.Warning("[mp] the Steam auth mode enum lost a value we use (Anyone / FriendOfAnyExistingPlayer) - "
+                                  + "public lobbies may reject non-friends: " + e.Message);
+                return false;
+            }
+        }
+
+        /// <summary>The live authenticator instance, looked up fresh on every call.</summary>
+        private static object FindAuthenticator()
+        {
+            var t = Internal.GameTargets.AuthenticatorType.Value;
+            object instance = null;
 
             // FishNet owns it: the server manager holds the REGISTERED authenticator, which is the instance that
             // actually decides, and it answers even while its GameObject is inactive. Ask that first.
@@ -219,29 +230,29 @@ namespace SideHustle.Multiplayer
                 {
                     var tryCast = typeof(Il2CppInterop.Runtime.InteropTypes.Il2CppObjectBase)
                         .GetMethod("TryCast")?.MakeGenericMethod(t);
-                    _authInstance = tryCast?.Invoke(registered, null);
+                    instance = tryCast?.Invoke(registered, null);
                 }
             }
             catch (Exception e) { Core.Log?.Warning("[mp] authenticator lookup via ServerManager failed: " + e.Message); }
 
             // Fallback: the scene search - now INCLUDING inactive objects. Without that flag the component can exist
             // and still not be found, which is indistinguishable from "not created yet" and was silently fatal.
-            if (_authInstance == null)
+            if (instance == null)
             {
                 try
                 {
                     var objs = UnityEngine.Object.FindObjectsOfType(Il2CppInterop.Runtime.Il2CppType.From(t), true);
-                    if (objs != null && objs.Length > 0) _authInstance = objs[0];
+                    if (objs != null && objs.Length > 0) instance = objs[0];
                 }
                 catch (Exception e) { Core.Log?.Warning("[mp] authenticator lookup failed: " + e.Message); }
             }
 
-            if (_authInstance == null && !_waitLogged)
+            if (instance == null && !_waitLogged)
             {
                 _waitLogged = true;
                 Core.Log?.Msg("[mp] the Steam authenticator is not up yet - retrying while the world loads.");
             }
-            return _authInstance != null && _setAuthMode != null;
+            return instance;
         }
     }
 }

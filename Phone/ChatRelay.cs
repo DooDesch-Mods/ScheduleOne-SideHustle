@@ -62,6 +62,21 @@ namespace SideHustle.Phone
         /// thread list would fire again on every unrelated change.</summary>
         private static ulong _arrived;
 
+        /// <summary>Peers we accepted a P2P session with and have not closed again. Steam keeps a session (and a relay
+        /// connection) open for each until it is closed, so each is closed when its conversation ends.</summary>
+        private static readonly Dictionary<ulong, DateTime> _sessions = new Dictionary<ulong, DateTime>();
+
+        /// <summary>The per-sender tables are keyed by whatever SteamID a stranger sends from, so each is bounded: an
+        /// attacker cycling accounts must not grow them without limit.</summary>
+        private const int MaxPeers = 64;
+        private const int MaxMuted = 512;
+
+        /// <summary>A packet read loop must end even when Steam keeps reporting packets (or a bad size) every call.</summary>
+        private const int MaxPacketsPerFrame = 32;
+
+        private static readonly TimeSpan IdleSessionAge = TimeSpan.FromMinutes(15);
+        private static DateTime _nextPrune;
+
         private static Callback<P2PSessionRequest_t> _sessionRequest;
         private static bool _installed;
 
@@ -107,7 +122,8 @@ namespace SideHustle.Phone
             {
                 SessionRequests++;
                 ulong raw = 0UL;
-                try { raw = req.m_steamIDRemote.m_SteamID; } catch { }
+                try { raw = req.m_steamIDRemote.m_SteamID; }
+                catch (Exception e) { Core.Log?.Warning("[chat] could not read the sender of a P2P session request: " + e.Message); }
 
                 ulong id = ResolveSteamId(raw);
                 if (id == 0UL)
@@ -115,8 +131,17 @@ namespace SideHustle.Phone
                     Core.Log?.Warning("[chat] a P2P session request arrived with an unreadable sender (" + raw + ").");
                     return;
                 }
-                if (_muted.Contains(id)) return;
+                if (_muted.Contains(id))
+                {
+                    Core.Log?.Msg("[chat] ignored a P2P session request from muted " + id);
+                    return;
+                }
+                if (!_sessions.ContainsKey(id) && _sessions.Count >= MaxPeers)
+                {
+                    CloseOldestSession();
+                }
                 SteamNetworking.AcceptP2PSessionWithUser(new CSteamID(id));
+                _sessions[id] = DateTime.UtcNow;
                 Core.Log?.Msg("[chat] accepted a P2P session from " + id);
             }
             catch (Exception e) { Core.Log?.Warning("[chat] could not accept a P2P session: " + e.Message); }
@@ -136,7 +161,17 @@ namespace SideHustle.Phone
         /// </summary>
         private static ulong ResolveSteamId(ulong raw)
         {
-            if (LooksLikeSteamId(raw)) return raw;
+            // The value itself is the id: the pointer is never touched.
+            if (LooksLikeSteamId(raw))
+            {
+                if (!_byValueLogged)
+                {
+                    _byValueLogged = true;
+                    Core.Log?.Msg("[chat] P2P session requests arrive by value.");
+                }
+                return raw;
+            }
+            // Only now is the value treated as an address.
             if (raw < 0x10000UL || raw > 0x7FFFFFFFFFFFUL) return 0UL;   // not a user-space address either
 
             // Offset 0 is the bare struct; 0x10 is where the payload sits if it ever arrives boxed (il2cpp object
@@ -154,12 +189,16 @@ namespace SideHustle.Phone
                     }
                     return deref;
                 }
-                catch { /* try the next offset */ }
+                catch (Exception e)
+                {
+                    Core.Log?.Warning($"[chat] could not read the session request at +{offset}: {e.Message}");
+                }
             }
             return 0UL;
         }
 
         private static int _derefOffset = -1;
+        private static bool _byValueLogged;
 
         /// <summary>Universe 1 (public) and an account type in 1..10 - the bits every real CSteamID carries and no
         /// pointer does.</summary>
@@ -177,27 +216,63 @@ namespace SideHustle.Phone
             if (!_installed) return;
             try
             {
-                while (SteamNetworking.IsP2PPacketAvailable(out uint size, Channel))
+                int handled = 0;
+                while (handled < MaxPacketsPerFrame && SteamNetworking.IsP2PPacketAvailable(out uint size, Channel))
                 {
-                    if (size == 0 || size > 4096) { DrainOne(size); continue; }
+                    handled++;
+                    if (size == 0 || size > 4096)
+                    {
+                        if (!DrainOne(size)) break;
+                        continue;
+                    }
                     var buffer = new Il2CppStructArray<byte>((int)size);
-                    if (!SteamNetworking.ReadP2PPacket(buffer, size, out uint read, out CSteamID from, Channel)) break;
+                    if (!SteamNetworking.ReadP2PPacket(buffer, size, out uint read, out CSteamID from, Channel))
+                    {
+                        // Steam said a packet was there and then would not hand it over; asking again this frame
+                        // would only get the same answer.
+                        WarnOnce(ref _readFailLogged, "Steam reported a P2P packet but would not read it; retrying next frame.");
+                        break;
+                    }
                     PacketsRead++;
                     Receive(from.m_SteamID, Encoding.UTF8.GetString(buffer, 0, (int)Math.Min(read, size)));
+                }
+                if (handled >= MaxPacketsPerFrame)
+                    WarnOnce(ref _floodLogged, $"more than {MaxPacketsPerFrame} P2P packets waiting in one frame; the rest is read on the next frames.");
+
+                if (DateTime.UtcNow >= _nextPrune)
+                {
+                    _nextPrune = DateTime.UtcNow.AddSeconds(60);
+                    PruneIdle(DateTime.UtcNow);
                 }
             }
             catch (Exception e) { Core.Log?.Warning("[chat] read failed: " + e.Message); }
         }
 
+        private static bool _readFailLogged, _floodLogged, _drainFailLogged, _personaLogged, _acceptBackLogged, _nameLogged, _dropLogged;
+
+        private static void WarnOnce(ref bool flag, string text)
+        {
+            if (flag) return;
+            flag = true;
+            Core.Log?.Warning("[chat] " + text);
+        }
+
         /// <summary>Take a packet off the queue and throw it away - a malformed size must not wedge the loop.</summary>
-        private static void DrainOne(uint size)
+        private static bool DrainOne(uint size)
         {
             try
             {
                 var junk = new Il2CppStructArray<byte>((int)Math.Max(1, Math.Min(size, 4096)));
-                SteamNetworking.ReadP2PPacket(junk, (uint)junk.Length, out _, out _, Channel);
+                PacketsRejected++;
+                if (SteamNetworking.ReadP2PPacket(junk, (uint)junk.Length, out _, out _, Channel)) return true;
+                WarnOnce(ref _drainFailLogged, $"could not discard a P2P packet of {size} bytes.");
+                return false;
             }
-            catch { /* nothing to salvage */ }
+            catch (Exception e)
+            {
+                WarnOnce(ref _drainFailLogged, $"discarding a P2P packet of {size} bytes failed: {e.Message}");
+                return false;
+            }
         }
 
         private static void Receive(ulong from, string payload)
@@ -206,7 +281,11 @@ namespace SideHustle.Phone
             if (!Config.Preferences.AcceptStrangerMessages)
             {
                 PacketsRejected++;
-                Core.Log?.Msg("[chat] dropped a message from " + from + " - stranger messages are switched off.");
+                if (!_dropLogged)
+                {
+                    _dropLogged = true;
+                    Core.Log?.Msg("[chat] dropping messages from strangers - they are switched off (logged once; see shchatdiag for the count).");
+                }
                 return;
             }
 
@@ -223,6 +302,7 @@ namespace SideHustle.Phone
 
             DateTime now = DateTime.UtcNow;
             if (_lastHeard.TryGetValue(from, out DateTime last) && now - last < MinGap) { PacketsRejected++; return; }
+            if (!_lastHeard.ContainsKey(from)) MakeRoomForPeer(now);
             _lastHeard[from] = now;
 
             string text = parts[2].Trim();
@@ -231,6 +311,7 @@ namespace SideHustle.Phone
 
             string name = parts[1].Trim();
             if (name.Length > 0) _names[from] = name.Length > 48 ? name.Substring(0, 48) : name;
+            if (_names.Count > MaxPeers + MaxMuted) TrimNames();
 
             Add(from, new Message { Mine = false, Text = text, At = now });
             _unread.Add(from);
@@ -251,20 +332,33 @@ namespace SideHustle.Phone
             if (_lastWritten.TryGetValue(to, out DateTime wrote) && now - wrote < MinGap) return false;
 
             string me = "";
-            try { me = SteamFriends.GetPersonaName() ?? ""; } catch { }
+            try { me = SteamFriends.GetPersonaName() ?? ""; }
+            catch (Exception e) { WarnOnce(ref _personaLogged, "could not read our own display name; sending without one: " + e.Message); }
             byte[] bytes = Encoding.UTF8.GetBytes(Magic + "|" + me + "|" + text);
 
             try
             {
                 // Open the way back at the same time. Whoever we just wrote to is exactly who may answer, and an
                 // answer that arrives before their session request has been handled would otherwise be dropped.
-                try { SteamNetworking.AcceptP2PSessionWithUser(new CSteamID(to)); } catch { /* not fatal */ }
+                try
+                {
+                    SteamNetworking.AcceptP2PSessionWithUser(new CSteamID(to));
+                    _sessions[to] = now;
+                }
+                catch (Exception e) { WarnOnce(ref _acceptBackLogged, "could not open the way back to " + to + " (sending anyway): " + e.Message); }
 
                 var payload = new Il2CppStructArray<byte>(bytes.Length);
                 for (int i = 0; i < bytes.Length; i++) payload[i] = bytes[i];
                 bool ok = SteamNetworking.SendP2PPacket(new CSteamID(to), payload, (uint)bytes.Length,
                     EP2PSend.k_EP2PSendReliable, Channel);
-                if (ok) { PacketsSent++; _lastWritten[to] = now; Add(to, new Message { Mine = true, Text = text, At = now }); }
+                if (ok)
+                {
+                    PacketsSent++;
+                    if (!_lastWritten.ContainsKey(to)) MakeRoomForPeer(now);
+                    _lastWritten[to] = now;
+                    Add(to, new Message { Mine = true, Text = text, At = now });
+                    Core.Log?.Msg($"[chat] sent a message to {to} ({text.Length} characters).");
+                }
                 else Core.Log?.Warning("[chat] Steam refused the message to " + to);
                 return ok;
             }
@@ -332,7 +426,7 @@ namespace SideHustle.Phone
                 string persona = SteamFriends.GetFriendPersonaName(new CSteamID(peer));
                 if (!string.IsNullOrWhiteSpace(persona)) return persona;
             }
-            catch { }
+            catch (Exception e) { WarnOnce(ref _nameLogged, "could not read a display name from Steam: " + e.Message); }
             return peer.ToString();
         }
 
@@ -347,9 +441,17 @@ namespace SideHustle.Phone
         internal static void Mute(ulong peer)
         {
             if (peer == 0UL) return;
+            if (_muted.Count >= MaxMuted && !_muted.Contains(peer))
+            {
+                Core.Log?.Warning($"[chat] the mute list is full ({MaxMuted}); not muting {peer}.");
+                return;
+            }
             _muted.Add(peer);
             _threads.Remove(peer);
             _unread.Remove(peer);
+            _lastHeard.Remove(peer);
+            _lastWritten.Remove(peer);
+            CloseSession(peer);
             Revision++;
             Core.Log?.Msg("[chat] muted " + NameOf(peer) + " (" + peer + ")");
         }
@@ -373,9 +475,89 @@ namespace SideHustle.Phone
             return ids;
         }
 
+        /// <summary>Close the P2P session with one peer, so Steam stops holding a connection for a conversation that
+        /// is over.</summary>
+        private static void CloseSession(ulong peer)
+        {
+            if (!_sessions.Remove(peer)) return;
+            try
+            {
+                SteamNetworking.CloseP2PSessionWithUser(new CSteamID(peer));
+                Core.Log?.Msg("[chat] closed the P2P session with " + peer);
+            }
+            catch (Exception e) { Core.Log?.Warning($"[chat] could not close the P2P session with {peer}: {e.Message}"); }
+        }
+
+        private static void CloseAllSessions()
+        {
+            if (_sessions.Count == 0) return;
+            foreach (var peer in new List<ulong>(_sessions.Keys)) CloseSession(peer);
+        }
+
+        private static void CloseOldestSession()
+        {
+            ulong oldest = 0UL;
+            DateTime at = DateTime.MaxValue;
+            foreach (var kv in _sessions)
+                if (kv.Value < at) { at = kv.Value; oldest = kv.Key; }
+            if (oldest != 0UL) CloseSession(oldest);
+        }
+
+        /// <summary>Drop what has gone quiet: sessions idle for a while are closed and the rate-limit stamps that can
+        /// no longer refuse anything are forgotten.</summary>
+        private static void PruneIdle(DateTime now)
+        {
+            foreach (var kv in new List<KeyValuePair<ulong, DateTime>>(_sessions))
+                if (now - kv.Value > IdleSessionAge && !_threads.ContainsKey(kv.Key)) CloseSession(kv.Key);
+            RemoveOlderThan(_lastHeard, now - MinGap);
+            RemoveOlderThan(_lastWritten, now - MinGap);
+        }
+
+        private static void RemoveOlderThan(Dictionary<ulong, DateTime> map, DateTime cutoff)
+        {
+            if (map.Count == 0) return;
+            foreach (var kv in new List<KeyValuePair<ulong, DateTime>>(map))
+                if (kv.Value < cutoff) map.Remove(kv.Key);
+        }
+
+        /// <summary>Before a NEW sender is added to the tables: when they are full, forget the quietest conversation
+        /// (never a muted one - that is a decision of the player's) and close its session.</summary>
+        private static void MakeRoomForPeer(DateTime now)
+        {
+            if (_threads.Count < MaxPeers && _lastHeard.Count < MaxPeers * 4 && _lastWritten.Count < MaxPeers * 4) return;
+            PruneIdle(now);
+            if (_threads.Count < MaxPeers) return;
+
+            ulong quietest = 0UL;
+            DateTime at = DateTime.MaxValue;
+            foreach (var kv in _threads)
+            {
+                DateTime t = Last(kv.Key);
+                if (t < at) { at = t; quietest = kv.Key; }
+            }
+            if (quietest == 0UL) return;
+            Core.Log?.Warning($"[chat] {MaxPeers} conversations are open; forgetting the quietest ({quietest}) to make room.");
+            _threads.Remove(quietest);
+            _unread.Remove(quietest);
+            _lastHeard.Remove(quietest);
+            _lastWritten.Remove(quietest);
+            CloseSession(quietest);
+            Revision++;
+        }
+
+        private static void TrimNames()
+        {
+            foreach (var key in new List<ulong>(_names.Keys))
+            {
+                if (_names.Count <= MaxPeers + MaxMuted) break;
+                if (!_muted.Contains(key) && !_threads.ContainsKey(key)) _names.Remove(key);
+            }
+        }
+
         /// <summary>The session ended - the conversation was about getting into THAT session.</summary>
         internal static void Clear()
         {
+            CloseAllSessions();
             if (_threads.Count == 0 && _unread.Count == 0) return;
             _threads.Clear();
             _unread.Clear();

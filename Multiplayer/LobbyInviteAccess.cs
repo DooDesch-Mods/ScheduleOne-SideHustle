@@ -42,12 +42,11 @@ namespace SideHustle.Multiplayer
             {
                 _harmony = new HarmonyLib.Harmony("doodesch.sidehustle.lobbyinvite");
 
-                var updateButtons = AccessTools.Method(typeof(LobbyInterface), "UpdateButtons");
+                var updateButtons = Internal.GameTargets.LobbyInterfaceUpdateButtons.Value;
                 if (updateButtons != null)
                     _harmony.Patch(updateButtons, postfix: Hook(nameof(UpdateButtonsPostfix)));
-                else Core.Log?.Warning("[mp] LobbyInterface.UpdateButtons not found - clients may not see the invite button.");
 
-                var lateUpdate = AccessTools.Method(typeof(LobbyInterface), "LateUpdate");
+                var lateUpdate = Internal.GameTargets.LobbyInterfaceLateUpdate.Value;
                 if (lateUpdate != null)
                     _harmony.Patch(lateUpdate, postfix: Hook(nameof(LateUpdatePostfix)));
 
@@ -71,7 +70,14 @@ namespace SideHustle.Multiplayer
                 if (!Active || __instance == null || __instance.InviteButton == null || __instance.Lobby == null) return;
                 __instance.InviteButton.gameObject.SetActive(__instance.Lobby.IsInLobby);
             }
-            catch { }
+            catch (Exception e) { WarnOnce("UpdateButtons", e); }
+        }
+
+        // Both postfixes run per frame or per lobby change; a failure repeats, so it is logged once per site.
+        private static readonly System.Collections.Generic.HashSet<string> _warned = new System.Collections.Generic.HashSet<string>();
+        private static void WarnOnce(string site, Exception e)
+        {
+            if (_warned.Add(site)) Core.Log?.Warning($"[mp] invite button {site} failed: {e.Message}");
         }
 
         // UpdateButtons only runs on Start / onLobbyChange, so a client that just opened the paused lobby panel may
@@ -86,7 +92,7 @@ namespace SideHustle.Multiplayer
                     && !__instance.InviteButton.gameObject.activeSelf)
                     __instance.InviteButton.gameObject.SetActive(true);
             }
-            catch { }
+            catch (Exception e) { WarnOnce("LateUpdate", e); }
         }
     }
 }
