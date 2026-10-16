@@ -71,9 +71,17 @@ namespace SideHustle.Menu
         /// identified the mod unambiguously, else the search. Never null, so a button using it is never dead.</summary>
         internal static string NexusUrl(string modName) => Sync.NexusLookup.CachedPageUrlOrNull(modName) ?? SearchUrl(modName);
 
-        /// <summary>True when <see cref="NexusUrl"/> points at the mod's own page instead of a search result list -
-        /// the button label says so.</summary>
-        internal static bool HasNexusPage(string modName) => Sync.NexusLookup.CachedPageUrlOrNull(modName) != null;
+        /// <summary>The mod's own page for a manifest row, or null: the name+version+hash lookup first (it can tell
+        /// "More Guns" from "More Guns Forked" by version), then the name-only lookup. Only trusted hosts.</summary>
+        internal static string PageFor(Sync.ManifestMod m)
+        {
+            var a = Sync.SourceLookup.CachedOrNull(Sync.SourceLookup.For(m));
+            if (a != null && (a.Resolution == "nexus" || a.Resolution == "thunderstore") && IsAllowed(a.Url)) return a.Url;
+            return Sync.NexusLookup.CachedPageUrlOrNull(Sync.SourceLookup.DisplayName(m));
+        }
+
+        /// <summary>Where to send a player for a manifest row we have no host link for: its page, else the search.</summary>
+        internal static string UrlFor(Sync.ManifestMod m) => PageFor(m) ?? SearchUrl(Sync.SourceLookup.DisplayName(m));
 
         /// <summary>Open a Nexus search for a mod name (Steam overlay first, external browser fallback).</summary>
         internal static void OpenSearch(string modName) => Open(SearchUrl(modName));

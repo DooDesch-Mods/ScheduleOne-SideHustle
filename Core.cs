@@ -60,6 +60,7 @@ namespace SideHustle
             Shared.SharedLog.Warn = s => Log?.Warning("[shared] " + s);
             Shared.SharedLog.Info = s => Log?.Msg("[shared] " + s);
             Sync.NexusLookup.Log = s => Log?.Msg("[nexus] " + s);
+            Sync.SourceLookup.Log = s => Log?.Msg("[resolve] " + s);
 
             // The live-publish button (pause-menu lobby panel) patch - inert until a co-op host is eligible.
             Sync.LivePublish.Install();

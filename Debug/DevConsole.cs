@@ -81,6 +81,7 @@ namespace SideHustle.Debugging
             new[] { "shgate", "shgate [load] - what the boot gate held back, and load it now" },
             new[] { "shpickgm", "shpickgm <name> - what clicking an unloaded gamemode row does" },
             new[] { "shmanual", "shmanual [steamid] - open the manual-install screen with sample rows" },
+            new[] { "shresolve", "shresolve [file name version sha256] - resolve an unsourced host mod and download it to the cache (default MoreGuns 1.6.6)" },
             new[] { "shbrowser", "open the vanilla lobby LIST (the screen with Join and Chat)" },
             new[] { "shhub", "open the Side Hustle gamemode list (what the menu entry does)" },
             new[] { "shsettings", "open the in-game settings form" },
@@ -131,6 +132,7 @@ namespace SideHustle.Debugging
                     case "shgate": Gate(parts); break;
                     case "shpickgm": PickGamemode(parts); break;
                     case "shmanual": ManualDemo(parts); break;
+                    case "shresolve": ResolveDemo(parts); break;
                     case "shbrowser": Menu.Hub.OpenVanillaListForTest(); break;
                     case "shhub": Menu.Hub.OpenScreen(); break;
                     case "shprofiles": Menu.Hub.OpenProfilesForTest(); break;
@@ -459,6 +461,45 @@ namespace SideHustle.Debugging
             string[] waiting = System.IO.Directory.GetFiles(dir, "*.dll");
             Core.Log?.Msg("  waiting in Mods/_late: " + waiting.Length);
             foreach (string f in waiting) Core.Log?.Msg("    " + System.IO.Path.GetFileName(f));
+        }
+
+        /// <summary>
+        /// Run the join's resolve and download steps against a host manifest holding one mod with no source, the
+        /// case the backend lookup exists for. Nothing is installed: downloads land in the package cache only.
+        /// Arguments: <c>shresolve [file name version sha256]</c>, default MoreGuns 1.6.6.
+        /// </summary>
+        private static void ResolveDemo(string[] parts)
+        {
+            var mod = parts.Length >= 5
+                ? new Sync.ManifestMod { File = parts[1], Name = parts[2], Version = parts[3], Sha256 = parts[4], Source = "" }
+                : new Sync.ManifestMod
+                {
+                    File = "MoreGuns.dll",
+                    Name = "MoreGuns",
+                    Version = "1.6.6",
+                    Sha256 = "9f2be213e6ee7fa23487b5163b967756e73cabdca35bc574c644e0a8d494597f",
+                    Source = "",
+                };
+            var manifest = new Sync.SyncManifest();
+            manifest.Mods.Add(mod);
+            Core.Log?.Msg($"[shresolve] host manifest: {mod.File} {mod.Name} {mod.Version} sha={mod.Sha256} source=(none)");
+
+            System.Threading.Tasks.Task.Run(async () =>
+            {
+                try
+                {
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    var diff = Sync.SyncResolver.Compute(manifest);
+                    var row = diff.Entries.FirstOrDefault(x => string.Equals(x.Mod.File, mod.File, StringComparison.OrdinalIgnoreCase));
+                    if (row == null) { Core.Log?.Error($"[shresolve] no diff row for {mod.File}."); return; }
+                    Core.Log?.Msg($"[shresolve] after compute ({sw.ElapsedMilliseconds} ms): status={row.Status} resolved={row.ResolvedSource ?? "(none)"}");
+                    if (row.Status != Sync.DiffStatus.Download) { Core.Log?.Msg("[shresolve] nothing to download; done."); return; }
+
+                    bool ok = await Sync.SyncResolver.DownloadMissingAsync(diff, null, System.Threading.CancellationToken.None);
+                    Core.Log?.Msg($"[shresolve] download ok={ok} status={row.Status} path={row.SourcePath ?? "(none)"}");
+                }
+                catch (Exception e) { Core.Log?.Error("[shresolve] failed: " + e); }
+            });
         }
 
         /// <summary>
