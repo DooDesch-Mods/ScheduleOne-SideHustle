@@ -2,7 +2,7 @@ using System.Text;
 
 namespace SideHustle
 {
-    /// <summary>Who the local player is in a session. Read it from <see cref="LaunchContext.Role"/>. Since 2.5.0.</summary>
+    /// <summary>Who the local player is in a session. Read it from <see cref="LaunchContext.Role"/>. Since 3.0.0.</summary>
     public enum SessionRole
     {
         /// <summary>A singleplayer launch; no lobby.</summary>
@@ -17,7 +17,7 @@ namespace SideHustle
     /// One player in the current session (see <see cref="API.Players"/>, <see cref="API.PlayerJoined"/>,
     /// <see cref="API.PlayerLeft"/>). The same object stays in <see cref="API.Players"/> for as long as the player
     /// is in the session; <see cref="DisplayName"/> and <see cref="IsHost"/> are refreshed about twice a second.
-    /// Since 2.5.0.
+    /// Since 3.0.0.
     /// </summary>
     public sealed class SessionPlayer
     {
@@ -49,7 +49,7 @@ namespace SideHustle
     }
 
     /// <summary>
-    /// A gamemode message received over Side Hustle's P2P channel (see <see cref="API.OnMessage"/>). Since 2.5.0.
+    /// A gamemode message received over Side Hustle's P2P channel (see <see cref="API.OnMessage"/>). Since 3.0.0.
     /// </summary>
     public sealed class SessionMessage
     {

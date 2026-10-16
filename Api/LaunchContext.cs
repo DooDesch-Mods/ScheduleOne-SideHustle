@@ -22,7 +22,7 @@ namespace SideHustle
         public bool IsSingleplayer => IsHost == null;
 
         /// <summary>Who the local player is in this session; the same information as <see cref="IsHost"/> as an
-        /// enum. Since 2.5.0.</summary>
+        /// enum. Since 3.0.0.</summary>
         public SessionRole Role => IsHost == null ? SessionRole.Singleplayer : IsHost.Value ? SessionRole.Host : SessionRole.Client;
 
         // Lifecycle bookkeeping for SessionEvents: SessionStarted and OnExitToHub each run at most once per context.

@@ -42,7 +42,7 @@ namespace SideHustleShim
 
         /// <summary>
         /// The running Side Hustle's API version (<c>SideHustle.API.ApiVersion</c>), read by reflection so it is the
-        /// runtime value. 0 when Side Hustle is absent or older than 2.5.0 (which has no ApiVersion).
+        /// runtime value. 0 when Side Hustle is absent or older than 3.0.0 (which has no ApiVersion).
         /// </summary>
         internal static int ApiVersion
         {
