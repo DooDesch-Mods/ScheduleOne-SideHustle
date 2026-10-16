@@ -3,6 +3,38 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [3.0.0] - 2026-10-16
+
+### Added
+- A new hub beside the vanilla menu: last gamemode, public co-op, every gamemode with its actions, one lobby
+  board, hosting inline, Settings and a catalogue of released gamemodes.
+- Every launch shows a live status with Cancel. A failed start names the reason instead of "Session ended".
+- Lobby board: search, filters, sort and auto refresh. The last results show at once when you open it.
+- Mod syncs can be cancelled and show progress per mod, with one restart overlay instead of two.
+- Profiles get a Switch button on every row.
+
+### Changed
+- One click starts a gamemode you last played solo, and after a session the hub opens on it for a rematch.
+  Right-click a row for its lobbies.
+- Host again opens your last lobby without the form and keeps your mod mode, also for a vanilla co-op save.
+  Host with defaults skips the form too.
+- The host form remembers players, visibility, lobby name, Discord invite and mod mode per gamemode.
+- Needs Sideload 1.33.1 or newer. A mod manager pulls it in.
+- Joining skips the consent screen and the install checklist when there is nothing to decide. A gamemode you
+  do not have opens its lobbies with Download.
+
+### Fixed
+- Gamemodes the mod gate holds back show their own icon when the mod ships one.
+
+### For mod authors
+- Session events: `SessionStarted`, `SessionEnded`, `PlayerJoined`, `PlayerLeft`, plus `CurrentSession` and
+  `Players` with roles.
+- `SendToAll`, `SendTo` and `OnMessage` carry your own messages between players, up to `MaxMessageBytes`.
+- `ShowNotice` puts a short line on screen.
+- `Register` checks your descriptor and logs what is wrong. `ApiVersion` and `Has(feature)` tell you what
+  this Side Hustle offers.
+- `Examples/` holds a working gamemode and the `SideHustleLink` shim for a soft dependency.
+
 ## [2.4.2] - 2026-08-13
 
 ### Fixed
