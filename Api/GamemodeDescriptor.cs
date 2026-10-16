@@ -38,6 +38,10 @@ namespace SideHustle
         /// only when <see cref="Icon"/> and <see cref="IconTex"/> are both null: the hub loads it into
         /// <see cref="IconTex"/> the first time it draws the row, so you need no Unity image code. A name that does
         /// not resolve is logged together with the resource names the assembly does have. Since 2.5.0.
+        ///
+        /// Embed the PNG as <c>&lt;AssemblyName&gt;.hub-icon.png</c> (csproj: <c>&lt;EmbeddedResource Include="icon.png"
+        /// LogicalName="YourMod.hub-icon.png" /&gt;</c>) and the hub finds it without this field, and also while the
+        /// boot gate holds your mod back, when none of your code has run yet.
         /// </summary>
         public string IconResource;
 

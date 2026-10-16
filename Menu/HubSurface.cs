@@ -751,7 +751,7 @@ namespace SideHustle.Menu
                 arr.Item(Json.Object()
                     .Add("id", "waiting:" + c.File)
                     .Add("name", c.Name ?? c.File)
-                    .Add("icon", "")
+                    .Add("icon", HubIconFile(c.IconFile))
                     .Add("sub", string.IsNullOrWhiteSpace(c.Version) ? "Ready" : c.Version)
                     .Add("desc", "Click to start.")
                     .Add("kind", "waiting")
@@ -919,11 +919,36 @@ namespace SideHustle.Menu
             return name;
         }
 
-        // An embedded PNG is already what the page wants; no round trip through a texture.
+        // The icon of a gamemode the boot gate held back: a PNG the gate copied out of the unloaded DLL.
+        private static string HubIconFile(string path)
+        {
+            if (string.IsNullOrEmpty(path) || _hub == null) return "";
+            string name = "icon/file/" + System.IO.Path.GetFileNameWithoutExtension(path);
+            if (_hubIcons.Contains(name)) return name;
+            if (_hubIconsFailed.Contains(name)) return "";
+            byte[] png = null;
+            try { png = System.IO.File.ReadAllBytes(path); }
+            catch (Exception e) { Core.Log?.Warning($"[hub3] icon file '{path}' could not be read: {e.Message}"); }
+            if (png == null || png.Length == 0)
+            {
+                _hubIconsFailed.Add(name);
+                return "";
+            }
+            _hub.Image(name, png);
+            _hubIcons.Add(name);
+            Core.Log?.Msg($"[hub3] published '{name}' ({png.Length} bytes).");
+            return name;
+        }
+
+        // An embedded PNG is already what the page wants; no round trip through a texture. Without IconResource the
+        // conventional "<AssemblyName>.hub-icon.png" is tried, the same name the boot gate reads from unloaded mods.
         private static byte[] IconResourceBytes(GamemodeDescriptor desc)
         {
-            if (string.IsNullOrWhiteSpace(desc.IconResource) || desc.OwnerAssembly == null) return null;
-            using (var s = desc.OwnerAssembly.GetManifestResourceStream(desc.IconResource.Trim()))
+            if (desc.OwnerAssembly == null) return null;
+            string resource = string.IsNullOrWhiteSpace(desc.IconResource)
+                ? desc.OwnerAssembly.GetName().Name + ".hub-icon.png"
+                : desc.IconResource.Trim();
+            using (var s = desc.OwnerAssembly.GetManifestResourceStream(resource))
             {
                 if (s == null) return null;
                 using (var ms = new System.IO.MemoryStream())
