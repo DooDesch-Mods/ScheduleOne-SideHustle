@@ -39,6 +39,9 @@ namespace SideHustle.Menu
         private const int WarmupFrames = 20;
 
         private static bool _injectedThisScene;
+
+        /// <summary>The entries are in place (or injection gave up) for this menu load.</summary>
+        internal static bool Injected => _injectedThisScene;
         private static bool _loggedStructure;
         private static int _retries;
 
@@ -133,6 +136,42 @@ namespace SideHustle.Menu
                 Core.Log?.Warning("[menu] inject error: " + ex.Message);
                 _injectedThisScene = true; // don't spam every frame on a hard failure
             }
+        }
+
+        /// <summary>
+        /// The "Side Hustle" and "Mod profiles" entries lead to the hub, which stands beside the vanilla menu while
+        /// it is open. They are hidden then and come back when Esc closed the hub. The social links in the lower right
+        /// corner go with them, since the page covers that corner.
+        /// </summary>
+        private const string SocialsName = "Socials";
+
+        internal static void ShowHubEntries(bool on)
+        {
+            var home = Hub.Home;
+            if (home == null) { Core.Log?.Msg("[menu] no home screen yet; the hub entries keep their state."); return; }
+            try
+            {
+                int n = 0;
+                var buttons = home.GetComponentsInChildren<Button>(true);
+                for (int i = 0; i < buttons.Length; i++)
+                {
+                    var b = buttons[i];
+                    if (b == null) continue;
+                    string name = b.gameObject.name;
+                    if (name != MenuButtonName && name != ProfilesButtonName) continue;
+                    if (b.gameObject.activeSelf != on) b.gameObject.SetActive(on);
+                    n++;
+                }
+                Core.Log?.Msg($"[menu] {n} hub entr{(n == 1 ? "y" : "ies")} {(on ? "shown" : "hidden")}.");
+                var socials = home.transform.Find(SocialsName);
+                if (socials == null) Core.Log?.Warning("[menu] no '" + SocialsName + "' under the home screen; the links stay as they are.");
+                else if (socials.gameObject.activeSelf != on)
+                {
+                    socials.gameObject.SetActive(on);
+                    Core.Log?.Msg("[menu] social links " + (on ? "shown." : "hidden under the page."));
+                }
+            }
+            catch (Exception e) { Core.Log?.Warning("[menu] could not " + (on ? "show" : "hide") + " the hub entries: " + e.Message); }
         }
 
         private static MenuScreen FindHomeScreen()

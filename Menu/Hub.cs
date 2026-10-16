@@ -52,7 +52,10 @@ namespace SideHustle.Menu
         private static float _rcRemaining;
         private static Action _rcOnRestart;
         private static Action _rcBack;           // the screen Cancel on the committed-restart notice returns to
-        private static bool RestartCountdownActive => _rcScrim != null;
+        private static bool RestartCountdownActive => _rcScrim != null || _rcInHub;
+
+        // The countdown runs as a station on the hub page instead of a dialog.
+        private static bool _rcInHub;
 
         // Rows are taller than the vanilla 70px save slots so each entry gets room to breathe; the name and subtitle
         // are centred as a group. The panel is sized to the row count so it is always nicely filled, at native scale.
@@ -81,12 +84,15 @@ namespace SideHustle.Menu
 
         internal static void RememberHome(MenuScreen home) => _home = home;
 
+        internal static MenuScreen Home => _home;
+
         internal static void Teardown()
         {
             try { if (_clone != null) UnityEngine.Object.Destroy(_clone); }
             catch (Exception e) { Core.Log?.Warning("[hub] could not destroy the hub screen on teardown: " + e.Message); }
             try { DooDesch.UI.Toast.Clear(); }
             catch (Exception e) { Core.Log?.Warning("[hub] could not clear the toasts on teardown (scene objects already gone): " + e.Message); }
+            HubReset();
             _clone = null;
             _cloneScreen = null;
             _formHost = null;
@@ -106,6 +112,12 @@ namespace SideHustle.Menu
             if (CommittedRestart.Pending)
             {
                 if (Input.GetMouseButtonDown(1)) CommittedRestart.Cancel();   // the notice's own Cancel, on the mouse
+                return;
+            }
+            if (_hubShown)
+            {
+                // The page steps back on its own; a dialog on top of it still closes first.
+                if (Input.GetMouseButtonDown(1) && !CloseTopDialogIfAny()) HubTakeRightClick();
                 return;
             }
             if (_cloneScreen == null || !_cloneScreen.IsOpen) return;
@@ -366,6 +378,7 @@ namespace SideHustle.Menu
             _mpDesc = null;
             // Leaving for the list abandons any join being checked, so a comparison finishing afterwards must not act.
             InvalidateJoinChecks();
+            if (RouteToHub("play", null, false)) return;
 
             // Somebody may have started hosting since the last scan - refresh in the background (renders from the
             // cache now, and only re-renders if the discovered set really changed).
@@ -527,7 +540,10 @@ namespace SideHustle.Menu
                 GamemodeId = "debug.testmode",
                 GamemodeName = "Test Gamemode (debug)",
                 DownloadUrl = "https://thunderstore.io/c/schedule-i/",
-                Members = 3
+                HostName = "DebugHost",
+                LobbyName = "DebugHost's lobby",
+                Members = 3,
+                MaxPlayers = 6
             });
             return seeded;
         }
@@ -539,6 +555,7 @@ namespace SideHustle.Menu
         {
             _mpDesc = null;
             _back = ShowGamemodeList;
+            if (RouteToHub("lobbies", g.GamemodeId, false)) return;
             bool canDownload = DownloadLink.IsAllowed(g.Url);
             // No trusted link from the host is not a dead end: look the gamemode's name up on Nexus (its own page when
             // the name identifies exactly one mod, a search otherwise). The lookup runs in the background - a first
@@ -601,6 +618,7 @@ namespace SideHustle.Menu
         {
             _mpDesc = desc;
             _back = ShowGamemodeList;
+            if (RouteToHub("play", desc.Id, false)) return;
             var rows = new List<Row>();
             if (desc.AllowsSingleplayer)
                 rows.Add(new Row { Name = "Singleplayer", Subtitle = "Play on your own.", OnClick = () => LaunchSelected(desc) });
@@ -678,6 +696,7 @@ namespace SideHustle.Menu
             if (_clone == null) return;
             _mpDesc = desc;
             _back = () => ShowModeChoice(desc);
+            if (RouteToHub("play", desc.Id, true)) return;
             ClearFormHost();
             SetTmp(_clone.transform, "Title", "Host " + (desc.DisplayName ?? desc.Id));
 
@@ -720,6 +739,7 @@ namespace SideHustle.Menu
             if (_clone == null) return;
             _mpDesc = desc;
             _back = () => ShowModeChoice(desc);
+            if (RouteToHub("lobbies", desc.Id, false)) return;
             ClearFormHost();
             SetTmp(_clone.transform, "Title", "Join " + (desc.DisplayName ?? desc.Id));
 
@@ -752,6 +772,7 @@ namespace SideHustle.Menu
             // (checklist -> Back -> consent), and taking the page down would throw away a half-typed reply.
             ChatPanel.MarkStale();
             SyncManualInstallView.Deactivate();
+            _hubView = false;   // a classic view is being built; RouteToHub sets it again for a view the page draws
 
             if (_formHost != null) { Safe.Try("destroying the old form", () => UnityEngine.Object.Destroy(_formHost)); _formHost = null; }
 
@@ -982,10 +1003,44 @@ namespace SideHustle.Menu
             // No tint, no hover and no pointer target on a row that does nothing.
             bool inert = onClick == null;
             b.transition = inert ? Selectable.Transition.None : _nativeTransitions[id];
+            if (!inert) SoftenRowTint(b, id);
             if (b.targetGraphic != null) b.targetGraphic.raycastTarget = !inert;
             Action cb = onClick;
             b.onClick.AddListener((UnityAction)(() => { try { cb?.Invoke(); } catch (Exception e) { Core.Log?.Warning("[hub] row click failed: " + e.Message); } }));
             b.interactable = cb != null;
+        }
+
+        private static readonly Dictionary<int, Color> _nativeNormalTints = new Dictionary<int, Color>();
+
+        // The save-slot prefab tints a hovered or selected row pure white, which suits its own dark labels. The rows
+        // carry light labels, so hover and selection lift the row's own colour a little instead.
+        private static void SoftenRowTint(Button b, int id)
+        {
+            try
+            {
+                if (b.transition != Selectable.Transition.ColorTint) return;
+                var cb = b.colors;
+                if (!_nativeNormalTints.TryGetValue(id, out Color normal)) _nativeNormalTints[id] = normal = cb.normalColor;
+                Color lift, press;
+                if (normal.a < 0.05f)
+                {
+                    // The tint graphic is an overlay that is invisible at rest: a faint white sheet marks the row.
+                    lift = new Color(1f, 1f, 1f, 0.10f);
+                    press = new Color(1f, 1f, 1f, 0.06f);
+                }
+                else
+                {
+                    lift = Color.Lerp(normal, Color.white, 0.18f);
+                    lift.a = normal.a;
+                    press = Color.Lerp(normal, Color.white, 0.10f);
+                    press.a = normal.a;
+                }
+                cb.highlightedColor = lift;
+                cb.selectedColor = lift;
+                cb.pressedColor = press;
+                b.colors = cb;
+            }
+            catch (Exception e) { Core.Log?.Warning("[hub] row hover tint stays vanilla white: " + e.Message); }
         }
 
         // --- selection / launch ---
@@ -1120,6 +1175,14 @@ namespace SideHustle.Menu
             };
             _rcBack = () => ShowHostConfig(desc);
 
+            if (HubCountdownAsStation())
+            {
+                _rcInHub = true;
+                _rcRemaining = 10f;
+                Core.Log?.Msg("[hub] restart countdown runs on the hub page.");
+                return;
+            }
+
             var canvas = _clone != null ? _clone.GetComponentInParent<Canvas>() : null;
             Transform root = canvas != null ? canvas.transform : (_clone != null ? _clone.transform : null);
             if (root == null) { var a = _rcOnRestart; _rcOnRestart = null; a(); return; }   // no UI to host the prompt -> just restart
@@ -1137,6 +1200,7 @@ namespace SideHustle.Menu
         {
             if (_rcScrim != null) { Safe.Try("closing the restart prompt", () => UnityEngine.Object.Destroy(_rcScrim)); _rcScrim = null; }
             _rcLabel = null;
+            _rcInHub = false;
         }
 
         /// <summary>
@@ -1186,7 +1250,7 @@ namespace SideHustle.Menu
                 return;
             }
             if (_rcFire != null) return;   // "Restarting..." is showing; the countdown is over
-            if (_rcScrim == null) return;
+            if (_rcScrim == null && !_rcInHub) return;
             _rcRemaining -= Time.unscaledDeltaTime;
             int secs = Mathf.Max(0, Mathf.CeilToInt(_rcRemaining));
             if (_rcLabel != null) Safe.Try("updating the restart countdown", () => _rcLabel.text = secs > 0 ? $"Restarting in {secs}s..." : "Restarting...");
@@ -1282,7 +1346,9 @@ namespace SideHustle.Menu
             string text = string.IsNullOrEmpty(why) ? "The lobby could not start." : why;
             Core.Log?.Warning("[hub] session start refused: " + text);
             RejoinNotice.Hide();
+            bool onPage = HubFlowRefused(text);   // before the reopen, which would drop a flow that never launched
             ReopenAfterSession();
+            if (onPage) return;
             try { DooDesch.UI.Toast.Init(DialogRootStatic()); DooDesch.UI.Toast.Show(text, DooDesch.UI.Severity.Warning); }
             catch (Exception e) { Core.Log?.Warning("[hub] could not show the refusal toast: " + e.Message); }
         }

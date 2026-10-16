@@ -276,9 +276,14 @@ namespace SideHustle.Menu
                 .ToString();
         }
 
+        // A build without a release tag carries 0.0.0 (the csproj default); the panel names it a dev build instead.
         private static string Version()
         {
-            try { return typeof(Core).Assembly.GetName().Version?.ToString(3) ?? ""; }
+            try
+            {
+                string v = typeof(Core).Assembly.GetName().Version?.ToString(3) ?? "";
+                return v == "" || v == "0.0.0" ? "dev build" : v;
+            }
             catch (Exception e) { Safe.Report("reading the mod version", e); return ""; }
         }
 

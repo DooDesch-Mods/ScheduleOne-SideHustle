@@ -36,6 +36,7 @@ namespace SideHustle.Menu
         {
             if (_clone == null || g == null) return;
             _back = ShowGamemodeList;
+            if (RouteToHub("lobbies", g.GamemodeId, false)) return;
             ClearFormHost();
             SetTmp(_clone.transform, "Title", "Join " + g.Name);
             var host = CreateFormHost("SH_GhostBrowser");
@@ -135,6 +136,7 @@ namespace SideHustle.Menu
                 new Row { Name = headline, Subtitle = $"Asking Steam - try {attempt + 1} of {JoinManifestAttempts}.", Disabled = true },
                 new Row { Name = "Cancel", Subtitle = "Back to the lobby list.", OnClick = () => { InvalidateJoinChecks(); cancel(); } }
             });
+            HubFlowWait("Mods compared", attempt > 0 ? $"Try {attempt + 1} of {JoinManifestAttempts}" : "Reading the host's list");
         }
 
         // Steam delivers the big chunked values late on a lobby-LIST snapshot, so re-request and retry before giving up.
@@ -361,6 +363,7 @@ namespace SideHustle.Menu
             {
                 new Row { Name = "Checking your mods...", Subtitle = "Comparing your set with the host's.", Disabled = true }
             });
+            HubFlowWait("Mods compared", "Comparing");
             System.Threading.Tasks.Task.Run(() =>
             {
                 SyncDiff diff = null;

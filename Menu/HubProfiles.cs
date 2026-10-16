@@ -17,14 +17,43 @@ namespace SideHustle.Menu
     /// </summary>
     internal static partial class Hub
     {
+        /// <summary>True while the profiles list was opened from the hub page's Profiles tab: its Back returns to
+        /// the page instead of closing the screen into the vanilla menu.</summary>
+        private static bool _profilesFromHub;
+
         /// <summary>Open the profiles screen (called by the injected "Mod Profiles" main-menu button).</summary>
         internal static void OpenProfilesScreen()
+        {
+            _profilesFromHub = false;
+            OpenProfilesCore();
+        }
+
+        /// <summary>Open the profiles screen from the hub page's Profiles tab.</summary>
+        internal static void OpenProfilesFromHub()
+        {
+            _profilesFromHub = true;
+            OpenProfilesCore();
+        }
+
+        private static void OpenProfilesCore()
         {
             EnsureInit();
             EnsureClone();
             if (_cloneScreen == null) { Core.Log?.Warning("[hub] profiles screen unavailable."); return; }
             ShowProfilesList();
             if (!_cloneScreen.IsOpen) _cloneScreen.Open();
+        }
+
+        private static void ProfilesBack()
+        {
+            if (_profilesFromHub)
+            {
+                _profilesFromHub = false;
+                Core.Log?.Msg("[hub] profiles: back to the hub page.");
+                ShowGamemodeList();
+                return;
+            }
+            _cloneScreen?.Close();
         }
 
 #if DEBUG
@@ -34,7 +63,7 @@ namespace SideHustle.Menu
         /// <summary>Dev.SelfTest only: open the FIRST profile's detail view for a screenshot.</summary>
         internal static void OpenFirstProfileDetailForTest()
         {
-            OpenProfilesScreen();
+            OpenProfilesCore();
             var doc = ProfileEngine.LoadStore(out _);
             if (doc.Profiles.Count > 0) ShowProfileDetail(doc.Profiles[0].Id);
         }
@@ -51,7 +80,7 @@ namespace SideHustle.Menu
         /// <summary>Dev.SelfTest only: open the Thunderstore package browser (for a screenshot).</summary>
         internal static void OpenBrowserForTest()
         {
-            OpenProfilesScreen();
+            OpenProfilesCore();
             string id = FirstOrDemoProfileId();
             if (id != null) ShowPackageBrowser(id);
         }
@@ -59,7 +88,7 @@ namespace SideHustle.Menu
         /// <summary>Dev.SelfTest only: open the update-check results (for a screenshot).</summary>
         internal static void OpenUpdatesForTest()
         {
-            OpenProfilesScreen();
+            OpenProfilesCore();
             string id = FirstOrDemoProfileId();
             if (id != null) RunUpdateCheck(id);
         }
@@ -67,7 +96,7 @@ namespace SideHustle.Menu
         /// <summary>Dev.SelfTest only: open the "add an installed mod" picker (for a screenshot).</summary>
         internal static void OpenAddBaseForTest()
         {
-            OpenProfilesScreen();
+            OpenProfilesCore();
             string id = FirstOrDemoProfileId();
             if (id != null) ShowAddBaseMod(id);
         }
@@ -76,7 +105,7 @@ namespace SideHustle.Menu
         /// latest version of a package into the first profile - the end-to-end the MCP loop cannot click.</summary>
         internal static void InstallForTest(string fullName)
         {
-            OpenProfilesScreen();
+            OpenProfilesCore();
             var doc = ProfileEngine.LoadStore(out _);
             if (doc.Profiles.Count == 0) { Core.Log?.Error("[selftest] install: no profile."); return; }
             string id = doc.Profiles[0].Id;
@@ -95,7 +124,7 @@ namespace SideHustle.Menu
         /// <summary>Dev.SelfTest only: open the dependency-aware remove dialog for a thunderstore ref (screenshot).</summary>
         internal static void OpenRemoveDialogForTest(string fullName)
         {
-            OpenProfilesScreen();
+            OpenProfilesCore();
             var doc = ProfileEngine.LoadStore(out _);
             if (doc.Profiles.Count == 0) { Core.Log?.Error("[selftest] removedlg: no profile."); return; }
             var p = doc.Profiles[0];
@@ -130,7 +159,7 @@ namespace SideHustle.Menu
         /// orphan-cleanup ChoiceDialog can be screenshotted.</summary>
         internal static void RemoveAllForTest(string fullName)
         {
-            OpenProfilesScreen();
+            OpenProfilesCore();
             var doc = ProfileEngine.LoadStore(out _);
             if (doc.Profiles.Count == 0) { Core.Log?.Error("[selftest] removeall: no profile."); return; }
             var p = doc.Profiles[0];
@@ -146,7 +175,7 @@ namespace SideHustle.Menu
         /// the REAL one-time notice dialog - a click-free screenshot path that needs no relaunch.</summary>
         internal static void ShowRuntimeNoticeForTest()
         {
-            OpenProfilesScreen();
+            OpenProfilesCore();
             string id = FirstOrDemoProfileId();
             if (id == null) { Core.Log?.Error("[selftest] runtimedialog: no profile."); return; }
             ProfileEngine.InjectRuntimeExclusionsForTest(id, new List<string> { "FakeMod_Mono.dll", "OtherMod_Mono.dll" });
@@ -179,7 +208,9 @@ namespace SideHustle.Menu
         {
             if (_clone == null) return;
             _mpDesc = null;
-            _back = null;   // right-click at the profiles root closes back to the main menu (TickInput default)
+            // Right-click at the profiles root returns to the hub page when it came from there; otherwise TickInput's
+            // default closes back to the main menu.
+            _back = _profilesFromHub ? ProfilesBack : (Action)null;
 
             ClearFormHost();
             SetTmp(_clone.transform, "Title", "Mod profiles");
@@ -189,7 +220,7 @@ namespace SideHustle.Menu
                 onOpen: ShowProfileDetail,
                 onSwitchFullSet: () => ConfirmSwitch("", "your full mod set"),
                 onNew: PromptNewProfile,
-                onBack: () => _cloneScreen?.Close(),
+                onBack: ProfilesBack,
                 lastSync: recent != null ? (string.IsNullOrWhiteSpace(recent.Host) ? "a lobby" : recent.Host, recent.ModCount) : ((string, int)?)null,
                 onCreateFromLastSync: CreateFromLastSync,
                 onSwitch: ConfirmSwitch);

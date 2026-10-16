@@ -142,12 +142,16 @@ namespace SideHustle.Boot
 
                 // The gamemodes among them, with what a menu row needs. Written here because the parse already
                 // happened: reading every DLL twice, once in each assembly, would be the same work for the same
-                // answer. "path|name|version|author", one per line.
+                // answer. "path|name|version|author|closure|icon", one per line.
                 var rows = new List<string>();
+                string iconDir = Path.Combine(dir, "gamemode-icons");
+                int icons = 0;
                 foreach (string file in _deferred)
                 {
                     var facts = Facts(file);
                     if (!facts.LooksLikeGamemode) continue;
+                    string icon = WriteHubIcon(iconDir, file, facts, log);
+                    if (icon.Length > 0) icons++;
                     rows.Add(string.Join("|", file,
                         facts.MelonName ?? Path.GetFileNameWithoutExtension(file),
                         facts.MelonVersion ?? "", facts.MelonAuthor ?? "",
@@ -155,12 +159,40 @@ namespace SideHustle.Boot
                         // first version loaded everything ahead of the pick, twenty mods deep, and the game sat
                         // frozen through all of it before one of them stalled the chain entirely. A gamemode needs
                         // its own dependencies and nothing else.
-                        string.Join(";", ClosureOf(file))));
+                        string.Join(";", ClosureOf(file)),
+                        icon));
                 }
                 File.WriteAllLines(Path.Combine(dir, "deferred-gamemodes.txt"), rows);
-                if (rows.Count > 0) log.Msg($"[gate] {rows.Count} of them look like gamemodes; the menu can list them unloaded.");
+                if (rows.Count > 0) log.Msg($"[gate] {rows.Count} of them look like gamemodes, {icons} with a hub icon; the menu can list them unloaded.");
             }
             catch (Exception e) { log.Warning("[gate] could not write the deferred list: " + e.Message); }
+        }
+
+        /// <summary>
+        /// The held-back gamemode's hub icon, copied out of its DLL so the menu can draw it without loading the mod.
+        /// Returns the written path, or "" when the mod embeds none. The name is the convention documented on
+        /// GamemodeDescriptor.IconResource: <c>&lt;AssemblyName&gt;.hub-icon.png</c>.
+        /// </summary>
+        private static string WriteHubIcon(string iconDir, string file, ModFacts facts, MelonLogger.Instance log)
+        {
+            if (facts.HubIcon == null || facts.HubIcon.Length == 0)
+            {
+                log.Msg($"[gate] {Path.GetFileName(file)} embeds no {facts.AssemblyName}.hub-icon.png; the hub shows its initials.");
+                return "";
+            }
+            try
+            {
+                Directory.CreateDirectory(iconDir);
+                string path = Path.Combine(iconDir, (facts.AssemblyName ?? Path.GetFileNameWithoutExtension(file)) + ".png");
+                File.WriteAllBytes(path, facts.HubIcon);
+                log.Msg($"[gate] hub icon of {Path.GetFileName(file)} written ({facts.HubIcon.Length} bytes).");
+                return path;
+            }
+            catch (Exception e)
+            {
+                log.Warning($"[gate] could not write the hub icon of {Path.GetFileName(file)}: {e.Message}");
+                return "";
+            }
         }
 
         /// <summary>
@@ -311,6 +343,8 @@ namespace SideHustle.Boot
             internal string MelonAuthor;
             internal readonly List<string> References = new List<string>();
             internal readonly List<string> DeclaredDependencies = new List<string>();
+            /// <summary>The embedded <c>&lt;AssemblyName&gt;.hub-icon.png</c>, read only for gamemodes.</summary>
+            internal byte[] HubIcon;
 
             /// <summary>Built against Side Hustle, so it is almost certainly a gamemode - that reference exists to
             /// call API.Register and nothing else does. Enough to put a row in the menu without loading it.</summary>
@@ -357,6 +391,14 @@ namespace SideHustle.Boot
                             if (argument.Value is Mono.Cecil.CustomAttributeArgument[] names)
                                 foreach (var one in names)
                                     if (one.Value is string s && s.Length > 0) facts.DeclaredDependencies.Add(s);
+                }
+
+                if (facts.LooksLikeGamemode && facts.AssemblyName != null)
+                {
+                    string iconName = facts.AssemblyName + ".hub-icon.png";
+                    foreach (var resource in def.MainModule.Resources)
+                        if (resource is Mono.Cecil.EmbeddedResource embedded && resource.Name == iconName)
+                        { facts.HubIcon = embedded.GetResourceData(); break; }
                 }
             }
             catch (Exception e)

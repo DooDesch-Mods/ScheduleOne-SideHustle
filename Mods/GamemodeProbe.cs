@@ -20,9 +20,9 @@ namespace SideHustle.Mods
     /// The boot plugin already read every file to sort them, so it writes this list out rather than having the mod
     /// parse all of them a second time for the same answer.
     ///
-    /// What a row cannot show before loading is the descriptor - description, icon, singleplayer or multiplayer.
-    /// Those live in code that has not run. The row carries the mod's own name, version and author, and loading it
-    /// on click replaces the row with the real thing.
+    /// What a row cannot show before loading is the descriptor - description, singleplayer or multiplayer. Those
+    /// live in code that has not run. The row carries the mod's own name, version and author, plus the icon when
+    /// the mod embeds one under the conventional name, and loading it on click replaces the row with the real thing.
     /// </remarks>
     internal static class GamemodeProbe
     {
@@ -35,6 +35,8 @@ namespace SideHustle.Mods
             /// <summary>What this one needs, itself last, in load order. Computed by the boot plugin, which is the
             /// only place that read every file's references anyway.</summary>
             internal string[] Closure = Array.Empty<string>();
+            /// <summary>The hub icon the boot plugin copied out of the DLL, or "" when it embeds none.</summary>
+            internal string IconFile = "";
         }
 
         private static List<Candidate> _found;
@@ -83,6 +85,7 @@ namespace SideHustle.Mods
                     if (parts.Length > 4 && parts[4].Length > 0)
                         candidate.Closure = parts[4].Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
                     if (candidate.Closure.Length == 0) candidate.Closure = new[] { candidate.File };
+                    if (parts.Length > 5) candidate.IconFile = parts[5];
                     list.Add(candidate);
                 }
             }

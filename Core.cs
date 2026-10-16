@@ -21,6 +21,7 @@ namespace SideHustle
         public static MelonLogger.Instance Log { get; private set; }
 
         private bool _inMenu;
+        private bool _hubAutoOpened;    // the main menu opened in the hub once for this menu load
         private int _reopenHubFrames;   // >0 = reopen the hub list this many frames after a session returns to Menu
         private int _runtimeNoticeFrames;         // >0 = show the wrong-runtime notice this many frames after Menu
         private string _runtimeNoticeProfileId;   // the named profile the notice belongs to
@@ -62,6 +63,7 @@ namespace SideHustle
 
             // The live-publish button (pause-menu lobby panel) patch - inert until a co-op host is eligible.
             Sync.LivePublish.Install();
+            Menu.HubLobbyWidget.Install();
 
             // The host's in-game lobby controls, as a phone app. Registering is load-order proof and a no-op when
             // Sideload is absent, so it goes here unconditionally rather than behind a check.
@@ -306,6 +308,7 @@ namespace SideHustle
             if (sceneName == "Menu")
             {
                 _inMenu = false;
+                _hubAutoOpened = false;
                 Sync.SyncCoordinator.OnLeftMenu();   // a world is loading; the next menu is the one AFTER a session
                 _reopenHubFrames = 0;
                 // Clear the deferred-reopen payloads too: they are only consumed while the frame counter counts down,
@@ -372,12 +375,21 @@ namespace SideHustle
             if (_inMenu)
             {
                 MenuInjector.TickRetry();
+                // The main menu opens in the hub, once per menu load and only when nothing else is about to own the
+                // screen: the reopen paths below open the hub themselves (or a rejoin, a continue, a notice).
+                if (!_hubAutoOpened && MenuInjector.Injected)
+                {
+                    _hubAutoOpened = true;
+                    if (_reopenHubFrames > 0 || _runtimeNoticeFrames > 0) Log.Msg("[hub3] menu load: a reopen path owns the screen.");
+                    else Hub.OpenOnMenuLoad();
+                }
 
                 // One column at a time, and ONE owner. The state column answers a question about the main menu, so
                 // it only belongs up while the main menu is what is on screen; the chat column belongs to a hub
                 // screen and goes with it. Decided here rather than in either panel because the exits that matter
                 // never touch a button - Esc is native, and right-click goes through Hub.TickInput.
-                if (Hub.ScreenOpen) Menu.StatePanel.Suspend();
+                Hub.HubTick(UnityEngine.Time.unscaledDeltaTime);   // the full-screen hub page: shown or hidden, state, launch stations
+                if (Hub.ScreenOpen || Hub.HubShown) Menu.StatePanel.Suspend();
                 else { Menu.ChatPanel.Hide(); Menu.StatePanel.Resume(); }
 
                 Menu.StatePanel.Tick(UnityEngine.Time.unscaledDeltaTime);   // the right-hand state column

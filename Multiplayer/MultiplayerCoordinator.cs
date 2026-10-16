@@ -52,6 +52,30 @@ namespace SideHustle.Multiplayer
         /// <summary>Why the last Start call returned false, in words a player can read. Empty after a successful start.</summary>
         internal static string LastRefusal { get; private set; } = "";
 
+        /// <summary>The state machine's current step by name, for a screen that follows a launch.</summary>
+        internal static string Phase => _state.ToString();
+
+        /// <summary>Counts every abort, so a watcher can tell "stopped by a failure" from "ended normally".</summary>
+        internal static int Aborts { get; private set; }
+
+        /// <summary>The reason of the last abort.</summary>
+        internal static string LastFailure { get; private set; } = "";
+
+        /// <summary>Joining: Steam admitted us to the lobby we asked for.</summary>
+        internal static bool LobbyEntered => _lobbyEntered;
+
+        /// <summary>The player stopped a launch that is still starting. Same way out as a failure, without the notice
+        /// that would report one.</summary>
+        internal static void Cancel()
+        {
+            if (_state == State.Idle || _state == State.InSession)
+            {
+                Core.Log?.Msg($"[mp] cancel ignored in state {_state}.");
+                return;
+            }
+            AbortToHub("cancelled by the player", notice: false);
+        }
+
         // --- entry points (called by the Hub UI) ---
 
         /// <summary>Whether a new session may start now. Double clicks and a start while a vanilla co-op session is
@@ -408,14 +432,19 @@ namespace SideHustle.Multiplayer
             AbortToHub("the session stopped unexpectedly");
         }
 
-        private static void AbortToHub(string reason)
+        private static void AbortToHub(string reason, bool notice = true)
         {
             _backAtMenuFor = 0f;
             Core.Log?.Warning("[mp] aborting session: " + reason);
             _returnGamemodeId = _desc?.Id ?? _ctx?.Descriptor?.Id;
-            // Tell the player too, not just the log. Shown once they are back in the menu - right here there is
-            // nothing to draw on, and the scene reload below would destroy it anyway.
-            Menu.SessionNotice.Set(reason);
+            if (notice)
+            {
+                Aborts++;
+                LastFailure = reason;
+                // Tell the player too, not just the log. Shown once they are back in the menu - right here there is
+                // nothing to draw on, and the scene reload below would destroy it anyway.
+                Menu.SessionNotice.Set(reason);
+            }
 
             // The gamemode hears about the end of its session whether or not its own callback is what failed.
             NotifyExit(_ctx ?? (_desc != null ? new LaunchContext { Descriptor = _desc } : null));
