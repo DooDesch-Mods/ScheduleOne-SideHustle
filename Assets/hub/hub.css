@@ -139,7 +139,10 @@ body {
 
 /* --- Play: gamemode list --- */
 
-.tilescroll { flex: 1; min-height: 0; overflow-y: auto; }
+/* The scrollbar is drawn inside the scrolling box, over its right edge. The negative margin hands the box a gutter
+   beyond the column, and the padding keeps the rows out of it, so a selected row keeps its whole outline and the rows
+   stay as wide as the cards above. */
+.tilescroll { flex: 1; min-height: 0; overflow-y: auto; margin-right: -12px; padding-right: 12px; }
 .tiles { gap: 8px; padding-bottom: 4px; }
 .tile {
   flex-direction: row; align-items: center; flex: none; padding: 10px 14px; gap: 14px;
@@ -216,7 +219,7 @@ body {
 }
 .chip:hover { background: var(--s3); color: var(--tx); }
 .chip.on { background: var(--neonbg); color: #F6B7F8; }
-.list { flex: 1; min-height: 0; overflow-y: auto; gap: 8px; }
+.list { flex: 1; min-height: 0; overflow-y: auto; gap: 8px; margin-right: -12px; padding-right: 12px; }
 .r {
   flex-direction: row; align-items: center; gap: 16px; height: 64px; flex: none; padding: 0 16px;
   border-radius: 12px; background: var(--s1);
