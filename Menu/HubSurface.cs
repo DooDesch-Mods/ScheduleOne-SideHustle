@@ -14,10 +14,11 @@ using UnityEngine;
 namespace SideHustle.Menu
 {
     /// <summary>
-    /// The hub drawn as one full-screen Sideload page instead of rows in the cloned New Game panel.
+    /// The hub drawn as one Sideload page in the right 60 percent of the screen instead of rows in the cloned New Game
+    /// panel. The vanilla main menu stays live in the left 40 percent beside it.
     ///
     /// The cloned screen stays the engine underneath. It still opens and closes, owns Esc and the way back to the
-    /// main menu, and every flow behind a click (host, join, mod check, consent, restart) is the same code as before.
+    /// plain main menu, and every flow behind a click (host, join, mod check, consent, restart) is the same code as before.
     /// What changes is who draws: while the clone is on a view the page has a version of - the gamemode list, a
     /// gamemode's choice, the host form, a lobby browser - the clone is hidden behind the page. Any other view
     /// (consent, checklists, profiles, settings) shows the clone as it always looked, and its Back lands on the page
@@ -31,9 +32,12 @@ namespace SideHustle.Menu
     {
         internal const string HubSurfaceId = "sidehustle-hub";
 
-        /// <summary>The page is written for a 900px short side, so a 16:9 screen is 1600x900 to it and a 4:3 one
-        /// 1200x900.</summary>
+        /// <summary>The page is written for a 900px short side. It covers the right 60 percent, so a 16:9 screen
+        /// gives it 960x900 and a 4:3 one 720x900.</summary>
         private const float HubDesignShortSide = 900f;
+
+        /// <summary>The share of the screen width left to the vanilla main menu.</summary>
+        private const float HubMenuShare = 0.4f;
 
         private static GameObject _hubRoot;
         private static Canvas _hubCanvas;
@@ -145,7 +149,7 @@ namespace SideHustle.Menu
                 var holder = new GameObject("page");
                 var rect = holder.AddComponent<RectTransform>();
                 rect.SetParent(_hubRoot.transform, false);
-                rect.anchorMin = Vector2.zero;
+                rect.anchorMin = new Vector2(HubMenuShare, 0f);
                 rect.anchorMax = Vector2.one;
                 rect.offsetMin = Vector2.zero;
                 rect.offsetMax = Vector2.zero;
@@ -154,14 +158,12 @@ namespace SideHustle.Menu
                     .OnCall("hub.state", _ => HubStateJson())
                     .OnCall("hub.hostAgain", HubCallHostAgain)
                     .OnCall("hub.play", HubCallPlay)
-                    .OnCall("hub.resume", HubCallResume)
                     .OnCall("hub.load", HubCallLoad)
                     .OnCall("hub.vanillaHost", _ => HubCallVanillaHost())
                     .OnCall("hub.hostForm", HubCallHostForm)
                     .OnCall("hub.host", HubCallHost)
                     .OnCall("hub.join", HubCallJoin)
                     .OnCall("hub.status", HubCallStatus)
-                    .OnCall("hub.mainMenu", _ => HubCallMainMenu())
                     .OnCall("hub.legacy", HubCallLegacy)
                     .OnCall("hub.refresh", _ => { HubQueryNow("the player asked"); return ""; })
                     .OnCall("hub.pref", HubCallPref);
@@ -200,7 +202,6 @@ namespace SideHustle.Menu
             _hubQueryAdv = _hubQueryVan = false;
             _hubQueryGen++;
             _vanillaInfoAge = 999f;
-            _resumeAge = 999f;
             _flow = null;
         }
 
@@ -215,6 +216,7 @@ namespace SideHustle.Menu
             if (_cloneRaycaster != null) _cloneRaycaster.enabled = !on;
             Core.Log?.Msg(on ? "[hub3] page shown." : "[hub3] page hidden.");
             HubScene.OnPageShown(on);
+            MenuInjector.ShowHubEntries(!on);
             if (on)
             {
                 _hubPushed = "";
@@ -395,6 +397,7 @@ namespace SideHustle.Menu
 
             bool want = HubWanted();
             if (want != _hubShown) SetHubShown(want);
+            SyncHomeBesidePage();
             if (!_hubShown) return;
 
             TickHubQueries(dt);
@@ -406,6 +409,36 @@ namespace SideHustle.Menu
             if (now == _hubPushed) return;
             _hubPushed = now;
             Safe.Try("telling the hub page its state moved", () => _hub.Emit("hub.changed", ""));
+        }
+
+        // What the page last asked of the vanilla home screen; null while vanilla decides alone.
+        private static bool? _homeWant;
+
+        /// <summary>
+        /// Keeps the vanilla home screen live beside the page. The clone is the menu screen on top while the page is
+        /// shown, so vanilla has faded the home screen out; it comes back with its own open fade. It goes again when
+        /// the page goes because another screen opened (Continue, Load, Settings), and while a launch holds the page
+        /// with the clone closed, so nothing else starts in the middle of it.
+        /// </summary>
+        private static void SyncHomeBesidePage()
+        {
+            var home = _home;
+            if (home == null) { _homeWant = null; return; }
+            bool vanilla = home.IsOpen;
+            bool want = _hubShown ? ScreenOpen : vanilla;
+            if (_homeWant == null) { if (want == vanilla) return; }
+            else if (_homeWant == want) { if (want == vanilla) _homeWant = null; return; }
+            try
+            {
+                home.Lerp(want);
+                _homeWant = want == vanilla ? (bool?)null : want;
+                Core.Log?.Msg(want ? "[hub3] vanilla menu shown beside the page." : "[hub3] vanilla menu hidden.");
+            }
+            catch (Exception e)
+            {
+                _homeWant = null;
+                Core.Log?.Error("[hub3] could not " + (want ? "show" : "hide") + " the vanilla menu beside the page: " + e.Message);
+            }
         }
 
         private static bool HubWanted()
@@ -609,8 +642,6 @@ namespace SideHustle.Menu
                     .Add("steam", _hubSteam)
                     .Add("live", live)
                     .Add("vanilla", VanillaJson());
-                var resume = ResumeJson();
-                if (resume != null) j.Add("resume", resume); else j.AddNull("resume");
                 var cont = ContinueJson();
                 if (cont != null) j.Add("cont", cont); else j.AddNull("cont");
                 j.Add("modes", ModesJson(installed, liveByMode))
@@ -1210,16 +1241,6 @@ namespace SideHustle.Menu
                     return "";
             }
             Core.Log?.Warning($"[hub3] unknown status action '{action}'.");
-            return "";
-        }
-
-        private static string HubCallMainMenu()
-        {
-            if (RestartCountdownActive || (_flow != null && _flow.Launched && _flow.Error == null))
-                return "Cancel the running session first.";
-            Core.Log?.Msg("[hub3] back to the main menu.");
-            if (_flow != null && (_flow.Error != null || !_flow.Launched)) { InvalidateJoinChecks(); _flow = null; }
-            CloseHubScreen();
             return "";
         }
 

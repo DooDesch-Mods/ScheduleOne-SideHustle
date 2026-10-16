@@ -84,6 +84,8 @@ namespace SideHustle.Menu
 
         internal static void RememberHome(MenuScreen home) => _home = home;
 
+        internal static MenuScreen Home => _home;
+
         internal static void Teardown()
         {
             try { if (_clone != null) UnityEngine.Object.Destroy(_clone); }

@@ -8,12 +8,10 @@
  * one border colour per box, two gradient stops, no url() images, no backdrop blur, Latin-1 glyphs only.
  * Transitions run on colour, opacity and transform only.
  *
- * Mounted with a 900px design short side: 1440x900 on 16:10, 1600x900 on 16:9, 1200x900 on 4:3.
- * A width media query on a surface measures the phone's 733px, never this viewport, so the wide columns scale
- * with vw instead.
- *
- * All content sits in one column on the left 60 percent. The right side stays free for the staged menu scene,
- * where the player stands at the RV door.
+ * The surface covers the right 60 percent of the screen with a 900px design short side: 960x900 on 16:9,
+ * 864x900 on 16:10, 720x900 on 4:3. The vanilla main menu stays live in the left 40 percent, with the player
+ * at the RV door above it. A width media query on a surface measures the phone's 733px, never this viewport,
+ * so the wide columns scale with vw instead.
  */
 
 :root {
@@ -36,11 +34,9 @@
   --bad: #F1707A;
 }
 
-/* The bottom padding keeps the content clear of the menu's own "Esc Back" hint in the lower left corner.
-   The right padding leaves the scene free. */
 body {
   height: 100%;
-  padding: 32px 40vw 84px 40px;
+  padding: 32px 40px 32px 16px;
   gap: 20px;
   font-family: game-ui;
   font-size: 14px;
@@ -114,16 +110,7 @@ body {
 .main { flex: 1; min-height: 0; min-width: 0; gap: 16px; }
 .side { flex: none; }
 
-
-/* --- Play: continue the last vanilla save --- */
-
-.resume { flex-direction: row; align-items: center; gap: 14px; padding: 22px 24px; flex: none; border: 2px solid var(--cash); }
-.resume .t { flex: 1; min-width: 0; gap: 4px; }
-.resume .k { font-size: 13px; font-weight: 700; color: var(--cash); letter-spacing: 1px; }
-.resume .nm { font-size: 34px; font-weight: 800; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
-.resume .d { color: var(--mu); font-size: 15px; }
-
-/* --- Play: vanilla co-op feature and continue strip --- */
+/* --- Play: last gamemode strip and vanilla co-op feature --- */
 
 .slot { gap: 12px; }
 .feature { flex-direction: row; gap: 20px; padding: 18px 22px; flex: none; border: 2px solid var(--lift2); }
@@ -136,7 +123,7 @@ body {
 .feature .nm { font-size: 24px; font-weight: 800; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 .feature .d { color: var(--mu); font-size: 15px; }
 .feature .acts { flex-direction: row; gap: 10px; }
-.feature .fr { width: 20vw; flex: none; gap: 8px; padding: 14px; border-radius: 12px; background: rgba(0, 0, 0, .22); }
+.feature .fr { width: 33vw; flex: none; gap: 8px; padding: 14px; border-radius: 12px; background: rgba(0, 0, 0, .22); }
 .cont { flex-direction: row; align-items: center; gap: 14px; padding: 12px 16px; flex: none; }
 .cont .icon { width: 44px; height: 44px; border-radius: 9px; }
 .cont .icon.mono { font-size: 16px; }
@@ -162,7 +149,7 @@ body {
 .tile .head { flex-direction: row; align-items: center; gap: 12px; flex: 1; min-width: 0; }
 .tile .icon { width: 48px; height: 48px; border-radius: 10px; }
 .tile .icon.mono { font-size: 18px; }
-.tile > .live, .tile > .quiet { width: 11vw; flex: none; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.tile > .live, .tile > .quiet { width: 18vw; flex: none; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 .tile > .sp { flex: none; }
 .tile .t { flex: 1; min-width: 0; gap: 2px; }
 .tile .nm { font-size: 17px; font-weight: 700; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
@@ -203,7 +190,7 @@ body {
 .fnote { color: var(--dim); font-size: 12px; }
 .ferr { color: var(--bad); font-size: 13px; font-weight: 600; }
 .facts { flex-direction: row; align-items: center; gap: 10px; padding-top: 4px; }
-.lob { width: 20vw; flex: none; gap: 8px; }
+.lob { width: 33vw; flex: none; gap: 8px; }
 .lr { flex-direction: row; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; background: var(--lift); }
 .lr .t { flex: 1; min-width: 0; gap: 2px; }
 .lr .nm { font-size: 15px; font-weight: 700; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
@@ -215,7 +202,7 @@ body {
 .board { flex: 1; min-height: 0; padding: 22px 24px; gap: 14px; }
 .ttl { flex-direction: row; align-items: center; gap: 16px; flex: none; }
 .ttl .nm { font-size: 28px; font-weight: 800; }
-.search { width: 16vw; padding: 12px 14px; border-radius: 10px; background: var(--lift); color: var(--tx); font-size: 14px; -s1-ghost-color: var(--dim); }
+.search { width: 27vw; padding: 12px 14px; border-radius: 10px; background: var(--lift); color: var(--tx); font-size: 14px; -s1-ghost-color: var(--dim); }
 .chips { flex-direction: row; flex-wrap: wrap; gap: 8px; flex: none; }
 .chip {
   flex-direction: row; align-items: center; height: 34px; padding: 0 14px; border-radius: 9px;
@@ -236,12 +223,12 @@ body {
 .r.glow { background: rgba(224, 74, 230, .30); }
 .r .icon { width: 40px; height: 40px; border-radius: 9px; }
 .r .icon.mono { font-size: 14px; }
-.r .c1 { width: 13vw; flex: none; gap: 2px; }
+.r .c1 { width: 22vw; flex: none; gap: 2px; }
 .r .c1 .nm { font-size: 16px; font-weight: 700; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 .r .c1 .sub { font-size: 12px; color: var(--mu); white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 .r .c2 { flex: 1; min-width: 0; font-size: 12px; color: var(--mu); }
-.r .c3 { width: 9vw; flex: none; flex-direction: row; align-items: center; gap: 4px; }
-.r .c4 { width: 9vw; flex: none; font-weight: 700; font-size: 13px; }
+.r .c3 { width: 15vw; flex: none; flex-direction: row; align-items: center; gap: 4px; }
+.r .c4 { width: 15vw; flex: none; font-weight: 700; font-size: 13px; }
 .seat { width: 12px; height: 12px; border-radius: 4px; background: var(--neon); flex: none; }
 .seat.e { background: var(--lift2); }
 .seatn { color: var(--neontx); font-weight: 800; font-size: 13px; }

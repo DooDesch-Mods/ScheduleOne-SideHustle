@@ -109,9 +109,9 @@ namespace SideHustle.Menu
             ["neon"] = new Preset { Pos = new Vector3(-4.6f, 2.1f, 3.0f), Euler = new Vector3(8f, 138f, 0f), Fov = 50f, Dim = 0.5f },
             // low behind the cash stacks, the player and the RV beyond them
             ["cash"] = new Preset { Pos = new Vector3(5f, 0.9f, 3.5f), Euler = new Vector3(8f, 225f, 0f), Fov = 50f, Dim = 1f },
-            // from above, the cash spread like a haul on a table; the player and the RV door stand in the right 40 percent,
-            // which the hub page leaves free
-            ["haul"] = new Preset { Pos = new Vector3(3.5f, 5.5f, 5.5f), Euler = new Vector3(42f, 188f, 0f), Fov = 50f, Dim = 1f },
+            // from above the open side: the player and the lit RV door stand upper left, above the vanilla menu buttons,
+            // with the first cash stacks at the left edge; the hub page covers the right 60 percent
+            ["haul"] = new Preset { Pos = new Vector3(-1f, 4f, 8f), Euler = new Vector3(30f, 206f, 0f), Fov = 50f, Dim = 1f },
         };
 
         // The look staged behind the hub page; null leaves the vanilla scene alone.
@@ -221,6 +221,16 @@ namespace SideHustle.Menu
                         break;
                     case "where": Where(P(2)); break;
                     case "size": Sizes(); break;
+                    case "hit": Hit(F(2, 0.5f), F(3, 0.5f), false); break;
+                    case "click": Hit(F(2, 0.5f), F(3, 0.5f), true); break;
+                    case "esc":
+                        // what Esc does on a menu screen with a previous screen: close the one on top
+                        var top = Il2CppScheduleOne.UI.MainMenu.MenuScreen.Current;
+                        if (top == null) { Core.Log?.Warning("[scene] no menu screen is open."); break; }
+                        if (top.PreviousScreen == null) { Core.Log?.Warning($"[scene] '{top.name}' has no previous screen; Esc keeps it open."); break; }
+                        Core.Log?.Msg($"[scene] closing '{top.name}' as Esc does.");
+                        top.Close();
+                        break;
                     default: Core.Log?.Warning($"[scene] unknown subcommand '{sub}'."); break;
                 }
             }
@@ -236,6 +246,26 @@ namespace SideHustle.Menu
             Vector3 v = cam.WorldToViewportPoint(t.position);
             Core.Log?.Msg(string.Format(CultureInfo.InvariantCulture, "[scene] '{0}' at {1} is on screen at x {2:0.00} y {3:0.00} depth {4:0.0}.",
                 path, V(t.position), v.x, v.y, v.z));
+        }
+
+        // shscene hit|click <x> <y> - what a click at that viewport point reaches, topmost first; click also sends it
+        private static void Hit(float x, float y, bool click)
+        {
+            var es = UnityEngine.EventSystems.EventSystem.current;
+            if (es == null) { Core.Log?.Warning("[scene] no event system."); return; }
+            var data = new UnityEngine.EventSystems.PointerEventData(es) { position = new Vector2(x * Screen.width, y * Screen.height) };
+            var hits = new Il2CppSystem.Collections.Generic.List<UnityEngine.EventSystems.RaycastResult>();
+            es.RaycastAll(data, hits);
+            Core.Log?.Msg(string.Format(CultureInfo.InvariantCulture, "[scene] hit at ({0:0.##} {1:0.##}): {2} target(s).", x, y, hits.Count));
+            for (int i = 0; i < hits.Count && i < 4; i++)
+            {
+                var go = hits[i].gameObject;
+                Core.Log?.Msg($"[scene]   {i}: {(go != null ? PathOf(go.transform) : "<none>")}");
+            }
+            if (!click) return;
+            if (hits.Count == 0) { Core.Log?.Warning("[scene] nothing to click there."); return; }
+            var target = UnityEngine.EventSystems.ExecuteEvents.ExecuteHierarchy(hits[0].gameObject, data, UnityEngine.EventSystems.ExecuteEvents.pointerClickHandler);
+            Core.Log?.Msg(target != null ? $"[scene] clicked {PathOf(target.transform)}." : "[scene] no click handler above the hit.");
         }
 
         // The screen, and the size every overlay canvas and the hub page holder report for it.

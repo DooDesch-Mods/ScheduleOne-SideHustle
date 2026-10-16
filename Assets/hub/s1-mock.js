@@ -84,7 +84,7 @@
         return '';
       case 'hub.pref': Object.assign(model.prefs, a); changed(); return '';
       case 'hub.refresh': model.steam = 'loading'; changed(); setTimeout(() => { model.steam = 'ok'; changed(); }, 800); return '';
-      case 'hub.play': case 'hub.vanillaHost': case 'hub.load': case 'hub.mainMenu': case 'hub.legacy':
+      case 'hub.play': case 'hub.vanillaHost': case 'hub.load':  case 'hub.legacy':
         console.log('[mock] ' + name + ' ' + (arg || '')); return '';
       default: console.warn('[mock] no handler for ' + name); return '';
     }

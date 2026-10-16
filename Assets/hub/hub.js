@@ -142,7 +142,8 @@ function go(tab) {
 
 function modeById(id) { return S && S.modes ? S.modes.find(m => m.id === id) : null; }
 
-// The Play tab keeps two slots: the top one holds the continue card or the open host form, the other the tiles.
+// The Play tab keeps two slots: the top one holds the last gamemode and public co-op or the open host form, the
+// other the tiles.
 // Each is rebuilt only when its own data moved, so a lobby count arriving never resets a half-typed lobby name.
 let playTop = null;
 let playTiles = null;
@@ -161,18 +162,16 @@ function renderPlay(main) {
     delete drawn.playTop; delete drawn.tiles; delete drawn.formLobbies;
   }
 
-  if (changed('playTop', ui.form ? ['form', ui.form.id] : ['hero', S.resume, S.vanilla, S.cont, lobbiesOf('vanilla'), S.busy])) {
+  if (changed('playTop', ui.form ? ['form', ui.form.id] : ['hero', S.vanilla, S.cont, lobbiesOf('vanilla'), S.busy])) {
     playTop.replaceChildren();
     formLobbies = null;
     if (ui.form) { playTop.appendChild(buildForm(ui.form)); delete drawn.formLobbies; }
     else {
-      // The player's own save comes first: the hub must never stand between a player and normal play.
-      if (S.resume) playTop.appendChild(buildResume(S.resume));
-      // Public vanilla co-op leads the page: it is what most players install Side Hustle for. The continue card follows
-      // as a strip, unless the last session was vanilla co-op, in which case the feature card already offers it.
+      // The player's own save is the vanilla Continue beside the page. The last gamemode comes first here, then public
+      // vanilla co-op; when the last session was vanilla co-op, the co-op card offers it instead of a strip.
       const cont = S.cont && S.cont.id !== 'vanilla' ? S.cont : null;
-      if (S.vanilla) playTop.appendChild(buildFeature(S.vanilla, S.cont && S.cont.id === 'vanilla' ? S.cont : null));
       if (cont) playTop.appendChild(buildContinue(cont));
+      if (S.vanilla) playTop.appendChild(buildFeature(S.vanilla, S.cont && S.cont.id === 'vanilla' ? S.cont : null));
     }
   }
   if (ui.form && changed('formLobbies', [lobbiesOf(ui.form.id), S.busy])) fillFormLobbies();
@@ -182,19 +181,6 @@ function renderPlay(main) {
     for (const m of S.modes || []) playTiles.appendChild(buildTile(m));
     if (!S.modes || S.modes.length === 0) playTiles.appendChild(el('div', 'quiet', 'No gamemodes installed.'));
   }
-}
-
-// Continue the last vanilla save with one click, the same load as the vanilla Continue.
-function buildResume(r) {
-  const box = el('div', 'glass resume');
-  const off = S.busy ? ' off' : '';
-  const t = el('div', 't');
-  t.appendChild(el('div', 'k', 'CONTINUE'));
-  t.appendChild(el('div', 'nm', r.name));
-  t.appendChild(el('div', 'd', r.detail));
-  box.appendChild(t);
-  box.appendChild(btn('Continue', 'go big' + off, () => act('hub.resume', String(r.slot))));
-  return box;
 }
 
 // The public co-op card: the player's own save opened to anyone on the left, the public lobbies taking players on the right.
@@ -827,7 +813,6 @@ function refresh() {
   render();
 }
 
-document.getElementById('mainmenu').addEventListener('click', () => act('hub.mainMenu'));
 s1.on('hub.changed', refresh);
 s1.on('hub.back', back);
 refresh();
