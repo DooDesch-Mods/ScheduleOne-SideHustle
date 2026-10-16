@@ -23,7 +23,7 @@ namespace ExampleGamemode
 
             if (!SideHustleLink.TryRegister(() => Gamemode.Build(), Log)) return;
 
-            // Feature detection by name, at runtime. "session-events" and "messages" exist since Side Hustle 2.5.0.
+            // Feature detection by name, at runtime. "session-events" and "messages" exist since Side Hustle 3.0.0.
             if (SideHustleLink.Has("session-events") && SideHustleLink.Has("messages"))
                 SideHustleLink.TryCall(() => Gamemode.Subscribe(), "lifecycle events", Log);
             else

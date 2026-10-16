@@ -28,31 +28,31 @@ namespace SideHustle
         /// <summary><see cref="API.KickPlayer"/>.</summary>
         public const string KickPlayer = "kick-player";
 
-        /// <summary>Descriptor checks at <see cref="API.Register"/>, logged per field. Since 2.5.0.</summary>
+        /// <summary>Descriptor checks at <see cref="API.Register"/>, logged per field. Since 3.0.0.</summary>
         public const string Validation = "validation";
 
         /// <summary><see cref="API.Ready"/>, <see cref="API.SessionStarted"/>, <see cref="API.SessionEnded"/> and
-        /// <see cref="API.CurrentSession"/>. Since 2.5.0.</summary>
+        /// <see cref="API.CurrentSession"/>. Since 3.0.0.</summary>
         public const string SessionEvents = "session-events";
 
-        /// <summary><see cref="LaunchContext.Role"/> and <see cref="SessionRole"/>. Since 2.5.0.</summary>
+        /// <summary><see cref="LaunchContext.Role"/> and <see cref="SessionRole"/>. Since 3.0.0.</summary>
         public const string SessionRole = "session-role";
 
         /// <summary><see cref="API.PlayerJoined"/>, <see cref="API.PlayerLeft"/> and <see cref="API.Players"/>.
-        /// Since 2.5.0.</summary>
+        /// Since 3.0.0.</summary>
         public const string Players = "players";
 
-        /// <summary><see cref="API.ShowNotice"/>. Since 2.5.0.</summary>
+        /// <summary><see cref="API.ShowNotice"/>. Since 3.0.0.</summary>
         public const string Notices = "notices";
 
         /// <summary><see cref="API.SendToAll(string, string, byte[])"/>, <see cref="API.SendTo(ulong, string, string, byte[])"/>
-        /// and <see cref="API.OnMessage"/>. Since 2.5.0.</summary>
+        /// and <see cref="API.OnMessage"/>. Since 3.0.0.</summary>
         public const string Messages = "messages";
 
-        /// <summary><see cref="GamemodeDescriptor.IconResource"/>. Since 2.5.0.</summary>
+        /// <summary><see cref="GamemodeDescriptor.IconResource"/>. Since 3.0.0.</summary>
         public const string IconResource = "icon-resource";
 
-        /// <summary>The <see cref="SideHustle.WorldHygiene"/> presets. Since 2.5.0.</summary>
+        /// <summary>The <see cref="SideHustle.WorldHygiene"/> presets. Since 3.0.0.</summary>
         public const string WorldHygienePresets = "world-hygiene-presets";
 
         private static readonly HashSet<string> Known = new HashSet<string>(StringComparer.OrdinalIgnoreCase)

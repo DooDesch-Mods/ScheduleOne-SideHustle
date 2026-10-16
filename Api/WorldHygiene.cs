@@ -3,7 +3,7 @@ namespace SideHustle
     /// <summary>
     /// Ready-made sets of the world hygiene flags on <see cref="GamemodeDescriptor"/>, so a World gamemode does not
     /// have to know which five booleans belong together. Each method sets the flags on the descriptor you pass and
-    /// returns it, and only ever switches flags ON: anything you set yourself stays set. Since 2.5.0.
+    /// returns it, and only ever switches flags ON: anything you set yourself stays set. Since 3.0.0.
     /// </summary>
     public static class WorldHygiene
     {
