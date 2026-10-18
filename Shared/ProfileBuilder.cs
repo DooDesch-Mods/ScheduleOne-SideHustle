@@ -74,7 +74,7 @@ namespace SideHustle.Shared
                         if (PathsEqual(dst, i.SourcePath)) continue;   // a "local" file that lives here already
                         if (File.Exists(dst))
                         {
-                            if (SameSize(dst, i.SourcePath)) continue; // already linked to the same bytes
+                            if (SameBytes(dst, i.SourcePath)) continue; // already holds the same bytes (a locked leftover of a rebuild)
                             File.SetAttributes(dst, FileAttributes.Normal);
                             File.Delete(dst);
                         }
@@ -109,6 +109,14 @@ namespace SideHustle.Shared
                 SharedLog.WarnOnce("sha:" + path, $"could not hash '{path}': {e.Message}");
                 return null;
             }
+        }
+
+        /// <summary>Same size and same SHA256. A size match alone keeps a stale build that happens to be as long.</summary>
+        private static bool SameBytes(string a, string b)
+        {
+            if (!SameSize(a, b)) return false;
+            string ha = Sha256OfFile(a), hb = Sha256OfFile(b);
+            return ha != null && ha == hb;
         }
 
         private static bool SameSize(string a, string b)

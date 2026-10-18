@@ -164,15 +164,28 @@ namespace SideHustle.Sync
                 // start between the two, and publishing over its lobby rewrites metadata the round is using.
                 if (!CanPublish) { Core.Log?.Warning("[sync] this lobby is not one that can be published."); return; }
 
+                // The plan needs the index NOW: the fetch below finishes after this click, and a plan built without
+                // an index lists every mod as a manual link. The copy on disk from an earlier session is good enough.
+                _index ??= Profiles.ThunderstoreClient.GetCachedIndexOrNull(Profiles.ProfileEngine.GameRoot);
                 if (!_indexRequested)
                 {
                     _indexRequested = true;
                     System.Threading.Tasks.Task.Run(async () =>
                     {
-                        try { _index = await Profiles.ThunderstoreClient.GetIndexAsync(Profiles.ProfileEngine.GameRoot, false, System.Threading.CancellationToken.None); }
-                        catch (Exception e) { Core.Log?.Warning("[sync] Thunderstore index unavailable for the live-publish plan; sources stay unresolved: " + e.Message); }
+                        try
+                        {
+                            _index = await Profiles.ThunderstoreClient.GetIndexAsync(Profiles.ProfileEngine.GameRoot, false, System.Threading.CancellationToken.None);
+                            if (_index == null) _indexRequested = false;   // try again on the next publish
+                        }
+                        catch (Exception e)
+                        {
+                            _indexRequested = false;
+                            Core.Log?.Warning("[sync] Thunderstore index unavailable for the live-publish plan; sources stay unresolved: " + e.Message);
+                        }
                     });
                 }
+                if (_index == null)
+                    Core.Log?.Warning("[sync] no Thunderstore index yet; this publish lists the mods without store sources. Unpublish and publish again once it has loaded.");
 
                 var plan = SyncPublisher.BuildPlan(_index);
                 int cap = LobbyCaps.MaxClients();

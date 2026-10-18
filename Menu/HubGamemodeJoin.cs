@@ -145,7 +145,7 @@ namespace SideHustle.Menu
             if (JoinStale(gen)) return;
             if (VanillaLobby.TryReadPayloads(row.LobbyId, out var manifest, out _, out var mhash) && manifest.Mods.Count > 0)
             {
-                BeginGhostCompare(g, row, manifest, mhash);
+                BeginGhostCompare(g, row, manifest, mhash, gen);
                 return;
             }
             if (attempt >= JoinManifestAttempts)
@@ -236,7 +236,7 @@ namespace SideHustle.Menu
             ShowRows(g.Name, rows);
         }
 
-        private static void BeginGhostCompare(Ghost g, LobbyRow row, SyncManifest manifest, string mhash)
+        private static void BeginGhostCompare(Ghost g, LobbyRow row, SyncManifest manifest, string mhash, int gen)
         {
             ShowRows(g.Name, new List<Row>
             {
@@ -249,7 +249,9 @@ namespace SideHustle.Menu
                 catch (Exception e) { Core.Log?.Warning("[mp] gamemode join: compare failed: " + e.Message); }
                 MainThread.Post(() =>
                 {
-                    if (_cloneScreen == null || !_cloneScreen.IsOpen) return;
+                    // The compare runs in the background; a player who went back or opened another lobby meanwhile
+                    // owns the screen now, and this result must not draw over it.
+                    if (JoinStale(gen)) { Core.Log?.Msg("[mp] gamemode join: the player moved on; dropping the finished compare."); return; }
                     if (diff == null) { ShowGhostNoManifest(g, row); return; }
                     ShowGhostConsent(g, row, manifest, diff, mhash);
                 });
@@ -463,6 +465,8 @@ namespace SideHustle.Menu
                     try { ownFile = Il2CppSteamworks.SteamMatchmaking.GetLobbyData(new Il2CppSteamworks.CSteamID(row.LobbyId), LobbyCoordinator.KeyGamemodeFile); }
                     catch (Exception e) { Core.Log?.Warning("[mp] could not read the lobby's gamemode file: " + e.Message); }
                     bool Resolved(DiffEntry e) => e.Status == DiffStatus.Present || e.Status == DiffStatus.Cached;
+                    if (string.IsNullOrEmpty(ownFile))
+                        Core.Log?.Warning("[mp] gamemode join: the lobby does not name its gamemode file; any installed mod counts as the gamemode for this check.");
                     bool ok = string.IsNullOrEmpty(ownFile)
                         ? diff.Entries.Any(Resolved)
                         : diff.Entries.Any(e => Resolved(e) && string.Equals(e.Mod.File, ownFile, StringComparison.OrdinalIgnoreCase));

@@ -30,11 +30,92 @@ namespace SideHustle.Mods
         /// <summary>The real game root (parent of the game's data folder); always the real install, never the alt base.</summary>
         internal static string GameRoot() => ModInventory.GameRoot();
 
-        /// <summary>The real install's Mods folder (the hardlink source), independent of the current base directory.</summary>
+        /// <summary>The home install's Mods folder (the hardlink source), independent of the current base directory.</summary>
         internal static string RealModsDir()
         {
-            var r = GameRoot();
+            var r = HomeBase();
             return r == null ? null : Path.Combine(r, "Mods");
+        }
+
+        /// <summary>File inside a profile that names the base directory the profile was built from.</summary>
+        internal const string HomeFileName = "sidehustle-home.txt";
+
+        private static string _homeBase;
+
+        /// <summary>
+        /// The base directory the player's own mod set lives in: the game folder on a plain launch, or the mod
+        /// manager's profile folder when r2modman or Gale started the game with --melonloader.basedir. Profiles are
+        /// built from this folder and a restore relaunches into it. Inside one of Side Hustle's own profiles it is
+        /// read from <see cref="HomeFileName"/>, which the profile build writes.
+        /// </summary>
+        internal static string HomeBase()
+        {
+            if (_homeBase != null) return _homeBase;
+            string cur = CurrentBase();
+            string root = GameRoot();
+            if (string.IsNullOrEmpty(cur)) return root;
+            if (!IsUnder(cur, BasesRoot())) { _homeBase = cur; return cur; }
+            try
+            {
+                string file = Path.Combine(cur, HomeFileName);
+                if (File.Exists(file))
+                {
+                    string recorded = File.ReadAllText(file).Trim();
+                    if (recorded.Length > 0 && Directory.Exists(recorded) && !IsUnder(recorded, BasesRoot()))
+                    {
+                        _homeBase = recorded;
+                        Core.Log?.Msg($"[modpolicy] this profile was built from '{recorded}'; a restore returns there.");
+                        return recorded;
+                    }
+                    Core.Log?.Warning($"[modpolicy] {HomeFileName} names '{recorded}', which is not a usable folder; using the game folder.");
+                }
+                else Core.Log?.Msg($"[modpolicy] this profile has no {HomeFileName} (built by an older version); using the game folder.");
+            }
+            catch (Exception e) { Core.Log?.Warning($"[modpolicy] could not read {HomeFileName}; using the game folder: " + e.Message); }
+            _homeBase = root;
+            return root;
+        }
+
+        /// <summary>True when the player's own mod set lives somewhere other than the game folder (a mod manager
+        /// profile), so a relaunch has to name it with --melonloader.basedir.</summary>
+        internal static bool HomeIsForeign()
+        {
+            string home = HomeBase(), root = GameRoot();
+            return !string.IsNullOrEmpty(home) && !string.IsNullOrEmpty(root) && !PathsEqual(home, root);
+        }
+
+        /// <summary>Record the home base inside a freshly built profile, so the session started from it knows where
+        /// to return. False when the file could not be written.</summary>
+        internal static bool WriteHomeFile(string altPath)
+        {
+            try
+            {
+                File.WriteAllText(Path.Combine(altPath, HomeFileName), HomeBase() ?? "");
+                return true;
+            }
+            catch (Exception e)
+            {
+                Core.Log?.Error($"[modpolicy] could not write {HomeFileName} into '{altPath}': " + e.Message);
+                return false;
+            }
+        }
+
+        /// <summary>The home base's copy of a runtime folder (MelonLoader, Plugins, UserLibs, UserData), or the
+        /// game folder's when the home has none.</summary>
+        private static string HomeDir(string name)
+        {
+            string home = HomeBase();
+            if (home != null)
+            {
+                string d = Path.Combine(home, name);
+                if (Directory.Exists(d)) return d;
+            }
+            string root = GameRoot();
+            if (root == null) return null;
+            string fallback = Path.Combine(root, name);
+            if (home != null && !PathsEqual(home, root) && Directory.Exists(fallback))
+                WarnOnce("homedir:" + name, $"'{home}' has no {name} folder; using the game folder's.");
+            return fallback;
         }
 
         /// <summary>The directory that holds everything profile-related, inside the game folder so the player can
@@ -106,15 +187,17 @@ namespace SideHustle.Mods
             }
         }
 
-        /// <summary>True when the running process was launched into an alt base (a policy session is live).</summary>
+        /// <summary>True when the running process was launched into one of Side Hustle's own profiles (under
+        /// SideHustle_Profiles). A mod manager's --melonloader.basedir points elsewhere and is the player's normal
+        /// mod set, not a profile session.</summary>
         internal static bool IsAltSession()
         {
             try
             {
                 string cur = CurrentBase();
-                string real = GameRoot();
-                if (string.IsNullOrEmpty(cur) || string.IsNullOrEmpty(real)) return false;
-                return !PathsEqual(cur, real);
+                string bases = BasesRoot();
+                if (string.IsNullOrEmpty(cur) || string.IsNullOrEmpty(bases)) return false;
+                return IsUnder(cur, bases);
             }
             catch (Exception e)
             {
@@ -133,8 +216,7 @@ namespace SideHustle.Mods
         {
             try
             {
-                string root = GameRoot();
-                if (altPath == null || root == null) return false;
+                if (altPath == null || HomeBase() == null) return false;
 
                 Teardown(altPath);                       // clean slate (a stale tree is never in use in a normal session)
                 Directory.CreateDirectory(altPath);
@@ -142,8 +224,8 @@ namespace SideHustle.Mods
 
                 foreach (var d in JunctionDirs)
                 {
-                    string target = Path.Combine(root, d);
-                    if (!Directory.Exists(target)) continue;   // Plugins/UserLibs may be absent on a minimal install
+                    string target = HomeDir(d);
+                    if (target == null || !Directory.Exists(target)) continue;   // Plugins/UserLibs may be absent on a minimal install
                     string link = Path.Combine(altPath, d);
                     // MelonLoader gets the per-session split (own Logs + Latest.log); Plugins/UserLibs junction whole.
                     bool ok = d.Equals("MelonLoader", StringComparison.OrdinalIgnoreCase)
@@ -177,11 +259,22 @@ namespace SideHustle.Mods
                 foreach (var file in keepFiles.Distinct(StringComparer.OrdinalIgnoreCase))
                 {
                     string src = ResolveSource(realMods, file);
-                    if (src == null) { Core.Log?.Warning($"[modpolicy] keep '{file}' has no source on disk; skipping."); continue; }
+                    if (src == null)
+                    {
+                        // A profile without Side Hustle or its libraries boots into a menu that cannot return.
+                        if (Profiles.Essentials.IsEssentialFile(file))
+                        {
+                            Core.Log?.Error($"[modpolicy] '{file}' is required in every profile and was not found in '{realMods}'; aborting the profile build.");
+                            Teardown(altPath);
+                            return false;
+                        }
+                        Core.Log?.Warning($"[modpolicy] keep '{file}' has no source on disk; skipping.");
+                        continue;
+                    }
                     string dst = Path.Combine(altPath, "Mods", file);   // always the enabled .dll name (enables a .disabled source)
                     // Already present from a reused profile whose stale hardlink was locked (un-deletable): if it
                     // already matches the source, count it as done rather than failing to re-link/overwrite it.
-                    if (File.Exists(dst) && SameSize(dst, src)) { linked++; continue; }
+                    if (File.Exists(dst) && SameSize(dst, src) && ContentEquals(dst, src)) { linked++; continue; }
                     if (MakeHardLink(dst, src)) { linked++; continue; }
                     // Fallback to a copy (cross-volume, non-NTFS, or a locked source).
                     try { File.Copy(src, dst, true); linked++; }
@@ -204,17 +297,12 @@ namespace SideHustle.Mods
         /// from inside another profile may want a DLL that exists only there (e.g. installed from the package cache).</summary>
         private static string ResolveSource(string realMods, string file)
         {
-            string enabled = Path.Combine(realMods, file);
-            if (File.Exists(enabled)) return enabled;
-            string disabled = enabled + ".disabled";
-            if (File.Exists(disabled)) return disabled;
+            // A package a mod manager installed sits in its own subfolder of Mods (ModInventory.PackageFolders).
+            string found = ModInventory.FindModFile(realMods, file);
+            if (found != null) return found;
             string curMods = ModInventory.ModsPath();
             if (curMods != null && !PathsEqual(curMods, realMods))
-            {
-                string cur = Path.Combine(curMods, file);
-                if (File.Exists(cur)) return cur;
-                if (File.Exists(cur + ".disabled")) return cur + ".disabled";
-            }
+                return ModInventory.FindModFile(curMods, file);
             return null;
         }
 
@@ -230,14 +318,13 @@ namespace SideHustle.Mods
         {
             try
             {
-                string root = GameRoot();
-                if (altPath == null || root == null) return false;
+                if (altPath == null || HomeBase() == null) return false;
 
                 Teardown(altPath);                       // clean slate (a named profile is never in use in a normal session)
                 Directory.CreateDirectory(altPath);
 
-                string mlTarget = Path.Combine(root, "MelonLoader");
-                if (Directory.Exists(mlTarget) && !BuildMelonLoaderBase(altPath, mlTarget))
+                string mlTarget = HomeDir("MelonLoader");
+                if (mlTarget != null && Directory.Exists(mlTarget) && !BuildMelonLoaderBase(altPath, mlTarget))
                 {
                     Core.Log?.Error("[profiles] could not build the profile MelonLoader base; aborting isolated build.");
                     Teardown(altPath);
@@ -252,8 +339,8 @@ namespace SideHustle.Mods
                 foreach (var m in modInputs ?? (IReadOnlyList<Shared.BuildInput>)Array.Empty<Shared.BuildInput>())
                     if (m?.FileName != null) profileMods.Add(m.FileName);
 
-                ok &= BuildSeededFolder(Path.Combine(altPath, "Plugins"), Path.Combine(root, "Plugins"), pluginInputs, profileMods);
-                ok &= BuildSeededFolder(Path.Combine(altPath, "UserLibs"), Path.Combine(root, "UserLibs"), userLibInputs, profileMods);
+                ok &= BuildSeededFolder(Path.Combine(altPath, "Plugins"), HomeDir("Plugins"), pluginInputs, profileMods);
+                ok &= BuildSeededFolder(Path.Combine(altPath, "UserLibs"), HomeDir("UserLibs"), userLibInputs, profileMods);
                 if (ok) Core.Log?.Msg($"[profiles] isolated base ready at '{altPath}'.");
                 return ok;
             }
@@ -279,8 +366,19 @@ namespace SideHustle.Mods
                 {
                     string name = Path.GetFileName(sub);
                     if (name.Equals("Logs", StringComparison.OrdinalIgnoreCase)) continue;   // per-profile, kept real
-                    if (IsReparsePoint(sub)) continue;                                        // never chain a junction
-                    if (!MakeJunction(Path.Combine(mlLink, name), sub)) return false;
+                    string source = sub;
+                    if (IsReparsePoint(sub))
+                    {
+                        // Never chain a junction: link the folder it finally points at. Skipping it left the profile
+                        // without the MelonLoader runtime on installs whose runtime folders are links themselves.
+                        source = ResolveFinalTarget(sub);
+                        if (source == null)
+                        {
+                            Core.Log?.Warning($"[profiles] MelonLoader\\{name} is a link whose target cannot be read; the profile goes without it.");
+                            continue;
+                        }
+                    }
+                    if (!MakeJunction(Path.Combine(mlLink, name), source)) return false;
                 }
                 Directory.CreateDirectory(Path.Combine(mlLink, "Logs"));
                 return true;
@@ -307,7 +405,7 @@ namespace SideHustle.Mods
                 if (e?.FileName != null && seen.Add(e.FileName)) inputs.Add(e);
 
             var orphaned = LibrariesOfAbsentPackages(profileModFiles);
-            if (Directory.Exists(globalDir))
+            if (globalDir != null && Directory.Exists(globalDir))
                 foreach (var f in Directory.GetFiles(globalDir, "*.dll"))
                 {
                     string name = Path.GetFileName(f);
@@ -376,9 +474,8 @@ namespace SideHustle.Mods
             const string CfgName = "MelonPreferences.cfg";
             try
             {
-                string root = GameRoot();
-                if (altPath == null || root == null) return false;
-                string realUserData = Path.Combine(root, "UserData");
+                string realUserData = HomeDir("UserData");
+                if (altPath == null || realUserData == null) return false;
                 string clone = Path.Combine(altPath, "UserData");
                 Directory.CreateDirectory(clone);
 
@@ -542,7 +639,8 @@ namespace SideHustle.Mods
                 string realMods = RealModsDir();
                 if (!Directory.Exists(profMods) || realMods == null || !Directory.Exists(realMods)) return false;
 
-                foreach (var f in Directory.GetFiles(profMods, "*.dll"))
+                foreach (var f in Directory.GetFiles(profMods, "*.dll", SearchOption.TopDirectoryOnly)
+                             .Concat(ModInventory.PackageFolders(profMods).SelectMany(d => Directory.GetFiles(d, "*.dll"))))
                 {
                     string name = Path.GetFileName(f);
                     string src = ResolveSource(realMods, name);
@@ -603,6 +701,21 @@ namespace SideHustle.Mods
 
         /// <summary>Whether a folder is a junction or symlink. A folder that cannot be inspected counts as one, so no
         /// caller recurses into something it could not look at.</summary>
+        /// <summary>The real folder at the end of a junction or symlink chain, or null when it cannot be resolved.</summary>
+        private static string ResolveFinalTarget(string path)
+        {
+            try
+            {
+                string t = new DirectoryInfo(path).ResolveLinkTarget(true)?.FullName;
+                return t != null && Directory.Exists(t) ? t : null;
+            }
+            catch (Exception e)
+            {
+                WarnOnce("resolve:" + path, $"could not resolve the link '{path}': {e.Message}");
+                return null;
+            }
+        }
+
         private static bool IsReparsePoint(string path)
         {
             try { return (new DirectoryInfo(path).Attributes & FileAttributes.ReparsePoint) != 0; }
@@ -650,6 +763,24 @@ namespace SideHustle.Mods
             {
                 detail = e.GetType().Name + ": " + e.Message;
                 return -1;
+            }
+        }
+
+        /// <summary>True when <paramref name="path"/> is <paramref name="root"/> or lies inside it.</summary>
+        internal static bool IsUnder(string path, string root)
+        {
+            if (string.IsNullOrEmpty(path) || string.IsNullOrEmpty(root)) return false;
+            try
+            {
+                string p = Path.GetFullPath(path).TrimEnd('\\', '/');
+                string r = Path.GetFullPath(root).TrimEnd('\\', '/');
+                return p.Equals(r, StringComparison.OrdinalIgnoreCase)
+                       || p.StartsWith(r + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Exception e)
+            {
+                WarnOnce("under:" + path, $"could not tell whether '{path}' lies in '{root}' (treated as no): {e.Message}");
+                return false;
             }
         }
 

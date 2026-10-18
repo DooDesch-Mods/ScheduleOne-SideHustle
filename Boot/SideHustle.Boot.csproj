@@ -36,6 +36,7 @@
        read profiles.json and rebuild a stale profile without any game or SideHustle.dll dependency. -->
   <ItemGroup>
     <Compile Include="../Shared/SharedLog.cs" Link="Shared/SharedLog.cs" />
+    <Compile Include="../Shared/ModFolders.cs" Link="Shared/ModFolders.cs" />
     <Compile Include="../Shared/ProfileStore.cs" Link="Shared/ProfileStore.cs" />
     <Compile Include="../Shared/ProfileBuilder.cs" Link="Shared/ProfileBuilder.cs" />
     <Compile Include="../Shared/ProfileResolver.cs" Link="Shared/ProfileResolver.cs" />

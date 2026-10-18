@@ -1036,7 +1036,9 @@ namespace SideHustle.Menu
             // A mod policy shows the classic mod check first; it needs the player's yes and a restart.
             if (desc.Policy != null)
             {
-                var plan = Mods.ModPolicyResolver.Resolve(desc);
+                Mods.ModPlan plan;
+                try { plan = Mods.ModPolicyResolver.Resolve(desc); }
+                catch (Exception e) { Core.Log?.Error($"[hub3] play: mod check of '{desc.Id}' failed: {e}"); return "Something went wrong."; }
                 if (plan.Blocked || plan.HasChanges) { ShowModCheck(desc, plan); return ""; }
             }
             LaunchSelected(desc);
@@ -1128,7 +1130,17 @@ namespace SideHustle.Menu
 
             int cap = Mathf.Max(2, LobbyCaps.MaxClients());
             players = Mathf.Clamp(players, 2, cap);
-            var plan = desc.Policy != null ? Mods.ModPolicyResolver.Resolve(desc) : null;
+            Mods.ModPlan plan;
+            try { plan = desc.Policy != null ? Mods.ModPolicyResolver.Resolve(desc) : null; }
+            catch (Exception e) { Core.Log?.Error($"[hub3] host: mod check of '{desc.Id}' failed: {e}"); return "Something went wrong."; }
+            // Required mods are missing: hosting would start the gamemode without them. The mod check names them,
+            // the same screen Play shows.
+            if (plan != null && plan.Blocked)
+            {
+                Core.Log?.Msg($"[hub3] host '{desc.Id}' refused: {plan.MissingRequired.Count} required mod(s) missing.");
+                ShowModCheck(desc, plan);
+                return "";
+            }
             bool hasPolicy = plan != null && plan.HasChanges && !plan.Blocked;
             int mode = hasPolicy ? (policyMode == 1 ? 1 : 0) : 0;
             string name = HostConfigView.Sanitize(lobbyName ?? "");
@@ -1139,7 +1151,8 @@ namespace SideHustle.Menu
                 Visibility = visibility == 1 ? LobbyVisibility.Private : LobbyVisibility.Public,
                 Password = string.IsNullOrEmpty(password) ? null : password,
                 ConfigBlob = HostConfigView.DefaultConfig(desc, players, out var modeLabel),
-                LobbyName = name.Length > 0 ? name : null,
+                // The form shows the default name in an empty field, so an empty field means that name.
+                LobbyName = name.Length > 0 ? name : HostConfigView.DefaultLobbyName(desc),
                 ModeLabel = modeLabel,
                 DiscordCode = saved != null && DiscordInvite.IsCode(saved.DiscordCode) ? saved.DiscordCode : null,
             };

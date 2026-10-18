@@ -136,7 +136,8 @@ namespace SideHustle.Mods
             return list;
         }
 
-        /// <summary>All mod files in Mods/ as their enabled `.dll` name (whether currently `.dll` or `.dll.disabled`).</summary>
+        /// <summary>All mod files in Mods/ as their enabled `.dll` name (whether currently `.dll` or `.dll.disabled`),
+        /// plus the DLLs in package subfolders MelonLoader scans (see <see cref="PackageFolders"/>).</summary>
         internal static List<string> AvailableFiles()
         {
             var res = new List<string>();
@@ -149,10 +150,19 @@ namespace SideHustle.Mods
                     string n = Path.GetFileName(f);
                     res.Add(n.Substring(0, n.Length - ".disabled".Length));
                 }
+                foreach (var sub in PackageFolders(dir))
+                    foreach (var f in Directory.GetFiles(sub, "*.dll")) res.Add(Path.GetFileName(f));
             }
             catch (Exception e) { WarnOnce("available", "could not list the files in the Mods folder (the list may be incomplete): " + e.Message); }
             return res.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         }
+
+        /// <summary>The package subfolders of a Mods folder that MelonLoader scans (see Shared.ModFolders).</summary>
+        internal static List<string> PackageFolders(string modsDir) => Shared.ModFolders.PackageFolders(modsDir);
+
+        /// <summary>Where a mod file sits in a Mods folder, package subfolders included (see Shared.ModFolders).</summary>
+        internal static string FindModFile(string modsDir, string file, bool allowDisabled = true) =>
+            Shared.ModFolders.Find(modsDir, file, allowDisabled);
 
         /// <summary>Lowercase SHA256 hex of a file's bytes, or null when unreadable. The sync manifest identifies
         /// a mod by this hash - it wins over the declared version (a recompiled DLL with an unchanged version
@@ -177,7 +187,7 @@ namespace SideHustle.Mods
             try
             {
                 var dir = ModsPath(); if (dir == null) return false;
-                return File.Exists(Path.Combine(dir, dllFile + ".disabled")) && !File.Exists(Path.Combine(dir, dllFile));
+                return File.Exists(Path.Combine(dir, dllFile + ".disabled")) && FindModFile(dir, dllFile, allowDisabled: false) == null;
             }
             catch (Exception e)
             {

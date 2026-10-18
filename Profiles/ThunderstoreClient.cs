@@ -24,6 +24,14 @@ namespace SideHustle.Profiles
 
         private static readonly SemaphoreSlim IndexGate = new SemaphoreSlim(1, 1);
         private static TsIndex _session;   // the index is multi-MB JSON; parse it once per session
+        // When the fetch failed and _session is the copy on disk, it is not final: an offline start or a timeout would
+        // otherwise pin an old index for the whole session, and a mod released since then never resolves.
+        private static DateTime _fallbackAt = DateTime.MinValue;
+        private static readonly TimeSpan FallbackRetry = TimeSpan.FromMinutes(2);
+
+        private static bool Current(bool forceRefresh) =>
+            _session != null && !forceRefresh
+            && (_fallbackAt == DateTime.MinValue || DateTime.UtcNow - _fallbackAt < FallbackRetry);
 
         // The download CDN (gcdn.thunderstore.io) INTERMITTENTLY rejects TLS handshakes depending on the exact
         // ClientHello (fingerprint filtering that varies across its edges - observed empirically 2026-07-10:
@@ -234,11 +242,12 @@ namespace SideHustle.Profiles
 
         internal static async Task<TsIndex> GetIndexAsync(string gameRoot, bool forceRefresh, CancellationToken ct)
         {
-            if (_session != null && !forceRefresh) return _session;
+            if (Current(forceRefresh)) return _session;
             await IndexGate.WaitAsync(ct).ConfigureAwait(false);
             try
             {
-                if (_session != null && !forceRefresh) return _session;
+                if (Current(forceRefresh)) return _session;
+                bool fetched = false;
 
                 string cachePath = IndexCachePath(gameRoot);
                 string etagPath = cachePath + ".etag";
@@ -274,6 +283,7 @@ namespace SideHustle.Profiles
                             }
                             catch (Exception e) { Log?.Invoke($"the package index could not be cached on disk: {e.Message}"); }
                             _session = fresh;
+                            _fallbackAt = DateTime.MinValue;
                             return fresh;
                         }
                         Log?.Invoke("the package index answer could not be parsed; using the cached copy.");
@@ -281,6 +291,7 @@ namespace SideHustle.Profiles
                     else if (resp.StatusCode != System.Net.HttpStatusCode.NotModified)
                         Log?.Invoke($"the package index request got HTTP {(int)resp.StatusCode}; using the cached copy.");
                     // 304: the disk cache is current.
+                    if (resp.StatusCode == System.Net.HttpStatusCode.NotModified) fetched = true;
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
                 catch (Exception e) { Log?.Invoke($"the package index could not be fetched ({e.GetType().Name}: {e.Message}); using the cached copy."); }
@@ -290,6 +301,8 @@ namespace SideHustle.Profiles
                     try
                     {
                         _session = TsIndex.Parse(File.ReadAllText(cachePath));
+                        _fallbackAt = fetched ? DateTime.MinValue : DateTime.UtcNow;
+                        if (!fetched) Log?.Invoke("using the cached package index; the next lookup after two minutes asks Thunderstore again.");
                         return _session;
                     }
                     catch (Exception e) { Log?.Invoke($"the cached package index is unreadable: {e.Message}"); return null; }

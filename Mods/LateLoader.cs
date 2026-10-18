@@ -280,6 +280,7 @@ namespace SideHustle.Mods
         private static List<string> ReadList()
         {
             var list = new List<string>();
+            string dir = MelonLoader.Utils.MelonEnvironment.ModsDirectory;
             try
             {
                 string file = Path.Combine(MelonLoader.Utils.MelonEnvironment.UserDataDirectory, "SideHustle", "deferred-mods.txt");
@@ -288,12 +289,33 @@ namespace SideHustle.Mods
                     foreach (string line in File.ReadAllLines(file))
                     {
                         string path = line.Trim();
-                        if (path.Length > 0 && File.Exists(path)) list.Add(path);
+                        if (path.Length == 0) continue;
+                        // A profile shares UserData\SideHustle with the install it was built from, so the list can
+                        // name files of another Mods folder. Those are exactly the mods the profile left out.
+                        if (!AltBase.IsUnder(path, dir))
+                        {
+                            Core.Log?.Msg($"[gate] '{path}' is not in this session's Mods folder; not loading it.");
+                            continue;
+                        }
+                        if (!File.Exists(path))
+                        {
+                            Core.Log?.Warning($"[gate] the held-back mod '{path}' is gone; skipping it.");
+                            continue;
+                        }
+                        list.Add(path);
                     }
                     return list;
                 }
             }
             catch (Exception e) { Core.Log?.Warning("[gate] could not read the deferred list: " + e.Message); }
+
+            // No list and the gate is off: MelonLoader already loaded everything it could. A DLL it did not register
+            // (a library, a broken or wrong-runtime mod) must not be forced in on the next host or join.
+            if (!Config.Preferences.DeferModsUntilLobby)
+            {
+                Core.Log?.Msg("[gate] the gate is off and no deferred list exists; nothing is held back.");
+                return list;
+            }
 
             try
             {
@@ -305,10 +327,11 @@ namespace SideHustle.Mods
                     catch (Exception e) { WarnProbe("a running mod's location", e); }
                     if (!string.IsNullOrEmpty(loc)) loaded.Add(Path.GetFileName(loc));
                 }
-                string dir = MelonLoader.Utils.MelonEnvironment.ModsDirectory;
                 if (Directory.Exists(dir))
-                    foreach (string f in Directory.GetFiles(dir, "*.dll", SearchOption.TopDirectoryOnly))
+                    foreach (string f in Directory.GetFiles(dir, "*.dll", SearchOption.TopDirectoryOnly)
+                                 .Concat(ModInventory.PackageFolders(dir).SelectMany(d => Directory.GetFiles(d, "*.dll"))))
                         if (!loaded.Contains(Path.GetFileName(f))) list.Add(f);
+                Core.Log?.Warning($"[gate] the deferred list is missing although the gate is on; treating {list.Count} unloaded mod(s) as held back.");
             }
             catch (Exception e) { Core.Log?.Warning("[gate] could not scan for unloaded mods: " + e.Message); }
             return list;

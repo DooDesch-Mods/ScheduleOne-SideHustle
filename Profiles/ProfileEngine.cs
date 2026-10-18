@@ -223,11 +223,11 @@ namespace SideHustle.Profiles
 
         /// <summary>Resolve every mod ref of a profile to a concrete file, reporting refs with no source.</summary>
         internal static List<BuildInput> ResolveInputs(ProfileDef p, out List<string> missing) =>
-            ProfileResolver.Resolve(GameRoot, p, out missing);
+            ProfileResolver.Resolve(GameRoot, p, out missing, AltBase.RealModsDir());
 
         /// <summary>As above, additionally reporting inputs dropped as wrong-runtime (Mono) builds.</summary>
         internal static List<BuildInput> ResolveInputs(ProfileDef p, out List<string> missing, out List<ExcludedInput> excluded) =>
-            ProfileResolver.Resolve(GameRoot, p, out missing, out excluded);
+            ProfileResolver.Resolve(GameRoot, p, out missing, out excluded, AltBase.RealModsDir());
 
         /// <summary>The exclusions worth the player's ATTENTION: whole refs that were disabled entirely (a skipped
         /// Mono variant of a dual package is routine and stays out of this list). Null when empty - the store
@@ -530,7 +530,7 @@ namespace SideHustle.Profiles
                 var p = doc.Profiles.FirstOrDefault(x => x.Id.Equals(profileId, StringComparison.OrdinalIgnoreCase));
                 if (p == null) { Core.Log?.Error("[profiles] switch: profile '" + profileId + "' not found."); return false; }
 
-                var modInputs = ProfileResolver.Resolve(GameRoot, p, out var missing, out var excluded);
+                var modInputs = ProfileResolver.Resolve(GameRoot, p, out var missing, out var excluded, AltBase.RealModsDir());
                 ProfileResolver.ResolveExtras(GameRoot, p, out var pluginInputs, out var userLibInputs, excluded);
                 foreach (var m in missing) Core.Log?.Warning($"[profiles] '{p.Name}': no source for '{m}'.");
                 LogExclusions(p.Name, excluded);

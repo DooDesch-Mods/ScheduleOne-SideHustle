@@ -68,10 +68,12 @@ namespace SideHustle.Menu
             if (a == null || a._ui == null) return;
             try
             {
-                a._ready.UnionWith(a._pending);
+                // Rows whose end event was lost count as ready; a row that reported a failure stays failed.
+                foreach (var k in a._pending) if (!a._failed.Contains(k)) a._ready.Add(k);
                 a.Paint();
+                int ready = a._ready.Count;
                 a._ui.ShowSuccess(a._total > 0
-                    ? $"{a._total} of {a._total} mods ready"
+                    ? $"{ready} of {a._total} mods ready"
                     : "Mods ready");
             }
             catch (Exception e) { Fault("finishing the progress view", e); }

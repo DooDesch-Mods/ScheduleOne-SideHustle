@@ -132,13 +132,14 @@ namespace SideHustle.Profiles
         }
 
         /// <summary>The on-disk path of a classified DLL inside a package dir (packages nest them differently).</summary>
+        private static bool InMonoFolder(string path) =>
+            path != null && ("/" + path.Replace('\\', '/').ToLowerInvariant()).Contains("/mono/");
+
         internal static string FindExtractedFile(string packageDir, string fileName)
         {
             try
             {
-                return Directory.GetFiles(packageDir, fileName, SearchOption.AllDirectories)
-                                .OrderBy(p => p.Length)   // prefer the shallowest occurrence
-                                .FirstOrDefault();
+                return FindExtractedFileAll(packageDir, fileName).FirstOrDefault();
             }
             catch (Exception e)
             {
@@ -147,15 +148,17 @@ namespace SideHustle.Profiles
             }
         }
 
-        /// <summary>All occurrences of a DLL name inside a package dir, shallowest first. Dual-branch packages can
-        /// ship the SAME file name under Mods/Mono/ and Mods/IL2CPP/ - the resolver classifies each occurrence and
-        /// picks the one that loads on this game.</summary>
+        /// <summary>All occurrences of a DLL name inside a package dir, copies outside a "Mono" folder first, then
+        /// shallowest first. Dual-branch packages can ship the SAME file name under Mods/Mono/ and Mods/IL2CPP/, and
+        /// "Mono" is the shorter path: ordering by length alone picked the copy this IL2CPP game cannot load, and a
+        /// sync then reported the host's build as different from Thunderstore.</summary>
         internal static List<string> FindExtractedFileAll(string packageDir, string fileName)
         {
             try
             {
                 return Directory.GetFiles(packageDir, fileName, SearchOption.AllDirectories)
-                                .OrderBy(p => p.Length)
+                                .OrderBy(p => InMonoFolder(p) ? 1 : 0)
+                                .ThenBy(p => p.Length)
                                 .ToList();
             }
             catch (Exception e)
