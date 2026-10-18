@@ -96,7 +96,10 @@ namespace SideHustle.Sync
         internal static List<DiffEntry> Poll(IEnumerable<DiffEntry> manualEntries)
         {
             var resolved = new List<DiffEntry>();
-            var pending = manualEntries.Where(e => IsAwaiting(e) && !string.IsNullOrEmpty(e.Mod.Sha256)).ToList();
+            var awaiting = manualEntries.Where(IsAwaiting).ToList();
+            foreach (var e in awaiting.Where(x => string.IsNullOrEmpty(x.Mod.Sha256)))
+                WarnOnce("nohash:" + e.Mod.File, $"'{e.Mod.File}': the host listed it without a hash, so a downloaded copy cannot be verified; install it by hand.");
+            var pending = awaiting.Where(e => !string.IsNullOrEmpty(e.Mod.Sha256)).ToList();
             if (pending.Count == 0) return resolved;
 
             var now = DateTime.UtcNow;
@@ -105,13 +108,14 @@ namespace SideHustle.Sync
 
             foreach (var (dir, kind) in Roots())
             {
-                foreach (var path in SafeFiles(dir, kind))
+                foreach (var path in SafeFiles(dir, kind, pending))
                 {
                     string key = null;
                     try
                     {
                         var fi = new FileInfo(path);
-                        if (!ManualScan.IsCandidate(kind, fi.Name, fi.Length, fi.LastWriteTimeUtc, _watchStartUtc)) continue;
+                        DateTime freshest = fi.CreationTimeUtc > fi.LastWriteTimeUtc ? fi.CreationTimeUtc : fi.LastWriteTimeUtc;
+                        if (!ManualScan.IsCandidate(kind, fi.Name, fi.Length, freshest, _watchStartUtc, NamedLikePending(fi.Name, pending))) continue;
                         key = ManualScan.ScanKey(path, fi.Length, fi.LastWriteTimeUtc);
                         if (_scanned.Contains(key)) continue;
 
@@ -257,29 +261,45 @@ namespace SideHustle.Sync
         // should not have to know that. Only folders that were touched since the watch started are opened (see
         // ManualScan.IsCandidateDir), and at most MaxSubfolders of them, so a crowded Downloads folder costs one
         // directory listing plus a handful of cheap timestamp reads.
-        private static IEnumerable<string> SafeFiles(string dir, ManualScan.RootKind kind)
+        private static IEnumerable<string> SafeFiles(string dir, ManualScan.RootKind kind, List<DiffEntry> pending)
         {
             var files = new List<string>();
             try { files.AddRange(Directory.GetFiles(dir)); }
             catch (Exception e) { WarnOnce("list:" + dir, $"could not list '{dir}': {e.Message}"); }
 
-            string[] subs;
-            try { subs = Directory.GetDirectories(dir); }
-            catch (Exception e) { WarnOnce("subs:" + dir, $"could not list the folders in '{dir}': {e.Message}"); return files; }
+            // Breadth-first down to MaxDepth; the MaxSubfolders budget covers every level together.
             int opened = 0;
-            foreach (var sub in subs)
+            var level = new List<(string Dir, bool Named)> { (dir, false) };
+            for (int depth = 1; depth <= ManualScan.MaxDepth && level.Count > 0; depth++)
             {
-                if (opened >= ManualScan.MaxSubfolders) break;
-                DateTime mtime;
-                try { mtime = Directory.GetLastWriteTimeUtc(sub); }
-                catch (Exception e) { WarnOnce("mtime:" + sub, $"could not read the age of '{sub}' (skipped): {e.Message}"); continue; }
-                if (!ManualScan.IsCandidateDir(kind, mtime, _watchStartUtc)) continue;
-                opened++;
-                try { files.AddRange(Directory.GetFiles(sub)); }
-                catch (Exception e) { WarnOnce("sub:" + sub, $"could not list '{sub}': {e.Message}"); }
+                var next = new List<(string Dir, bool Named)>();
+                foreach (var (parent, parentNamed) in level)
+                {
+                    string[] subs;
+                    try { subs = Directory.GetDirectories(parent); }
+                    catch (Exception e) { WarnOnce("subs:" + parent, $"could not list the folders in '{parent}': {e.Message}"); continue; }
+                    foreach (var sub in subs)
+                    {
+                        if (opened >= ManualScan.MaxSubfolders) return files;
+                        // A folder inside one named like a pending mod ("Owner-Mod-1.0.0\Mods") inherits that name.
+                        bool named = parentNamed || NamedLikePending(Path.GetFileName(sub), pending);
+                        DateTime mtime;
+                        try { mtime = Directory.GetLastWriteTimeUtc(sub); }
+                        catch (Exception e) { WarnOnce("mtime:" + sub, $"could not read the age of '{sub}' (skipped): {e.Message}"); continue; }
+                        if (!ManualScan.IsCandidateDir(kind, mtime, _watchStartUtc, named)) continue;
+                        opened++;
+                        try { files.AddRange(Directory.GetFiles(sub)); }
+                        catch (Exception e) { WarnOnce("sub:" + sub, $"could not list '{sub}': {e.Message}"); }
+                        next.Add((sub, named));
+                    }
+                }
+                level = next;
             }
             return files;
         }
+
+        private static bool NamedLikePending(string name, List<DiffEntry> pending) =>
+            pending.Any(e => ManualScan.NameLooksLike(name, e.Mod.Name, e.Mod.File));
 
         private static string Sha256(byte[] bytes)
         {

@@ -16,6 +16,7 @@ namespace SideHustle.Mods
         public string Version;      // exact MelonInfo version ("" when the mod declares none)
         public string DownloadLink; // MelonInfo download URL ("" when the mod declares none)
         public string File;         // e.g. "Litterally.dll"
+        public string Path;         // full path MelonLoader loaded it from; may sit in a subfolder of Mods
         public Assembly Assembly;   // for dependency lookups
     }
 
@@ -96,9 +97,17 @@ namespace SideHustle.Mods
 
         internal static string FileOf(MelonMod m)
         {
-            try { var l = m.MelonAssembly?.Location; if (!string.IsNullOrEmpty(l)) return Path.GetFileName(l); }
+            string l = LocationOf(m);
+            return l == null ? null : Path.GetFileName(l);
+        }
+
+        /// <summary>The full path the mod was loaded from. MelonLoader also loads a subfolder of Mods that carries a
+        /// manifest.json, which is how a mod manager installs a package, so this is not always Mods/&lt;file&gt;.</summary>
+        internal static string LocationOf(MelonMod m)
+        {
+            try { var l = m.MelonAssembly?.Location; if (!string.IsNullOrEmpty(l)) return l; }
             catch (Exception e) { WarnOnce("file1:" + m.GetType().Name, $"could not read the file of {m.GetType().Name} from MelonLoader (trying the assembly): {e.Message}"); }
-            try { var l = m.GetType().Assembly.Location; if (!string.IsNullOrEmpty(l)) return Path.GetFileName(l); }
+            try { var l = m.GetType().Assembly.Location; if (!string.IsNullOrEmpty(l)) return l; }
             catch (Exception e) { WarnOnce("file2:" + m.GetType().Name, $"could not read the file of {m.GetType().Name} from its assembly (the mod is left out of the list): {e.Message}"); }
             return null;
         }
@@ -110,14 +119,15 @@ namespace SideHustle.Mods
             {
                 try
                 {
-                    string f = FileOf(m);
-                    if (f == null) continue;
+                    string loc = LocationOf(m);
+                    if (loc == null) continue;
                     list.Add(new LoadedMod
                     {
                         Name = NameOf(m),
                         Version = VersionOf(m),
                         DownloadLink = DownloadLinkOf(m),
-                        File = f,
+                        File = Path.GetFileName(loc),
+                        Path = loc,
                         Assembly = m.GetType().Assembly
                     });
                 }

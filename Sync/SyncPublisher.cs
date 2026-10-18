@@ -41,7 +41,7 @@ namespace SideHustle.Sync
                 if (excludeFiles != null && excludeFiles.Contains(m.File)) continue;
                 if (includeFiles != null && !includeFiles.Contains(m.File)) continue;
 
-                string sha = modsPath != null ? ModInventory.Sha256OfFile(Path.Combine(modsPath, m.File)) : null;
+                string sha = HashOf(m, modsPath);
                 string source = ResolveSource(m, index);
                 if (source.StartsWith("ts:", StringComparison.Ordinal)) plan.AutoCount++;
                 else if (GhReleases.CanAutoFetch(source)) plan.GhCount++;
@@ -59,6 +59,33 @@ namespace SideHustle.Sync
             }
             return plan;
         }
+
+        // The file MelonLoader actually loaded wins: a mod manager installs each package into its own subfolder
+        // of Mods (with a manifest.json), where Mods/<file> does not exist. Without a hash a joiner can verify neither a download nor a
+        // file in their Downloads folder.
+        private static string HashOf(LoadedMod m, string modsPath)
+        {
+            if (!string.IsNullOrEmpty(m.Path) && File.Exists(m.Path))
+            {
+                string sha = ModInventory.Sha256OfFile(m.Path);
+                if (sha != null) return sha;
+            }
+            if (modsPath != null)
+            {
+                string flat = Path.Combine(modsPath, m.File);
+                if (File.Exists(flat))
+                {
+                    string sha = ModInventory.Sha256OfFile(flat);
+                    if (sha != null) return sha;
+                }
+            }
+            if (_noHashWarned.Add(m.File))
+                Core.Log?.Warning($"[sync] '{m.File}' is listed without a hash (loaded from '{m.Path ?? "?"}'); joiners match it by version only.");
+            return null;
+        }
+
+        // BuildPlan runs on every host-form refresh; a mod without a hash is reported once per session.
+        private static readonly HashSet<string> _noHashWarned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         private static SyncManifest NewManifestHeader()
         {
