@@ -245,9 +245,11 @@ namespace SideHustle.Phone
                     PruneIdle(DateTime.UtcNow);
                 }
             }
-            catch (Exception e) { Core.Log?.Warning("[chat] read failed: " + e.Message); }
+            // Runs every frame: without Steam this would repeat the same line sixty times a second.
+            catch (Exception e) { WarnOnce(ref _pumpFailLogged, "reading chat packets failed (logged once): " + e.Message); }
         }
 
+        private static bool _pumpFailLogged;
         private static bool _readFailLogged, _floodLogged, _drainFailLogged, _personaLogged, _acceptBackLogged, _nameLogged, _dropLogged;
 
         private static void WarnOnce(ref bool flag, string text)
@@ -334,7 +336,8 @@ namespace SideHustle.Phone
             string me = "";
             try { me = SteamFriends.GetPersonaName() ?? ""; }
             catch (Exception e) { WarnOnce(ref _personaLogged, "could not read our own display name; sending without one: " + e.Message); }
-            byte[] bytes = Encoding.UTF8.GetBytes(Magic + "|" + me + "|" + text);
+            // '|' separates the fields, so one inside a Steam name would move the rest of the name into the text.
+            byte[] bytes = Encoding.UTF8.GetBytes(Magic + "|" + me.Replace('|', '/') + "|" + text);
 
             try
             {

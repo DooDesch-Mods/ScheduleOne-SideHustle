@@ -77,9 +77,14 @@ namespace SideHustle.Sync
             try
             {
                 MelonPreferences.Save();
-                string root = ModInventory.GameRoot();
-                string cfg = root != null ? Path.Combine(root, "UserData", "MelonPreferences.cfg") : null;
-                if (cfg == null || !File.Exists(cfg)) return "";
+                // The cfg Save just wrote: the running base's, which is a mod manager profile or a Side Hustle
+                // profile as often as the game folder.
+                string cfg = Path.Combine(MelonLoader.Utils.MelonEnvironment.UserDataDirectory, "MelonPreferences.cfg");
+                if (!File.Exists(cfg))
+                {
+                    Core.Log?.Warning($"[sync] no settings file at '{cfg}'; the lobby goes without your mod settings.");
+                    return "";
+                }
                 return PrefsSync.ExtractSections(File.ReadAllText(cfg), ids);
             }
             catch (Exception e) { Core.Log?.Warning("[sync] overlay build failed: " + e.Message); return ""; }

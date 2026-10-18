@@ -47,9 +47,16 @@ namespace SideHustle.Boot
 
             // A base-dir session (a named profile, a gamemode-policy base or a lobby-sync base) already loaded exactly
             // the right mods, plugins and libraries at bootstrap - never re-scan or redirect on top of it.
-            if (!PathsEqual(MelonEnvironment.MelonBaseDirectory, gameRoot))
+            string baseDir = MelonEnvironment.MelonBaseDirectory;
+            if (!PathsEqual(baseDir, gameRoot))
             {
-                LoggerInstance.Msg("[boot] base-dir session detected; picker skipped.");
+                // A mod manager (r2modman, Gale) starts the game the same way, with its own profile as the base dir.
+                bool own = Path.GetFullPath(baseDir).StartsWith(
+                    Path.GetFullPath(Path.Combine(gameRoot, "SideHustle_Profiles")).TrimEnd('\\', '/') + Path.DirectorySeparatorChar,
+                    StringComparison.OrdinalIgnoreCase);
+                LoggerInstance.Msg(own
+                    ? "[boot] Side Hustle profile session; its mod set is already in place."
+                    : $"[boot] full mod set of the mod manager profile '{baseDir}'.");
                 return;
             }
 

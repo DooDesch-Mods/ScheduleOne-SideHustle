@@ -72,6 +72,11 @@ namespace SideHustle.Sync
         private static readonly Dictionary<string, Answer> Answers = new Dictionary<string, Answer>(StringComparer.Ordinal);
         private static readonly HashSet<string> InFlight = new HashSet<string>(StringComparer.Ordinal);
         private static int _version;
+        // A Nexus answer stands in for the backend while it is down. It is a page link at best, while the backend can
+        // match the host's file hash to a Thunderstore package and make the mod an automatic download, so the backend
+        // gets asked again once this much time has passed.
+        private static DateTime _backendDownAt = DateTime.MinValue;
+        private static readonly TimeSpan BackendRetry = TimeSpan.FromMinutes(2);
 
         /// <summary>Bumped every time a lookup lands, so a screen that shows resolved links repaints.</summary>
         internal static int ResultsVersion => Volatile.Read(ref _version);
@@ -179,7 +184,9 @@ namespace SideHustle.Sync
                         Log?.Invoke($"\"{q.Name}\" skipped: no searchable name and no file hash");
                         continue;
                     }
-                    if (!seen.Add(k) || Answers.ContainsKey(k) || InFlight.Contains(k)) continue;
+                    if (!seen.Add(k) || InFlight.Contains(k)) continue;
+                    if (Answers.TryGetValue(k, out var have)
+                        && !(have.Via == "nexus" && DateTime.UtcNow - _backendDownAt >= BackendRetry)) continue;
                     InFlight.Add(k);
                     open.Add(q);
                 }
@@ -191,6 +198,7 @@ namespace SideHustle.Sync
                 var unanswered = await AskBackendAsync(open, ct).ConfigureAwait(false);
                 if (unanswered == null)
                 {
+                    _backendDownAt = DateTime.UtcNow;
                     Log?.Invoke($"backend unreachable - asking Nexus directly for {open.Count} mod(s)");
                     await AskNexusAsync(open, ct).ConfigureAwait(false);
                 }

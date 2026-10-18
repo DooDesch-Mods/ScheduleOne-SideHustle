@@ -84,7 +84,7 @@ namespace SideHustle.Boot
             _log = log;
             Enabled = ReadPreference();
             _keepExtra = ReadKeepList();   // read even when off, so the entry exists to be edited
-            if (!Enabled) return;
+            if (!Enabled) { ClearLists(log); return; }
 
             string modsDir = MelonEnvironment.ModsDirectory;
             if (string.IsNullOrEmpty(modsDir) || !Directory.Exists(modsDir))
@@ -128,6 +128,27 @@ namespace SideHustle.Boot
             _deferred.AddRange(InDependencyOrder(waiting));
 
             log.Msg($"[gate] {loaded} mod(s) loaded now, {_deferred.Count} held back until a lobby starts.");
+        }
+
+        /// <summary>
+        /// The gate is off this run, so nothing was held back. Lists from a run with the gate on would otherwise stay
+        /// on disk, and the in-game loader would load those mods on the next host or join although this run already
+        /// loaded the full set (or a profile deliberately left them out).
+        /// </summary>
+        private static void ClearLists(MelonLogger.Instance log)
+        {
+            try
+            {
+                string dir = Path.Combine(MelonEnvironment.UserDataDirectory, "SideHustle");
+                foreach (string name in new[] { "deferred-mods.txt", "deferred-gamemodes.txt" })
+                {
+                    string path = Path.Combine(dir, name);
+                    if (!File.Exists(path)) continue;
+                    File.Delete(path);
+                    log.Msg($"[gate] the gate is off; removed the {name} of an earlier run.");
+                }
+            }
+            catch (Exception e) { log.Warning("[gate] could not remove the deferred lists of an earlier run: " + e.Message); }
         }
 
         /// <summary>The scan is done - write down what happened, for whoever asks why a mod is not running.</summary>

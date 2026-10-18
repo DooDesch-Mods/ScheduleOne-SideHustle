@@ -57,7 +57,21 @@ namespace SideHustle.Profiles
             }
             catch (Exception e)
             {
-                Core.Log?.Warning("[profiles] modmap.json is unreadable; starting with no confirmed mappings: " + e.Message);
+                // The next confirmed mapping saves the map, which would overwrite every mapping in the broken file.
+                string kept = null;
+                try
+                {
+                    string p = MapPath();
+                    kept = p + ".unreadable-" + DateTime.Now.ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture);
+                    File.Move(p, kept);
+                }
+                catch (Exception moveErr)
+                {
+                    Core.Log?.Warning("[profiles] could not set the unreadable modmap.json aside: " + moveErr.Message);
+                    kept = null;
+                }
+                Core.Log?.Warning("[profiles] modmap.json is unreadable; starting with no confirmed mappings"
+                                  + (kept != null ? $" (the old file is kept as '{Path.GetFileName(kept)}')" : "") + ": " + e.Message);
                 _map = null;
             }
             return _map ??= new Dictionary<string, ModMapEntry>(StringComparer.OrdinalIgnoreCase);

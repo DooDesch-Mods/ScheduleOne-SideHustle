@@ -98,6 +98,7 @@ namespace SideHustle.Debugging
             new[] { "shscene", "shscene [dump|find s|cam x y z rx ry rz [fov]|move path x y z [ry]|show|hide path|dim f|light ...|page on|off|reset] - stage the menu scene behind the hub" },
             new[] { "shrow", "shrow [n [alt]|back|dismiss] - list the hub rows, click row n, right-click it, Back, or close an alert" },
             new[] { "shreturn", "end the running gamemode session the way its ReturnToHub does" },
+            new[] { "shrestore", "leave this profile session and relaunch into the home mod set (game folder or mod manager profile)" },
             new[] { "shapi", "shapi [notice|send] - API version, session, players; show a notice or send a test message" },
         };
 
@@ -151,6 +152,7 @@ namespace SideHustle.Debugging
                     case "shtyping": Typing(); break;
                     case "shstart": StartSession(parts); break;
                     case "shreturn": ReturnSession(); break;
+                    case "shrestore": Restore(); break;
                     case "shapi": ApiState(parts); break;
                 }
             }
@@ -197,6 +199,13 @@ namespace SideHustle.Debugging
             if (ctx == null) { Core.Log?.Msg("[dev] shreturn: no session is running."); return; }
             Core.Log?.Msg("[dev] shreturn: ending '" + ctx.Descriptor?.Id + "'.");
             ctx.ReturnToHub();
+        }
+
+        private static void Restore()
+        {
+            if (!Mods.AltBase.IsAltSession()) { Core.Log?.Msg("[dev] shrestore: this is not a profile session."); return; }
+            Core.Log?.Msg($"[dev] shrestore: relaunching into '{Mods.AltBase.HomeBase()}'.");
+            if (!Mods.ModSwitcher.TryRestoreAndRestart()) Core.Log?.Warning("[dev] shrestore: the relaunch did not start.");
         }
 
         private static void ApiState(string[] parts)

@@ -236,7 +236,7 @@ function buildFeature(v, cont) {
     lt.appendChild(el('div', 'nm', l.name || l.host));
     lt.appendChild(el('div', 'sub ' + stateClass(l.state), l.stateText));
     r.appendChild(lt);
-    r.appendChild(el('div', 'cnt', l.members + '/' + l.max));
+    r.appendChild(el('div', 'cnt', seatText(l)));
     r.appendChild(btn('Join', 'sm' + (l.canJoin && !S.busy ? '' : ' off'), () => join(l)));
     right.appendChild(r);
   }
@@ -436,7 +436,11 @@ function toggleRow(label, options, current, onPick) {
   return row;
 }
 
-function lobbiesOf(id) { return (S && S.lobbies ? S.lobbies : []).filter(l => l.mode === id); }
+// Gamemode ids are matched without case everywhere else (C# side), so the list does the same.
+const modeKey = m => String(m || '').toLowerCase();
+// A lobby without a seat limit reports max 0: show the head count alone, never "3/0".
+const seatText = l => l.max > 0 ? l.members + '/' + l.max : String(l.members);
+function lobbiesOf(id) { return (S && S.lobbies ? S.lobbies : []).filter(l => modeKey(l.mode) === modeKey(id)); }
 
 function fillFormLobbies() {
   if (!formLobbies || !ui.form) return;
@@ -450,7 +454,7 @@ function fillFormLobbies() {
     t.appendChild(el('div', 'nm', l.name || l.host));
     t.appendChild(el('div', 'sub ' + stateClass(l.state), l.stateText));
     r.appendChild(t);
-    r.appendChild(el('div', 'cnt', l.members + '/' + l.max));
+    r.appendChild(el('div', 'cnt', seatText(l)));
     r.appendChild(btn('Join', 'sm' + (l.canJoin && !S.busy ? '' : ' off'), () => join(l)));
     formLobbies.appendChild(r);
   }
@@ -472,8 +476,8 @@ function visibleLobbies() {
   const q = ui.search.trim().toLowerCase();
   const vanillaFirst = (a, b) => (b.mode === 'vanilla') - (a.mode === 'vanilla');
   return (S.lobbies || []).slice().sort(vanillaFirst).filter(l => {
-    if (ui.chip !== 'all' && l.mode !== ui.chip) return false;
-    if (S.prefs && S.prefs.hideFull && l.members >= l.max) return false;
+    if (ui.chip !== 'all' && modeKey(l.mode) !== modeKey(ui.chip)) return false;
+    if (S.prefs && S.prefs.hideFull && l.max > 0 && l.members >= l.max) return false;
     if (S.prefs && S.prefs.hideLocked && l.locked) return false;
     if (q && (l.host + ' ' + l.name + ' ' + l.modeName).toLowerCase().indexOf(q) < 0) return false;
     return true;
@@ -492,9 +496,10 @@ function renderLobbies(main) {
 function chipData() {
   const counts = new Map();
   for (const l of S.lobbies || []) {
-    const c = counts.get(l.mode) || { id: l.mode, name: l.modeName, n: 0 };
+    const k = modeKey(l.mode);
+    const c = counts.get(k) || { id: l.mode, name: l.modeName, n: 0 };
     c.n++;
-    counts.set(l.mode, c);
+    counts.set(k, c);
   }
   // Vanilla co-op always comes first, then the busiest gamemode.
   return [...counts.values()].sort((a, b) => (b.id === 'vanilla') - (a.id === 'vanilla') || b.n - a.n || a.name.localeCompare(b.name));

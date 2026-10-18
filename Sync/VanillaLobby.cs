@@ -421,13 +421,15 @@ namespace SideHustle.Sync
         {
             try
             {
+                // Read from Steam BEFORE the await: the continuation runs on a pool thread (ConfigureAwait(false)),
+                // and Steamworks is not called from there.
+                string steamMhash = SteamMatchmaking.GetLobbyData(new CSteamID(lobbyId), KeyMHash);
                 var resp = await LobbyDirectory.FetchManifestAsync(lobbyId.ToString()).ConfigureAwait(false);
                 if (resp == null || string.IsNullOrEmpty(resp.Manifest))
                 {
                     Core.Log?.Msg($"[dir] the backend has no manifest for lobby {lobbyId}.");
                     return null;
                 }
-                string steamMhash = SteamMatchmaking.GetLobbyData(new CSteamID(lobbyId), KeyMHash);
                 string prefs = resp.Prefs ?? "";
                 string computed = SyncCodec.Hash(resp.Manifest, prefs);
                 if (string.IsNullOrEmpty(steamMhash) || !string.Equals(computed, steamMhash, StringComparison.Ordinal))

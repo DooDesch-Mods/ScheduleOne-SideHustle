@@ -5,7 +5,7 @@ using SideHustle.Mods;
 namespace SideHustle.Profiles
 {
     /// <summary>
-    /// Self-installs the embedded boot plugin (the profile picker) to &lt;game&gt;\Plugins\SideHustle.Boot.dll, so a
+    /// Self-installs the embedded boot plugin (the profile picker) to &lt;home&gt;\Plugins\SideHustle.Boot.dll, so a
     /// plain "drop SideHustle.dll into Mods" install gets the picker without a second file to manage. Updates
     /// use a rename-swap: NTFS allows renaming a loaded DLL and writing a fresh file under the original name;
     /// the renamed .old is deleted on a later run once it is no longer loaded. Uninstall story: delete
@@ -19,8 +19,11 @@ namespace SideHustle.Profiles
         {
             try
             {
-                string root = ModInventory.GameRoot();
-                if (root == null) return;
+                // The Plugins folder of the base the player starts from: the game folder, or the mod manager profile
+                // when r2modman or Gale launched with --melonloader.basedir. A copy in <game>\Plugins would never
+                // load in a manager session. Side Hustle's own profiles reach the home Plugins through a junction.
+                string root = AltBase.HomeBase();
+                if (root == null) { Core.Log?.Warning("[profiles] no home folder found; the boot plugin is not installed."); return; }
                 string pluginsDir = Path.Combine(root, "Plugins");
                 string target = Path.Combine(pluginsDir, ResourceName);
                 string old = target + ".old";

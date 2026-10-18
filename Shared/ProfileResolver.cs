@@ -68,16 +68,19 @@ namespace SideHustle.Shared
         private static bool InMonoFolder(string path) =>
             path != null && ("/" + path.Replace('\\', '/').ToLowerInvariant()).Contains("/mono/");
 
-        internal static List<BuildInput> Resolve(string gameRoot, ProfileDef p, out List<string> missing) =>
-            Resolve(gameRoot, p, out missing, out _);
-
         internal static List<BuildInput> Resolve(string gameRoot, ProfileDef p, out List<string> missing,
-            out List<ExcludedInput> excluded)
+            string homeModsDir = null) =>
+            Resolve(gameRoot, p, out missing, out _, homeModsDir);
+
+        /// <param name="homeModsDir">The Mods folder "base" refs come from: the mod manager profile's when the game
+        /// was started from one, else null for &lt;game&gt;\Mods.</param>
+        internal static List<BuildInput> Resolve(string gameRoot, ProfileDef p, out List<string> missing,
+            out List<ExcludedInput> excluded, string homeModsDir = null)
         {
             var inputs = new List<BuildInput>();
             missing = new List<string>();
             excluded = new List<ExcludedInput>();
-            string realMods = Path.Combine(gameRoot, "Mods");
+            string realMods = homeModsDir ?? Path.Combine(gameRoot, "Mods");
             string cacheRoot = PackageCache.RootFor(gameRoot);
             string profileMods = ProfileModsDir(gameRoot, p.Id);
 
@@ -97,8 +100,8 @@ namespace SideHustle.Shared
                 {
                     case "base":
                     {
-                        string src = Path.Combine(realMods, m.File ?? "");
-                        string found = File.Exists(src) ? src : File.Exists(src + ".disabled") ? src + ".disabled" : null;
+                        // Package subfolders count too: that is where a mod manager installs a mod.
+                        string found = ModFolders.Find(realMods, m.File ?? "");
                         if (found == null) { missing.Add(m.File ?? "?"); break; }
                         if (ExcludeAsWrongRuntime(m.File, found))
                             excluded.Add(new ExcludedInput { FileName = m.File, Source = "base" });

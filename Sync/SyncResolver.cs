@@ -257,7 +257,7 @@ namespace SideHustle.Sync
                 Core.Log?.Warning($"[sync] '{e.Mod.File}': {reason}; falling back to the manual link.");
                 diff.Unresolved.Add($"{unresolvedLabel} - {reason}");
                 progress?.Report(SyncProgressEvent.Failed(e.Key, reason));
-                Downgrade(e, char.ToUpperInvariant(reason[0]) + reason.Substring(1));
+                Downgrade(e, string.IsNullOrEmpty(reason) ? "Download failed" : char.ToUpperInvariant(reason[0]) + reason.Substring(1));
                 allOk = false;
             }
 
@@ -272,7 +272,11 @@ namespace SideHustle.Sync
                 {
                     byte[] bytes = null;
                     string ghWhy = null;
-                    try
+                    // Without the host's hash a GitHub download cannot be checked, and an unchecked DLL never enters
+                    // a session.
+                    if (string.IsNullOrEmpty(e.Mod.Sha256))
+                        ghWhy = "the host listed it without a hash, so a GitHub download cannot be checked";
+                    else try
                     {
                         bytes = await GhReleases.TryFetchAsync(source.Substring(3), e.Mod.Version, e.Mod.Sha256, ct,
                             failed: w => ghWhy = w,
@@ -281,8 +285,9 @@ namespace SideHustle.Sync
                     catch (OperationCanceledException) { throw; }
                     catch (Exception ex) { ghWhy = ex.Message; Core.Log?.Warning($"[sync] '{e.Mod.File}': GitHub fetch failed: {ex.Message}"); }
 
-                    string ghPromoted = bytes != null
+                    string ghPromoted = bytes != null && !string.IsNullOrEmpty(e.Mod.Sha256)
                         ? ManualInstall.PromoteBytes(bytes, e.Mod.File, e.Mod.Sha256.ToLowerInvariant()) : null;
+
                     if (ghPromoted != null)
                     {
                         e.Status = DiffStatus.Cached;
@@ -318,6 +323,18 @@ namespace SideHustle.Sync
                 }
                 string src = PackageCache.FindExtractedFile(dir, e.Mod.File);
                 string sha = src != null ? ProfileBuilder.Sha256OfFile(src) : null;
+                // A dual-branch package ships the same name twice (Mods/Mono, Mods/IL2CPP); the host's copy is the
+                // one with the host's bytes, wherever it sits.
+                if (src != null && !string.IsNullOrEmpty(e.Mod.Sha256)
+                    && !string.Equals(sha, e.Mod.Sha256, StringComparison.OrdinalIgnoreCase))
+                {
+                    foreach (var copy in PackageCache.FindExtractedFileAll(dir, e.Mod.File))
+                    {
+                        if (!string.Equals(ProfileBuilder.Sha256OfFile(copy), e.Mod.Sha256, StringComparison.OrdinalIgnoreCase)) continue;
+                        src = copy; sha = e.Mod.Sha256;
+                        break;
+                    }
+                }
                 // A backend-resolved package matched on the HASH, so its DLL may carry another file name than the
                 // host's. Take the file with the host's bytes; the profile still links it under the manifest's name.
                 if (e.ResolvedSource != null && !string.Equals(sha, e.Mod.Sha256, StringComparison.OrdinalIgnoreCase))
@@ -341,9 +358,17 @@ namespace SideHustle.Sync
                     e.SourcePath = src;
                     progress?.Report(SyncProgressEvent.Ready(key));
                 }
+                else if (src == null)
+                {
+                    // The package has no file by that name: a different package, not a different build.
+                    Core.Log?.Warning($"[sync] '{e.Mod.File}': {fullName} {version} has no file named '{e.Mod.File}'; skipping.");
+                    progress?.Report(SyncProgressEvent.Failed(key, $"{fullName} {version} has no {e.Mod.File}"));
+                    Downgrade(e, $"{fullName} {version} does not contain {e.Mod.File}");
+                    allOk = false;
+                }
                 else
                 {
-                    // The store version does not carry the host's exact bytes (or the file is missing): treat as
+                    // The store version does not carry the host's exact bytes: treat as
                     // manual/dropped rather than shipping a mismatched DLL into the session. This is the common
                     // "host runs their own build with a released version number" case, so SAY that - otherwise the
                     // player is told "Thunderstore" on the consent screen and then handed a manual checklist.
@@ -534,15 +559,17 @@ namespace SideHustle.Sync
                 if (seen.Add(name)) inputs.Add(new BuildInput { FileName = name, SourcePath = e.SourcePath });
             }
 
-            string modsPath = ModInventory.ModsPath();
-            if (modsPath != null)
+            foreach (var m in ModInventory.Loaded())
             {
-                foreach (var m in ModInventory.Loaded())
+                if (m.File == null || !IsClientEssential(m.File) || seen.Contains(m.File)) continue;
+                // The file MelonLoader actually loaded: a mod manager puts it in a package subfolder of Mods.
+                string p = m.Path;
+                if (string.IsNullOrEmpty(p) || !File.Exists(p))
                 {
-                    if (m.File == null || !IsClientEssential(m.File) || seen.Contains(m.File)) continue;
-                    string p = Path.Combine(modsPath, m.File);
-                    if (File.Exists(p) && seen.Add(m.File)) inputs.Add(new BuildInput { FileName = m.File, SourcePath = p });
+                    Core.Log?.Warning($"[sync] the running {m.File} has no file on disk ('{p}'); the sync profile goes without it.");
+                    continue;
                 }
+                if (seen.Add(m.File)) inputs.Add(new BuildInput { FileName = m.File, SourcePath = p });
             }
             return inputs;
         }

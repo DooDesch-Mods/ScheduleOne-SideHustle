@@ -669,6 +669,12 @@ namespace SideHustle.Menu
         /// </remarks>
         private static bool JoinStale(int gen) => gen != _joinGen || _cloneScreen == null || !_cloneScreen.IsOpen;
 
+        /// <summary>What a notice calls the lobby: its name, else the host's, else "the host". A lobby without a name
+        /// carries "" rather than null, so ?? alone printed an empty name.</summary>
+        private static string LobbyLabel(VanillaLobbyRow row) =>
+            !string.IsNullOrWhiteSpace(row?.LobbyName) ? row.LobbyName
+            : !string.IsNullOrWhiteSpace(row?.HostName) ? row.HostName : "the host";
+
         private static void StartVanillaJoin(VanillaLobbyRow row)
         {
             InvalidateJoinChecks();    // this lobby is the attempt now; anything still running belongs to the last one
@@ -1006,7 +1012,7 @@ namespace SideHustle.Menu
                     var clash = Mods.LateLoader.FirstCollision(wanted);
                     if (clash == null && Mods.LateLoader.Any)
                     {
-                        Mods.LateLoader.LoadSet(wanted, "'" + (row.LobbyName ?? row.HostName) + "'");
+                        Mods.LateLoader.LoadSet(wanted, "'" + LobbyLabel(row) + "'");
                         CloseHubScreen();
                         if (!SyncCoordinator.StartInPlaceJoin(row.LobbyId, mhash)) ShowRefusal(SyncCoordinator.LastRefusal);
                         return;
@@ -1034,9 +1040,9 @@ namespace SideHustle.Menu
                         ? $" + {userLibInputs.Count + pluginInputs.Count} library files" : "";
                     // Same commit point as the gamemode join. This path used to relaunch with nothing on screen,
                     // which is the whole reason the notice looked intermittent between runs.
-                    CommittedRestart.Then(row.LobbyName ?? row.HostName ?? "the host", () =>
+                    CommittedRestart.Then(LobbyLabel(row), () =>
                         Mods.ModSwitcher.RelaunchIntoSyncProfile("sync-" + row.OwnerSteamId, inputs, tokens,
-                            overlay, $"syncing {inputs.Count} mod(s){libNote} for '{row.LobbyName}'",
+                            overlay, $"syncing {inputs.Count} mod(s){libNote} for '{LobbyLabel(row)}'",
                             pluginInputs, userLibInputs),
                         onCancel: cancelBack ?? ShowVanillaBrowser);
                 });

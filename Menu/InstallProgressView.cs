@@ -306,7 +306,7 @@ namespace SideHustle.Menu
 
             if (unresolved != null)
                 foreach (var missing in unresolved)
-                    NoteRow(content, $"!  {missing}  -  not on Thunderstore, skipped", Theme.WarningText);
+                    NoteRow(content, $"!  {missing}  -  skipped", Theme.WarningText);
 
             Interactions.PolishButtons(formHost);
             return c;

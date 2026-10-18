@@ -107,8 +107,21 @@ namespace SideHustle.Sync
             if (!sawVersion) return null;
             if (declaredCount < 0 || declaredCount != res.Mods.Count) return null;
             if (res.Mods.Any(m => string.IsNullOrEmpty(m.File))) return null;
+            // The host chooses these names and the profile build writes files under them. Anything but a bare file
+            // name ("..\..\x.dll", "C:\x.dll", "a/b.dll") would write outside the profile's Mods folder.
+            var unsafeFile = res.Mods.FirstOrDefault(m => !IsPlainFileName(m.File));
+            if (unsafeFile != null)
+            {
+                Shared.SharedLog.Warning($"[sync] rejected a manifest with the file name '{unsafeFile.File}': only a plain file name is allowed.");
+                return null;
+            }
             return res;
         }
+
+        private static bool IsPlainFileName(string f) =>
+            !string.IsNullOrWhiteSpace(f) && f != "." && f != ".."
+            && f.IndexOfAny(new[] { '/', '\\', ':' }) < 0
+            && f.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) < 0;
 
         // Same escaping idea as ConfigCodec, plus '|' because it separates the mod-line fields.
         // Escape '%' first so inserted escapes are not re-escaped; unescape '%25' last for the inverse.

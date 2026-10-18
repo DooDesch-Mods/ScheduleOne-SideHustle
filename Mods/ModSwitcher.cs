@@ -166,6 +166,14 @@ namespace SideHustle.Mods
                 AltBase.Teardown(altPath);
                 return;
             }
+            // The profile session has to know where the player's own mod set lives (the game folder or a mod
+            // manager profile), so leaving it relaunches there and not into the bare game folder.
+            if (!AltBase.WriteHomeFile(altPath))
+            {
+                _inFlight = false;
+                AltBase.Teardown(altPath);
+                return;
+            }
             // A SECOND copy of the same tokens, beside the profile rather than inside its cfg. One malformed line
             // anywhere in MelonPreferences.cfg - from any mod, in any category - makes MelonLoader fall back to
             // defaults for the whole file, and the pending join went with it: the restart happened and the player
@@ -188,14 +196,18 @@ namespace SideHustle.Mods
         }
 
         /// <summary>Relaunch normally (the player's full mod set) and leave the temporary profile for cleanup.</summary>
-        internal static void RestoreAndRestart()
+        internal static void RestoreAndRestart() => TryRestoreAndRestart();
+
+        /// <summary><see cref="RestoreAndRestart"/>, reporting whether the relaunch was committed. False means the
+        /// game keeps running and the caller has to leave the session some other way.</summary>
+        internal static bool TryRestoreAndRestart()
         {
-            if (_inFlight) { Core.Log?.Msg("[modpolicy] a relaunch is already in progress; ignoring."); return; }
+            if (_inFlight) { Core.Log?.Msg("[modpolicy] a relaunch is already in progress; ignoring."); return true; }
             _inFlight = true;
             try
             {
-                string bat = WriteRelaunchHelper(null);      // null => plain relaunch, no basedir arg
-                if (!StartHelper(bat)) { _inFlight = false; return; }
+                string bat = WriteRelaunchHelper(HomeRelaunchBase());
+                if (!StartHelper(bat)) { _inFlight = false; return false; }
 
                 // Clear the session markers; the leftover profile folder is swept by the next normal launch.
                 Preferences.PendingContinue = "";
@@ -203,8 +215,19 @@ namespace SideHustle.Mods
                 Preferences.ActiveGamemodeId = "";
                 Core.Log?.Msg("[modpolicy] restoring your full mod set; relaunching.");
                 Application.Quit();
+                return true;
             }
-            catch (Exception e) { _inFlight = false; Core.Log?.Error("[modpolicy] restore failed: " + e); }
+            catch (Exception e) { _inFlight = false; Core.Log?.Error("[modpolicy] restore failed: " + e); return false; }
+        }
+
+        /// <summary>The basedir a plain relaunch has to name: the mod manager profile the player started from, or
+        /// null for the game folder (no argument).</summary>
+        private static string HomeRelaunchBase()
+        {
+            if (!AltBase.HomeIsForeign()) return null;
+            string home = AltBase.HomeBase();
+            Core.Log?.Msg($"[modpolicy] the relaunch returns to the mod manager profile '{home}'.");
+            return home;
         }
 
         /// <summary>Plain relaunch (no basedir, no marker changes): used by the named-profile switch, where the
@@ -215,7 +238,7 @@ namespace SideHustle.Mods
             _inFlight = true;
             try
             {
-                string bat = WriteRelaunchHelper(null);
+                string bat = WriteRelaunchHelper(HomeRelaunchBase());
                 if (!StartHelper(bat)) { _inFlight = false; return; }
                 Core.Log?.Msg($"[modpolicy] {logLabel}; relaunching.");
                 Application.Quit();
@@ -258,7 +281,7 @@ namespace SideHustle.Mods
                 Directory.CreateDirectory(dir);
                 string bat = Path.Combine(dir, "sh_relaunch.bat");
 
-                // The profile path lives in the game folder and can contain spaces, so the value is quoted.
+                // The profile path can contain spaces, so the value is quoted.
                 string basedirArg = altBase == null ? "" : " --melonloader.basedir=\"" + altBase + "\"";
                 bool steamEmu = File.Exists(Path.Combine(root, "steam_appid.txt"));
 
@@ -268,7 +291,9 @@ namespace SideHustle.Mods
                 // MaxWaitSeconds it relaunches anyway and says so in sh_relaunch.log beside it.
                 int pid = System.Diagnostics.Process.GetCurrentProcess().Id;
                 var sb = new System.Text.StringBuilder();
-                sb.Append("@echo off\r\nset /a WAITED=0\r\n:wait\r\n");
+                // The file is UTF-8 and cmd reads a batch file in the console code page, so a folder name with
+                // umlauts or accents would arrive garbled. chcp switches the reader to UTF-8 before any path appears.
+                sb.Append("@echo off\r\nchcp 65001 >NUL\r\nset /a WAITED=0\r\n:wait\r\n");
                 sb.Append("tasklist /FI \"PID eq " + pid + "\" 2>NUL | find \"" + pid + "\" >NUL\r\n");
                 sb.Append("if errorlevel 1 goto go\r\n");
                 sb.Append("set /a WAITED+=1\r\n");

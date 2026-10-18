@@ -45,15 +45,18 @@ namespace SideHustle.Internal
                         }
                     }
                     catch (Exception e) { Core.Log?.Warning("policy-return cleanup threw: " + e.Message); }
-                    // The restart lands in the real game folder, so the token goes there: the next launch opens this
-                    // gamemode's page instead of the bare main menu.
+                    // The restart lands in the player's home base (the game folder or their mod manager profile), so
+                    // the token goes there: the next launch opens this gamemode's page instead of the bare main menu.
                     string id = ctx?.Descriptor?.Id;
                     if (!string.IsNullOrEmpty(id))
-                        SideHustle.Sync.PendingHandoff.Write(SideHustle.Mods.AltBase.GameRoot(),
+                        SideHustle.Sync.PendingHandoff.Write(SideHustle.Mods.AltBase.HomeBase(),
                             new System.Collections.Generic.Dictionary<string, string> { [ReopenGamemodeToken] = id });
                     else Core.Log?.Msg("[hub] no gamemode id on the ending session; the hub will not reopen after the restart.");
-                    SideHustle.Mods.ModSwitcher.RestoreAndRestart();
-                    return;
+                    if (SideHustle.Mods.ModSwitcher.TryRestoreAndRestart()) return;
+                    // The relaunch did not start, so the game keeps running inside the profile. Leave the session the
+                    // normal way instead of leaving the player in a world that is already torn down.
+                    Core.Log?.Error("[hub] the restore relaunch did not start; returning to the menu inside this profile instead.");
+                    restarting = false;
                 }
 
                 // World gamemodes and any multiplayer session loaded a real world (scene reload), so they return
