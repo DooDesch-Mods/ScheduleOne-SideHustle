@@ -3,6 +3,15 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [3.0.2] - 2026-10-18
+
+### Fixed
+- Leaving a gamemode returns you to your r2modman or Gale profile. It restarted into the bare game folder.
+- Gamemode profiles keep the mods a mod manager installed, Side Hustle and S1API included.
+- Joining no longer says a Thunderstore mod differs when its package ships builds for both game branches.
+- Turning `DeferModsUntilLobby` off no longer loads the mods it held back on your next host or join.
+- "Hide full" on the lobby board no longer hides lobbies without a player limit.
+
 ## [3.0.1] - 2026-10-18
 
 ### Fixed
