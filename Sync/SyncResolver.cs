@@ -100,8 +100,15 @@ namespace SideHustle.Sync
                     localByFile[f] = (p, ModInventory.Sha256OfFile(p) ?? "");
                 }
             }
-            var cacheByHash = BuildCacheHashIndex();
             var loadedList = ModInventory.Loaded();
+            // A mod manager installs each package into its own subfolder of Mods (with a manifest.json), which
+            // MelonLoader loads too but the flat listing above does not see. The loaded copy is the client's copy.
+            foreach (var lm in loadedList)
+            {
+                if (lm.File == null || localByFile.ContainsKey(lm.File) || string.IsNullOrEmpty(lm.Path) || !File.Exists(lm.Path)) continue;
+                localByFile[lm.File] = (lm.Path, ModInventory.Sha256OfFile(lm.Path) ?? "");
+            }
+            var cacheByHash = BuildCacheHashIndex();
 
             foreach (var m in manifest.Mods)
             {
@@ -322,8 +329,14 @@ namespace SideHustle.Sync
                         src = byHash; sha = e.Mod.Sha256;
                     }
                 }
-                if (src != null && string.Equals(sha, e.Mod.Sha256, StringComparison.OrdinalIgnoreCase))
+                // A host that listed the mod without a hash (Side Hustle 3.0.0 and older could not hash a mod loaded
+                // from a package subfolder of Mods) still named the exact store version it runs, so that version is the
+                // identity to match. Comparing against the empty hash would reject every download.
+                bool hostHashless = string.IsNullOrEmpty(e.Mod.Sha256) && e.ResolvedSource == null;
+                if (src != null && (hostHashless || string.Equals(sha, e.Mod.Sha256, StringComparison.OrdinalIgnoreCase)))
                 {
+                    if (hostHashless)
+                        Core.Log?.Msg($"[sync] '{e.Mod.File}': the host listed it without a hash; using {fullName} {version} from Thunderstore.");
                     e.Status = DiffStatus.Cached;
                     e.SourcePath = src;
                     progress?.Report(SyncProgressEvent.Ready(key));

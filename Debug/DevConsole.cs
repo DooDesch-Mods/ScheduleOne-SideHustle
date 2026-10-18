@@ -81,7 +81,9 @@ namespace SideHustle.Debugging
             new[] { "shgate", "shgate [load] - what the boot gate held back, and load it now" },
             new[] { "shpickgm", "shpickgm <name> - what clicking an unloaded gamemode row does" },
             new[] { "shmanual", "shmanual [steamid] - open the manual-install screen with sample rows" },
-            new[] { "shresolve", "shresolve [file name version sha256] - resolve an unsourced host mod and download it to the cache (default MoreGuns 1.6.6)" },
+            new[] { "shresolve", "shresolve [file name version sha256|- [source]] - resolve a host mod and download it to the cache (default MoreGuns 1.6.6)" },
+            new[] { "shmanifest", "shmanifest - print the mod list a hosted lobby would publish, with hashes" },
+            new[] { "shscan", "shscan file name sha256 - scan Downloads once for a manual-install row with that hash" },
             new[] { "shbrowser", "open the vanilla lobby LIST (the screen with Join and Chat)" },
             new[] { "shhub", "open the Side Hustle gamemode list (what the menu entry does)" },
             new[] { "shsettings", "open the in-game settings form" },
@@ -133,6 +135,8 @@ namespace SideHustle.Debugging
                     case "shpickgm": PickGamemode(parts); break;
                     case "shmanual": ManualDemo(parts); break;
                     case "shresolve": ResolveDemo(parts); break;
+                    case "shmanifest": ManifestDump(); break;
+                    case "shscan": ScanOnce(parts); break;
                     case "shbrowser": Menu.Hub.OpenVanillaListForTest(); break;
                     case "shhub": Menu.Hub.OpenScreen(); break;
                     case "shprofiles": Menu.Hub.OpenProfilesForTest(); break;
@@ -471,7 +475,12 @@ namespace SideHustle.Debugging
         private static void ResolveDemo(string[] parts)
         {
             var mod = parts.Length >= 5
-                ? new Sync.ManifestMod { File = parts[1], Name = parts[2], Version = parts[3], Sha256 = parts[4], Source = "" }
+                ? new Sync.ManifestMod
+                {
+                    File = parts[1], Name = parts[2], Version = parts[3],
+                    Sha256 = parts[4] == "-" ? "" : parts[4],   // "-": a host that listed the mod without a hash
+                    Source = parts.Length >= 6 ? parts[5] : "",
+                }
                 : new Sync.ManifestMod
                 {
                     File = "MoreGuns.dll",
@@ -482,7 +491,7 @@ namespace SideHustle.Debugging
                 };
             var manifest = new Sync.SyncManifest();
             manifest.Mods.Add(mod);
-            Core.Log?.Msg($"[shresolve] host manifest: {mod.File} {mod.Name} {mod.Version} sha={mod.Sha256} source=(none)");
+            Core.Log?.Msg($"[shresolve] host manifest: {mod.File} {mod.Name} {mod.Version} sha={(mod.Sha256.Length > 0 ? mod.Sha256 : "(none)")} source={(mod.Source.Length > 0 ? mod.Source : "(none)")}");
 
             System.Threading.Tasks.Task.Run(async () =>
             {
@@ -500,6 +509,38 @@ namespace SideHustle.Debugging
                 }
                 catch (Exception e) { Core.Log?.Error("[shresolve] failed: " + e); }
             });
+        }
+
+        /// <summary>
+        /// The mod list a hosted lobby would publish right now, one line per mod with its hash and source. A mod
+        /// without a hash cannot be verified by any joiner, so that is the line to look for.
+        /// </summary>
+        private static void ManifestDump()
+        {
+            var index = Profiles.ThunderstoreClient.GetCachedIndexOrNull(Mods.ModInventory.GameRoot());
+            if (index == null) Core.Log?.Warning("[shmanifest] no cached Thunderstore index; sources show as unresolved.");
+            var plan = Sync.SyncPublisher.BuildPlan(index);
+            foreach (var m in plan.Manifest.Mods)
+                Core.Log?.Msg($"[shmanifest] {m.File} {m.Version} sha={(string.IsNullOrEmpty(m.Sha256) ? "(none)" : m.Sha256)} source={(string.IsNullOrEmpty(m.Source) ? "(none)" : m.Source)}");
+            int hashless = plan.Manifest.Mods.Count(m => string.IsNullOrEmpty(m.Sha256));
+            Core.Log?.Msg($"[shmanifest] {plan.Manifest.Mods.Count} mod(s), {hashless} without a hash.");
+        }
+
+        /// <summary>
+        /// One pass of the manual-install watcher over Downloads, Vortex and the drop folder, for a single pending
+        /// row with the given hash. Reaching that screen for real takes a host whose mods cannot be downloaded.
+        /// </summary>
+        private static void ScanOnce(string[] parts)
+        {
+            if (parts.Length < 4) { Core.Log?.Warning("[shscan] usage: shscan file name sha256"); return; }
+            var row = new Sync.DiffEntry
+            {
+                Mod = new Sync.ManifestMod { File = parts[1], Name = parts[2], Version = "", Sha256 = parts[3].ToLowerInvariant(), Source = "nx:https://example.invalid" },
+                Status = Sync.DiffStatus.Manual,
+            };
+            Sync.ManualInstall.BeginSession();
+            var resolved = Sync.ManualInstall.Poll(new[] { row });
+            Core.Log?.Msg($"[shscan] {row.Mod.File}: {(resolved.Count > 0 ? "found, status=" + row.Status + " path=" + row.SourcePath : "not found")}.");
         }
 
         /// <summary>

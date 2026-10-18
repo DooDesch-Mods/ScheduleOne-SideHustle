@@ -27,24 +27,33 @@ namespace SideHustle.Sync
         /// is worth reading - but a Downloads folder with hundreds of folders must not turn the poll into a crawl.</summary>
         internal const int MaxSubfolders = 24;
 
+        /// <summary>How deep below a watched root the scan looks. An extracted Thunderstore package puts the DLL two
+        /// levels down ("Downloads\Owner-Mod-1.0.0\Mods\Mod.dll").</summary>
+        internal const int MaxDepth = 2;
+
         /// <summary>
-        /// Whether an immediate subfolder can hold a download we care about. Windows stamps a directory's write
-        /// time when a file appears inside it, so in the Downloads folder a subfolder untouched since the watch
-        /// started (minus the grace) cannot contain the file we are waiting for - and is skipped without a single
-        /// file enumeration. The staging and Vortex folders keep their history, same as for files.
+        /// Whether a subfolder can hold a download we care about. Windows stamps a directory's write time when a
+        /// file appears inside it, so in the Downloads folder a subfolder untouched since the watch started (minus
+        /// the grace) cannot contain a NEW file - and is skipped without a single file enumeration. A folder named
+        /// like a pending mod is opened whatever its age: the player may have downloaded it before joining. The
+        /// staging and Vortex folders keep their history, same as for files.
         /// </summary>
-        internal static bool IsCandidateDir(RootKind kind, DateTime dirMtimeUtc, DateTime watchStartUtc) =>
-            kind != RootKind.Downloads || dirMtimeUtc >= watchStartUtc - DownloadsGrace;
+        internal static bool IsCandidateDir(RootKind kind, DateTime dirMtimeUtc, DateTime watchStartUtc, bool namedLikePending = false) =>
+            kind != RootKind.Downloads || namedLikePending || dirMtimeUtc >= watchStartUtc - DownloadsGrace;
 
         /// <summary>Whether a file in a watched folder is worth examining at all (extension, size, freshness).
         /// The Downloads folder only counts files newer than the watch start minus a grace window - it is full
-        /// of old, unrelated files; staging and the Vortex folder keep their history.</summary>
-        internal static bool IsCandidate(RootKind kind, string fileName, long sizeBytes, DateTime mtimeUtc, DateTime watchStartUtc)
+        /// of old, unrelated files; staging and the Vortex folder keep their history. A file named like a pending
+        /// mod counts whatever its age: matching is by hash, so an old file costs one hash and can never match the
+        /// wrong mod. <paramref name="freshestUtc"/> is the later of write and creation time - an extracted file
+        /// keeps the write time from inside the archive, but its creation time is the moment it was extracted.</summary>
+        internal static bool IsCandidate(RootKind kind, string fileName, long sizeBytes, DateTime freshestUtc, DateTime watchStartUtc,
+            bool namedLikePending = false)
         {
             string ext = ExtOf(fileName);
             if (ext != ".zip" && ext != ".dll" && ext != ".7z" && ext != ".rar") return false;
             if (sizeBytes <= 0 || sizeBytes > MaxBytes) return false;
-            if (kind == RootKind.Downloads && mtimeUtc < watchStartUtc - DownloadsGrace) return false;
+            if (kind == RootKind.Downloads && !namedLikePending && freshestUtc < watchStartUtc - DownloadsGrace) return false;
             return true;
         }
 
