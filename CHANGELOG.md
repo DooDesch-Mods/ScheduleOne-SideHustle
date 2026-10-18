@@ -3,6 +3,17 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [3.0.1] - 2026-10-18
+
+### Fixed
+- Joining a lobby whose host installed mods through a mod manager works again. It said the mods differ from
+  Thunderstore.
+- Mods you downloaded before joining are found in Downloads, also inside an extracted package folder.
+- The scrollbar no longer covers the outline of the selected gamemode or lobby.
+
+### Changed
+- Mods the host added by hand download on join when the server matches them to a Thunderstore package.
+
 ## [3.0.0] - 2026-10-16
 
 ### Added
