@@ -307,6 +307,13 @@ namespace SideHustle.Boot
                     queue.Enqueue(dep);
                     log.Msg($"[gate] keeping {Path.GetFileName(dep)} - {Path.GetFileName(file)} is built against it.");
                 }
+                foreach (string host in Facts(file).Bridges)
+                {
+                    if (!byAssemblyName.TryGetValue(host, out string dep)) continue;
+                    if (!keep.Add(dep)) continue;
+                    queue.Enqueue(dep);
+                    log.Msg($"[gate] keeping {Path.GetFileName(dep)} - {Path.GetFileName(file)} talks to it through a compiled-in bridge.");
+                }
             }
             return keep;
         }
@@ -345,6 +352,8 @@ namespace SideHustle.Boot
                     if (byName.TryGetValue(need, out string dep) && dep != file) Place(dep);
                 foreach (string need in facts.DeclaredDependencies)
                     if (byName.TryGetValue(need, out string dep) && dep != file) Place(dep);
+                foreach (string need in facts.Bridges)
+                    if (byName.TryGetValue(need, out string dep) && dep != file) Place(dep);
                 visiting.Remove(file);
                 if (placed.Add(file)) ordered.Add(file);
             }
@@ -364,6 +373,8 @@ namespace SideHustle.Boot
             internal string MelonAuthor;
             internal readonly List<string> References = new List<string>();
             internal readonly List<string> DeclaredDependencies = new List<string>();
+            /// <summary>Hosts the mod reaches through a compiled-in reflection shim (<see cref="BridgeShims"/>).</summary>
+            internal readonly List<string> Bridges = new List<string>();
             /// <summary>The embedded <c>&lt;AssemblyName&gt;.hub-icon.png</c>, read only for gamemodes.</summary>
             internal byte[] HubIcon;
 
@@ -373,6 +384,21 @@ namespace SideHustle.Boot
         }
 
         private static readonly Dictionary<string, ModFacts> _facts = new Dictionary<string, ModFacts>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Shim type compiled into a mod, and the assembly that shim talks to.
+        /// </summary>
+        /// <remarks>
+        /// A shim reaches its host with <c>Type.GetType("..., Host")</c> and leaves no assembly reference, so the
+        /// reference closure cannot see it. The gate keeps the Mods folder in the resolver, so a held-back host is
+        /// still FOUND - it just never ran as a mod. Polyfill declaring its console words through Hash.Api then
+        /// created an Il2Cpp type MelonLoader had not registered, and the boot died in native code with nothing in
+        /// the log. Keeping the host whenever a kept mod carries its shim closes that hole.
+        /// </remarks>
+        private static readonly (string ShimType, string Host)[] BridgeShims =
+        {
+            ("Hash.Api.HashCommands", "Hash"),
+        };
 
         /// <summary>
         /// Read a mod's identity and its dependencies without loading it.
@@ -397,6 +423,10 @@ namespace SideHustle.Boot
                 using var def = Mono.Cecil.AssemblyDefinition.ReadAssembly(file);
                 facts.AssemblyName = def.Name?.Name;
                 foreach (var reference in def.MainModule.AssemblyReferences) facts.References.Add(reference.Name);
+                foreach (var (shimType, host) in BridgeShims)
+                    if (!string.Equals(facts.AssemblyName, host, StringComparison.OrdinalIgnoreCase)
+                        && def.MainModule.GetType(shimType) != null)
+                        facts.Bridges.Add(host);
 
                 foreach (var attribute in def.CustomAttributes)
                 {
@@ -453,6 +483,8 @@ namespace SideHustle.Boot
                 foreach (string need in facts.References)
                     if (byName.TryGetValue(need, out string dep) && dep != current) Walk(dep);
                 foreach (string need in facts.DeclaredDependencies)
+                    if (byName.TryGetValue(need, out string dep) && dep != current) Walk(dep);
+                foreach (string need in facts.Bridges)
                     if (byName.TryGetValue(need, out string dep) && dep != current) Walk(dep);
                 ordered.Add(current);
             }
