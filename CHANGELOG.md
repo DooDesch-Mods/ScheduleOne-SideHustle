@@ -3,6 +3,14 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [3.1.0] - 2026-10-20
+
+### Changed
+- The Side Hustle page fades in and out with the main menu.
+- Settings, Profiles, the Thunderstore browser and the host form for your own save use the new hub look.
+- Joining shows the sync check, manual installs, download and restart on the hub page.
+- The open chat no longer covers the right side of the hub page.
+
 ## [3.0.2] - 2026-10-18
 
 ### Fixed
