@@ -19,12 +19,17 @@ namespace SideHustle
         /// Extra mods that are allowed to remain loaded alongside this gamemode. Everything loaded that is neither
         /// allowed, required, nor an essential (or a dependency of a kept mod) gets disabled.
         /// </summary>
+        /// <value>MelonLoader names or DLL file names, e.g. <c>new[] { "Snitch", "Inkorporated" }</c>. A name that is not
+        /// installed is skipped. Null or empty allows no extra mods.</value>
         public string[] AllowedMods;
 
         /// <summary>
         /// Mods this gamemode needs. If present but disabled they are enabled; if a required mod is not installed at
         /// all the player is told to install it first. Required mods are implicitly allowed.
         /// </summary>
+        /// <value>MelonLoader names or DLL file names, e.g. <c>new[] { "WhatsDab", "Sideload" }</c>. A required name
+        /// that is not installed blocks a singleplayer launch, and hosting offers only the current mods. Null or empty
+        /// requires nothing.</value>
         public string[] RequiredMods;
     }
 }

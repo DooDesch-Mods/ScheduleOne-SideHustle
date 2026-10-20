@@ -7,6 +7,18 @@ namespace SideHustle
     /// for multiplayer, the lobby id. The gamemode calls <see cref="ReturnToHub"/> when it is finished so
     /// Side Hustle can restore the menu.
     /// </summary>
+    /// <example>
+    /// One callback for every role, reading a host setting:
+    /// <code>
+    /// static void Start(LaunchContext ctx)
+    /// {
+    ///     int seconds = ctx.Multiplayer?.GetInt("len", 30) ?? 30;   // null in singleplayer
+    ///     if (ctx.Role == SessionRole.Host) { /* start the round */ }
+    ///     // later, when the gamemode is done:
+    ///     ctx.ReturnToHub();
+    /// }
+    /// </code>
+    /// </example>
     public sealed class LaunchContext
     {
         /// <summary>The descriptor being launched.</summary>
