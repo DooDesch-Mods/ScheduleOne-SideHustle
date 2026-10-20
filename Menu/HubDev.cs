@@ -131,14 +131,19 @@ namespace SideHustle.Menu
             var ct = SyncRun.Begin();
             _syncBack = ShowGamemodeList;
             _back = null;
-            ClearFormHost();
-            SetTmp(_clone.transform, "Title", "Joining the host");
-            var host = CreateFormHost("SH_Syncing");
             var names = new[] { "Fake-ModA 1.0.0", "Fake-ModB 2.1.0", "Fake-ModC 0.3.2" };
             const long size = 3_000_000;
             var plan = names.Select(n => new InstallPlanRow { FullName = n.Split(' ')[0], Version = n.Split(' ')[1], Key = n, Size = size }).ToList();
-            var ui = InstallProgressView.Build(host, "Matching the host's mods", plan, null,
-                onCancel: () => StopSyncDownload("cancel button"));
+            var ui = ShowDownloadOnPage("lobbies", "Joining the host", "A test lobby", "Matching the host's mods", plan, null,
+                () => StopSyncDownload("cancel button"));
+            if (ui == null)
+            {
+                ClearFormHost();
+                SetTmp(_clone.transform, "Title", "Joining the host");
+                var host = CreateFormHost("SH_Syncing");
+                ui = InstallProgressView.Build(host, "Matching the host's mods", plan, null,
+                    onCancel: () => StopSyncDownload("cancel button"));
+            }
             _syncUi = ui;
 
             System.Threading.Tasks.Task.Run(async () =>
@@ -182,7 +187,12 @@ namespace SideHustle.Menu
         {
             if (!OpenHubForTest()) return;
             CommittedRestart.Then("a test lobby",
-                () => Core.Log?.Msg("[dev] the fake restart would relaunch the game now."),
+                () =>
+                {
+                    // Nothing restarts, so call the notice off the way Cancel does; the page would stay locked otherwise.
+                    Core.Log?.Msg("[dev] the fake restart would relaunch the game now.");
+                    CommittedRestart.Cancel();
+                },
                 onCancel: () => { Core.Log?.Msg("[dev] the fake restart was cancelled."); ShowGamemodeList(); });
         }
     }

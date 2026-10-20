@@ -186,7 +186,9 @@ namespace SideHustle.Menu
                     .OnCall("hub.status", HubCallStatus)
                     .OnCall("hub.legacy", HubCallLegacy)
                     .OnCall("hub.refresh", _ => { HubQueryNow("the player asked"); return ""; })
-                    .OnCall("hub.pref", HubCallPref);
+                    .OnCall("hub.pref", HubCallPref)
+                    .OnCall("hub.view", HubCallView)
+                    .OnCall("hub.open", HubCallOpen);
 
                 _hubShown = true;   // so the first SetHubShown(false) below really hides it
                 SetHubShown(false);
@@ -230,6 +232,7 @@ namespace SideHustle.Menu
             _hubQueryGen++;
             _vanillaInfoAge = 999f;
             _flow = null;
+            DropPageScreen();
         }
 
         private static void SetHubShown(bool on)
@@ -804,7 +807,9 @@ namespace SideHustle.Menu
                         .Add("tab", _openTab ?? "play")
                         .Add("mode", _openMode ?? "")
                         .Add("form", _openForm));
-                return j.ToString();
+                string view = _hubView ? PageJson() : null;
+                string all = j.ToString();
+                return view == null ? all : all.Substring(0, all.Length - 1) + ",\"view\":" + view + "}";
             }
             catch (Exception e)
             {

@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using DooDesch.UI;
 using S1API.UI;
+using SideHustle.Phone;
 using SideHustle.Sync;
 using UnityEngine;
 using UnityEngine.UI;
@@ -117,6 +119,94 @@ namespace SideHustle.Menu
             }
 
             Interactions.PolishButtons(formHost);
+        }
+
+        /// <summary>The sync check on the hub page: warnings, then what syncing sets up and what it cannot, then the joins.</summary>
+        internal static void BuildPage(PageView pv, string title, SyncManifest manifest, SyncDiff diff, bool enforced, bool hasPrefs,
+            ulong hostSteamId, string hostName, bool hostAcceptsMessages, Action onSyncJoin, Action onPlainJoin, Action onBack,
+            string backLabel, string enforcedNote = null)
+        {
+            pv.Frame = "board";
+            var chat = ChatPanel.Possible(hostSteamId, hostAcceptsMessages)
+                ? pv.Btn("Chat", () => ChatPanel.Toggle(hostSteamId, hostName), "sm", "chat")
+                : null;
+            pv.Add(pv.Head(title, "Sync check", backLabel, onBack, chat));
+
+            string localGame = "";
+            try { localGame = Application.version; } catch (Exception e) { Safe.Report("reading the game version", e); }
+            bool versionDiffers = !string.IsNullOrEmpty(manifest.GameVersion) && !string.IsNullOrEmpty(localGame)
+                                  && !string.Equals(manifest.GameVersion, localGame, StringComparison.OrdinalIgnoreCase);
+            string enforcedLine = enforced ? enforcedNote ?? "The host removes players who are not synced." : null;
+            if (versionDiffers)
+                pv.Add(pv.Say("need", "alert", $"Game version differs: host {manifest.GameVersion}, you {localGame}.", enforcedLine));
+            else if (enforcedLine != null)
+                pv.Add(enforcedNote != null
+                    ? pv.Say("now", "package", enforcedLine, null)
+                    : pv.Say("need", "alert", enforcedLine, null));
+
+            int download = diff.Count(DiffStatus.Download) + diff.Count(DiffStatus.Cached);
+            int present = diff.Count(DiffStatus.Present);
+            bool allExact = diff.Entries.Where(x => x.Status == DiffStatus.Present).All(x => !x.HashWarn && !x.OwnCopyReuse);
+            var sets = diff.Entries.Where(x => (x.Status == DiffStatus.Download || x.Status == DiffStatus.Cached) && !x.OwnCopyReuse).ToList();
+
+            var rows = new List<Json>();
+            var setRows = new List<Json>();
+            if (download == 0 && present > 0 && allExact)
+                setRows.Add(pv.Item($"All {Words.Plural(present, "mod", "mods")} already match yours.", icon: "check", iconTone: "ok"));
+            foreach (var e in sets)
+                setRows.Add(pv.Item(Label(e), e.HashWarn ? "replaces your same-version copy (different build)" : null,
+                    e.Status == DiffStatus.Cached ? "already downloaded" : SourceLabel(e), "ok", icon: "download", iconTone: "ok"));
+            if (present > 0 && download > 0 && allExact)
+                setRows.Add(pv.Item($"{Words.Plural(present, "mod", "mods")} already match.", icon: "check", iconTone: "ok"));
+            if (setRows.Count > 0)
+            {
+                string count = sets.Count > 0 && present > 0 && allExact ? $"{sets.Count} + {present} match"
+                             : sets.Count > 0 ? sets.Count.ToString() : "";
+                rows.Add(pv.Group("WHAT SYNCING SETS UP", count, "download", "ok"));
+                rows.AddRange(setRows);
+            }
+
+            void Section(string label, string icon, string tone, List<DiffEntry> entries, string lastSub)
+            {
+                if (entries.Count == 0) return;
+                rows.Add(pv.Group(label, entries.Count.ToString(), icon, tone));
+                for (int i = 0; i < entries.Count; i++)
+                    rows.Add(pv.Item(Label(entries[i]), i == entries.Count - 1 ? lastSub : null, icon: icon, iconTone: tone));
+            }
+            Section("ONLY VIA DOWNLOAD LINK", "hand", "need", diff.Entries.Where(x => x.Status == DiffStatus.Manual).ToList(),
+                "Download these in your browser on the next step.");
+            Section("ONLY ON NEXUS (LINK ON THE NEXT STEP)", "circle", "dim", diff.Entries.Where(x => x.Status == DiffStatus.Dropped).ToList(),
+                "You can join without them.");
+
+            var reuse = diff.Entries.Where(x => x.OwnCopyReuse).ToList();
+            if (reuse.Count > 0)
+            {
+                rows.Add(pv.Group("USING MODS YOU ALREADY HAVE", reuse.Count.ToString(), "restore"));
+                foreach (var e in reuse)
+                    rows.Add(pv.Item(Label(e), "using your own installed copy" + (e.VersionWarn ? "  (version may differ)" : ""), icon: "restore"));
+            }
+
+            if (diff.LocalOnly.Count > 0)
+            {
+                rows.Add(pv.Group("YOUR MODS PAUSE FOR THIS SESSION", null, "pause", "dim"));
+                rows.Add(pv.Item($"{Words.Plural(diff.LocalOnly.Count, "mod", "mods")} of yours pause for this session. They stay installed.",
+                    icon: "pause", iconTone: "dim"));
+            }
+
+            if (hasPrefs)
+            {
+                rows.Add(pv.Group("HOST SETTINGS"));
+                rows.Add(pv.Quiet("The host also applies some mod settings for this session."));
+            }
+            pv.Add(pv.Scroll(rows));
+
+            // "Join without syncing" is a real option ONLY when the host does not enforce sync - otherwise it is a
+            // guaranteed bounce, so it is not offered.
+            pv.Add(pv.Foot("Syncing restarts the game and rejoins this lobby.", null, new[]
+            {
+                !enforced && onPlainJoin != null ? pv.Btn("Join without syncing", onPlainJoin) : null,
+                pv.Btn("Sync and join (restart)", onSyncJoin, "go big"),
+            }));
         }
 
         private static string Label(DiffEntry e) =>

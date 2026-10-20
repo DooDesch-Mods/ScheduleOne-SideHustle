@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using DooDesch.UI;
 using S1API.UI;
+using SideHustle.Phone;
 using SideHustle.Profiles;
 using UnityEngine;
 using UnityEngine.UI;
@@ -41,6 +42,33 @@ namespace SideHustle.Menu
             internal readonly Dictionary<string, Text> Rows = new Dictionary<string, Text>(StringComparer.OrdinalIgnoreCase);
             internal readonly Dictionary<string, InstallPlanRow> Plan = new Dictionary<string, InstallPlanRow>(StringComparer.OrdinalIgnoreCase);
             internal readonly HashSet<string> Done = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // What the hub page draws: the same state the uGUI texts show, kept as data.
+            internal sealed class RowModel
+            {
+                public string State = "";
+                public string Tone = "";
+                public string Sub = "";
+                public int Pct = -1;
+            }
+
+            internal string Headline = "";
+
+            /// <summary>On the page: a title over the headline (the join path's "Joining the host") and its line.
+            /// Null keeps the headline as the title.</summary>
+            internal string PageTitle;
+            internal string PageSub;
+            internal string StatusText = "Starting...";
+            internal float BarFraction;
+            internal string BarTone = "";
+            internal bool CanCancel;
+            internal bool Cancelling;
+            internal Action OnCancel;
+            internal Action OnRetry;
+            internal Action OnBack;
+            internal readonly Dictionary<string, RowModel> Model = new Dictionary<string, RowModel>(StringComparer.OrdinalIgnoreCase);
+            internal readonly List<string> Order = new List<string>();
+            internal readonly List<string> Skipped = new List<string>();
+
             internal string ActiveKey;
             internal long ActiveBytes;
             internal long TotalBytes;
@@ -72,10 +100,12 @@ namespace SideHustle.Menu
                         {
                             ActiveBytes = Math.Min(pp.BytesDone, pp.BytesTotal);
                             SetRow(key, $">  {key}  -  {Mb(pp.BytesDone)} / {Mb(pp.BytesTotal)}", Theme.AccentBorder);
+                            SetModel(key, $"{Mb(pp.BytesDone)} / {Mb(pp.BytesTotal)}", "now", Percent(ActiveBytes, pp.BytesTotal));
                         }
                         else if (!Done.Contains(key))
                         {
                             SetRow(key, $">  {key}  -  {(row.Cached ? "from cache" : "starting...")}", Theme.AccentBorder);
+                            SetModel(key, row.Cached ? "from cache" : "starting...", "now");
                         }
                     }
 
@@ -92,8 +122,10 @@ namespace SideHustle.Menu
                 SetStatus("Applying to the profile...");
                 // Past the download phase there is nothing left to cancel (the token is only observed while
                 // downloading), so retire the button rather than let it show a misleading "Cancelling...".
+                CanCancel = false;
+                BarFraction = 1f;
                 try { if (CancelButton != null) CancelButton.interactable = false; } catch (Exception e) { Fault("retiring the cancel button", e); }
-                try { Components.SetProgressBar(BarFill, 1f); } catch (Exception e) { Fault("filling the bar", e); }
+                try { if (BarFill != null) Components.SetProgressBar(BarFill, 1f); } catch (Exception e) { Fault("filling the bar", e); }
             }
 
             internal void ShowSuccess(string message)
@@ -103,6 +135,9 @@ namespace SideHustle.Menu
                 {
                     foreach (var key in Plan.Keys.ToList()) MarkDone(key);
                     SetStatus(message);
+                    BarFraction = 1f;
+                    BarTone = "done";
+                    CanCancel = false;
                     if (BarFill != null) { BarFill.color = Theme.Success; Components.SetProgressBar(BarFill, 1f); }
                     if (CancelButton != null) CancelButton.interactable = false;
                 }
@@ -115,8 +150,15 @@ namespace SideHustle.Menu
                 try
                 {
                     if (ActiveKey != null && !Done.Contains(ActiveKey))
+                    {
                         SetRow(ActiveKey, $"-  {ActiveKey}  -  failed", Theme.DangerText);
+                        SetModel(ActiveKey, "failed", "bad");
+                    }
                     SetStatus(message);
+                    BarTone = "bad";
+                    CanCancel = false;
+                    OnRetry = onRetry;
+                    OnBack = onBack;
                     if (BarFill != null) BarFill.color = Theme.Danger;
 
                     if (Footer == null) return;
@@ -137,6 +179,7 @@ namespace SideHustle.Menu
                     if (CancelButton != null) CancelButton.interactable = false;
                     if (CancelLabel != null) CancelLabel.text = "Cancelling...";
                     SetStatus("Cancelling...");
+                    Cancelling = true;
                 }
                 catch (Exception e) { Fault("showing the cancel state", e); }
             }
@@ -150,6 +193,10 @@ namespace SideHustle.Menu
                 try
                 {
                     SetStatus(message);
+                    BarFraction = 1f;
+                    BarTone = "need";
+                    CanCancel = false;
+                    OnBack = onBack;
                     if (BarFill != null) { BarFill.color = Theme.Warning; Components.SetProgressBar(BarFill, 1f); }
 
                     if (Footer == null) return;
@@ -170,6 +217,7 @@ namespace SideHustle.Menu
                 try
                 {
                     SetRow(key, $"{(warn ? "!" : "+")}  {key}  -  {note}", warn ? Theme.WarningText : Theme.TextMuted);
+                    SetModel(key, note, warn ? "need" : "");
                 }
                 catch (Exception e) { Fault("setting a row note", e); }
             }
@@ -180,7 +228,11 @@ namespace SideHustle.Menu
             {
                 if (Terminal) return;
                 ActiveKey = key; ActiveBytes = 0;
-                if (Plan.ContainsKey(key) && !Done.Contains(key)) SetRow(key, $">  {key}  -  starting...", Theme.AccentBorder);
+                if (Plan.ContainsKey(key) && !Done.Contains(key))
+                {
+                    SetRow(key, $">  {key}  -  starting...", Theme.AccentBorder);
+                    SetModel(key, "starting...", "now");
+                }
             }
 
             internal void SyncBytes(string key, long done, long total)
@@ -189,7 +241,10 @@ namespace SideHustle.Menu
                 ActiveKey = key;
                 ActiveBytes = total > 0 ? Math.Min(done, total) : done;
                 if (Plan.ContainsKey(key))
+                {
                     SetRow(key, total > 0 ? $">  {key}  -  {Mb(done)} / {Mb(total)}" : $">  {key}  -  {Mb(done)}", Theme.AccentBorder);
+                    SetModel(key, total > 0 ? $"{Mb(done)} / {Mb(total)}" : Mb(done), "now", total > 0 ? Percent(ActiveBytes, total) : -1);
+                }
                 UpdateBar();
             }
 
@@ -203,6 +258,7 @@ namespace SideHustle.Menu
             {
                 if (Terminal) return;
                 SetRow(key, string.IsNullOrEmpty(reason) ? $"-  {key}  -  failed" : $"-  {key}  -  failed: {reason}", Theme.DangerText);
+                SetModel(key, string.IsNullOrEmpty(reason) ? "failed" : "failed: " + reason, "bad");
                 if (string.Equals(key, ActiveKey, StringComparison.OrdinalIgnoreCase)) { ActiveKey = null; ActiveBytes = 0; }
             }
 
@@ -210,7 +266,10 @@ namespace SideHustle.Menu
             {
                 if (!Done.Add(key)) return;
                 if (Plan.TryGetValue(key, out var row))
+                {
                     SetRow(key, $"+  {key}  -  {(row.Cached ? "already cached" : "done")}", Theme.SuccessText);
+                    SetModel(key, row.Cached ? "already cached" : "done", "ok");
+                }
                 if (string.Equals(key, ActiveKey, StringComparison.OrdinalIgnoreCase)) { ActiveKey = null; ActiveBytes = 0; }
                 UpdateBar();
             }
@@ -219,13 +278,14 @@ namespace SideHustle.Menu
             {
                 try
                 {
-                    if (BarFill == null || TotalBytes <= 0) return;
+                    if (TotalBytes <= 0) return;
                     long done = 0;
                     foreach (var key in Done)
                         if (Plan.TryGetValue(key, out var r)) done += SizeOf(r);
                     if (ActiveKey != null && Plan.TryGetValue(ActiveKey, out var active))
                         done += Math.Min(ActiveBytes, SizeOf(active));
-                    Components.SetProgressBar(BarFill, (float)done / TotalBytes);
+                    BarFraction = Mathf.Clamp01((float)done / TotalBytes);
+                    if (BarFill != null) Components.SetProgressBar(BarFill, BarFraction);
                 }
                 catch (Exception e) { Fault("updating the bar", e); }
             }
@@ -247,7 +307,96 @@ namespace SideHustle.Menu
 
             private void SetStatus(string text)
             {
+                StatusText = text ?? "";
                 if (Status != null) Status.text = text;
+            }
+
+            private void SetModel(string key, string state, string tone, int pct = -1)
+            {
+                if (!Model.TryGetValue(key, out var m)) return;
+                m.State = state ?? "";
+                m.Tone = tone ?? "";
+                m.Pct = pct;
+            }
+
+            private static int Percent(long done, long total) => total > 0 ? (int)Math.Round(100.0 * Math.Min(done, total) / total) : -1;
+
+            /// <summary>Overall bar in percent.</summary>
+            internal int BarPercent => (int)Math.Round(BarFraction * 100f);
+
+            internal int ReadyCount => Done.Count;
+
+            /// <summary>The rows in plan order, then the members the index could not resolve.</summary>
+            internal List<Json> PageRows(PageView pv)
+            {
+                var rows = new List<Json>();
+                foreach (var key in Order)
+                {
+                    if (!Model.TryGetValue(key, out var m)) continue;
+                    rows.Add(pv.Item(key, m.Sub, m.State, m.Tone, pct: m.Pct));
+                }
+                foreach (var missing in Skipped) rows.Add(pv.Item(missing, null, "skipped", "need"));
+                return rows;
+            }
+
+            /// <summary>Plan rows as data; the uGUI rows are added by <see cref="Build"/>.</summary>
+            internal void Seed(IEnumerable<InstallPlanRow> plan)
+            {
+                if (plan == null) return;
+                foreach (var row in plan)
+                {
+                    if (row == null || Plan.ContainsKey(row.Key)) continue;
+                    Plan[row.Key] = row;
+                    Order.Add(row.Key);
+                    TotalBytes += SizeOf(row);
+                    Model[row.Key] = new RowModel
+                    {
+                        State = row.Cached ? "already cached" : "queued",
+                        Sub = row.NameLooksMono ? "may be for the other game version" : "",
+                        Tone = row.NameLooksMono ? "need" : "",
+                    };
+                }
+            }
+
+            /// <summary>The install screen on the hub page. Holds the tabs until it is done; only Cancel leaves it.</summary>
+            internal void BuildPage(PageView pv)
+            {
+                pv.Frame = "board";
+                pv.Lock = !Terminal;
+                if (PageTitle != null)
+                {
+                    // The back button is the Cancel here, as on the approved join screens. Right-click stays off while
+                    // the download runs, so a habit cannot throw a half-fetched set away.
+                    bool live = !Terminal && CanCancel && !Cancelling;
+                    pv.Add(pv.Head(PageTitle, PageSub,
+                        live ? "Cancel" : Terminal && OnBack != null ? "Back" : null,
+                        live ? OnCancel : Terminal ? OnBack : null,
+                        Cancelling ? pv.Btn("Cancelling...", null, "sm") : null));
+                    if (!Terminal) pv.Back = "";
+                    if (!string.IsNullOrEmpty(Headline) && Headline != PageTitle) pv.Add(pv.Title(Headline));
+                }
+                else
+                {
+                    Json cancel = CanCancel || Cancelling
+                        ? pv.Btn(Cancelling ? "Cancelling..." : "Cancel", Cancelling ? null : OnCancel, "sm", "close")
+                        : null;
+                    pv.Add(pv.Head(Headline, $"{ReadyCount} of {Order.Count} ready",
+                        Terminal && OnBack != null ? "Back" : null, Terminal ? OnBack : null, cancel));
+                }
+                pv.Add(pv.Progress(BarPercent, StatusText, BarTone));
+                pv.Add(pv.Scroll(PageRows(pv)));
+                if (Terminal && OnRetry != null)
+                    pv.Add(pv.Foot(null, null, new[] { pv.Btn("Try again", OnRetry, "go", "refresh") }));
+            }
+
+            /// <summary>The screen without uGUI, for the hub page.</summary>
+            internal static Controller ForPage(string headline, IReadOnlyList<InstallPlanRow> plan, IReadOnlyList<string> unresolved, Action onCancel)
+            {
+                var c = new Controller { Headline = headline ?? "", CanCancel = onCancel != null };
+                c.OnCancel = onCancel == null ? (Action)null : () => { c.SetCancelling(); onCancel(); };
+                c.Seed(plan);
+                if (unresolved != null) c.Skipped.AddRange(unresolved);
+                return c;
             }
 
             internal static long SizeOf(InstallPlanRow r) => r.Size > 0 ? r.Size : FallbackSize;
@@ -258,7 +407,8 @@ namespace SideHustle.Menu
         internal static Controller Build(Transform formHost, string headline, IReadOnlyList<InstallPlanRow> plan,
             IReadOnlyList<string> unresolved, Action onCancel)
         {
-            var c = new Controller();
+            var c = new Controller { Headline = headline ?? "", CanCancel = onCancel != null };
+            c.OnCancel = onCancel == null ? (Action)null : () => { c.SetCancelling(); onCancel(); };
 
             var header = UIFactory.Panel("header", formHost, Theme.Clear);
             var hrt = header.GetComponent<RectTransform>();
@@ -296,8 +446,7 @@ namespace SideHustle.Menu
             if (plan != null)
                 foreach (var row in plan)
                 {
-                    c.Plan[row.Key] = row;
-                    c.TotalBytes += Controller.SizeOf(row);
+                    c.Seed(new[] { row });
                     string label = row.Cached ? $"=  {row.Key}  -  already cached" : $"·  {row.Key}  -  queued";
                     var color = row.Cached ? Theme.TextMuted : Theme.TextPrimary;
                     if (row.NameLooksMono) { label += "  -  may be for the other game version"; color = Theme.WarningText; }
@@ -306,7 +455,10 @@ namespace SideHustle.Menu
 
             if (unresolved != null)
                 foreach (var missing in unresolved)
+                {
+                    c.Skipped.Add(missing);
                     NoteRow(content, $"!  {missing}  -  skipped", Theme.WarningText);
+                }
 
             Interactions.PolishButtons(formHost);
             return c;

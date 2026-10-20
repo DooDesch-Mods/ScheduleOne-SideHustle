@@ -24,11 +24,12 @@ namespace SideHustle.Menu
         private const float ShowSeconds = 2.2f;
 
         private static OverlayNotice _notice;
+        private static bool _onPage;
         private static int _gen;
         private static Action _onCancel;
 
         /// <summary>True while the notice is up and the relaunch can still be called off.</summary>
-        internal static bool Pending => _notice != null;
+        internal static bool Pending => _notice != null || _onPage;
 
         /// <summary>Show "restarting to join", then run <paramref name="relaunch"/>. Always relaunches unless the player
         /// cancels, even if nothing could be drawn - a missing message must never strand the player short of the
@@ -47,7 +48,7 @@ namespace SideHustle.Menu
             // happens next.
             Run("Restarting to join",
                 $"Your mods are ready. The game restarts and rejoins {what} - don't close it.",
-                0.62f, relaunch, onCancel);
+                0.62f, relaunch, onCancel, onPage: true);
         }
 
         /// <summary>The host's version: the game relaunches with the gamemode's required mods and opens the lobby.</summary>
@@ -58,7 +59,7 @@ namespace SideHustle.Menu
                 0.9f, relaunch, onCancel);
         }
 
-        private static void Run(string headline, string body, float dim, Action relaunch, Action onCancel)
+        private static void Run(string headline, string body, float dim, Action relaunch, Action onCancel, bool onPage = false)
         {
             if (relaunch == null)
             {
@@ -69,17 +70,28 @@ namespace SideHustle.Menu
             int gen = ++_gen;
             _onCancel = onCancel;
             CloseNotice();
-            try
+            // The join path draws the notice on the hub page when that is what the player sees: the overlay would
+            // sit on top of the page's own finished download.
+            if (onPage)
             {
-                _notice = OverlayNotice.Build("SH_CommittedRestart", headline, body, dim);
-                _notice.AddButton("Cancel", Cancel);
+                try { _onPage = Hub.ShowRestartOnPage(headline, body, Cancel); }
+                catch (Exception e) { _onPage = false; Core.Log?.Warning("[sync] restart notice on the page failed, using the overlay: " + e.Message); }
             }
-            catch (Exception e)
+            if (!_onPage)
             {
-                _notice = null;
-                Core.Log?.Warning("[sync] restart notice failed to draw: " + e.Message);
+                try
+                {
+                    _notice = OverlayNotice.Build("SH_CommittedRestart", headline, body, dim);
+                    _notice.AddButton("Cancel", Cancel);
+                }
+                catch (Exception e)
+                {
+                    _notice = null;
+                    Core.Log?.Warning("[sync] restart notice failed to draw: " + e.Message);
+                }
+                if (_notice == null) Core.Log?.Warning("[sync] restarting with no notice on screen - nothing was drawable.");
             }
-            if (_notice == null) Core.Log?.Warning("[sync] restarting with no notice on screen - nothing was drawable.");
+            else Core.Log?.Msg("[sync] restart notice is on the hub page.");
 
             System.Threading.Tasks.Task.Run(async () =>
             {
@@ -100,7 +112,7 @@ namespace SideHustle.Menu
         /// <summary>Call the restart off. A no-op once the relaunch has been handed to the process.</summary>
         internal static void Cancel()
         {
-            if (_notice == null)
+            if (!Pending)
             {
                 Core.Log?.Msg("[sync] cancel asked for, but no restart is pending.");
                 return;
@@ -118,6 +130,7 @@ namespace SideHustle.Menu
         {
             var n = _notice;
             _notice = null;
+            _onPage = false;
             n?.Close();
         }
     }

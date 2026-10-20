@@ -2,6 +2,7 @@ using System;
 using DooDesch.UI;
 using S1API.UI;
 using SideHustle.Config;
+using SideHustle.Phone;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -53,6 +54,52 @@ namespace SideHustle.Menu
 
             Interactions.PolishButtons(formHost);
         }
+
+        /// <summary>The same settings on the hub page, in three cards.</summary>
+        internal static void BuildPage(PageView pv, Action onBack)
+        {
+            pv.Frame = "main";
+            pv.OnBack(onBack);
+            int waiting = SafePending();
+            pv.Add(pv.Scroll(new[]
+            {
+                pv.Card("MENUS", false,
+                    PageSwitch(pv, "Info column in the main menu", "Mod set, open lobbies and messages.",
+                        Preferences.MenuPanel, v => Preferences.MenuPanel = v),
+                    PageSwitch(pv, "Chat column while joining", "Ask the host about a mod you cannot get.",
+                        Preferences.JoinChatPanel, v => Preferences.JoinChatPanel = v),
+                    PageSwitch(pv, "Ask to host on Continue", "Offers to open the save as a public lobby.",
+                        Preferences.AskHostOnContinue, v => Preferences.AskHostOnContinue = v),
+                    PageSwitch(pv, "Show gamemodes you don't have", "Lists gamemodes that are not installed.",
+                        Preferences.ShowUninstalledGamemodes, v => Preferences.ShowUninstalledGamemodes = v)),
+                pv.Card("MESSAGES", false,
+                    PageSwitch(pv, "Let strangers message you", "Shown in the Lobby app on your phone.",
+                        Preferences.AcceptStrangerMessages, v => Preferences.AcceptStrangerMessages = v)),
+                pv.Card("MODS", false,
+                    PageSwitch(pv, "Load mods when a lobby starts", "Takes effect after a restart.",
+                        Preferences.DeferModsUntilLobby, v => Preferences.DeferModsUntilLobby = v,
+                        waiting <= 0 ? null : waiting == 1 ? "1 mod waits for a lobby." : $"{waiting} mods wait for a lobby."),
+                    pv.Set("Always load these mods", "File names, comma-separated. Takes effect after a restart.",
+                        pv.Input("keep", _keepDraft ?? Preferences.AlwaysLoadMods, "SomeMod.dll, Other.dll",
+                            v => _keepDraft = v, SaveKeepList))),
+            }));
+        }
+
+        // The field commits on Enter and when it loses focus; a tab click can take the screen away first.
+        private static string _keepDraft;
+
+        internal static void LeavePage()
+        {
+            if (_keepDraft != null) SaveKeepList(_keepDraft);
+            _keepDraft = null;
+        }
+
+        private static Json PageSwitch(PageView pv, string label, string hint, bool value, Action<bool> set, string note = null) =>
+            pv.Set(label, hint, pv.Toggle(value, v =>
+            {
+                set(v);
+                Core.Log?.Msg($"[settings] '{label}' is now {(v ? "on" : "off")}.");
+            }), note);
 
         private static void Switch(RectTransform content, string label, string hint, bool value, Action<bool> set)
         {

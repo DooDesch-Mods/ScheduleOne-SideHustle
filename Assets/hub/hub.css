@@ -282,3 +282,153 @@ body {
 .dialog .nm { font-size: 22px; font-weight: 800; }
 .dialog .sub { color: var(--mu); }
 .dialog .acts { flex-direction: row; gap: 10px; justify-content: flex-end; }
+
+/* --- screens the mod draws as parts: settings, profiles, the join checks, the vanilla host --- */
+
+.tab.off { color: var(--dim); }
+.tab.off:hover { color: var(--dim); }
+.pvm { flex: 1; min-height: 0; min-width: 0; gap: 16px; }
+.board.pv, .detail.pv { flex: 1; min-height: 0; }
+/* The chat column (360 of 1920 px) covers the right of the page, which is 60% of the screen wide. */
+.page.chat { padding-right: 29vw; }
+.board.pv > .row.gap { flex-wrap: wrap; }
+.detail.pv > .cols { flex: 1; min-height: 0; }
+.detail.pv > .cols > .form { overflow-y: auto; min-height: 0; }
+.f .inp { min-width: 0; }
+
+/* Lucide glyphs: white PNGs, tinted by colour. */
+.lu { width: 18px; height: 18px; flex: none; color: var(--tx); }
+.lu.ok { color: var(--cash); }
+.lu.need { color: var(--warn); }
+.lu.bad { color: var(--bad); }
+.lu.now { color: var(--neontx); }
+.lu.dim { color: var(--dim); }
+.btn .lu { width: 16px; height: 16px; margin-right: 8px; }
+.btn.go .lu { color: var(--oncash); }
+.btn.ok2 .lu { color: var(--cash); }
+.btn.ok2 { background: #1D2A17; color: var(--cash); }
+.btn.ok2.off, .btn.ok2.off:hover { background: #1D2A17; color: var(--cash); }
+.btn.bad2 { color: var(--bad); }
+.btn.bad { background: #5A2227; color: #FFD9DC; }
+.btn.bad:hover { background: #6B2A30; }
+
+/* A sub-view: back, title, one line of context, actions on the right. */
+.vh { flex-direction: row; align-items: center; gap: 16px; flex: none; }
+.vh .t { flex: 1; min-width: 0; gap: 2px; }
+.vh .nm { font-size: 28px; font-weight: 800; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.vh .sub { color: var(--mu); font-size: 14px; }
+.vh .acts, .dhead .acts { flex-direction: row; gap: 8px; }
+.back { flex-direction: row; align-items: center; gap: 8px; height: 40px; padding: 0 14px 0 10px; border-radius: 10px;
+  background: var(--s2); color: var(--tx); font-weight: 700; flex: none; }
+.back:hover { background: var(--s3); }
+.back .lu { width: 18px; height: 18px; }
+
+.card { padding: 18px 20px; gap: 12px; flex: none; }
+.card.grow { flex: 1; min-height: 0; }
+.scroll { flex: 1; min-height: 0; overflow-y: auto; gap: 8px; margin-right: -12px; padding-right: 12px; }
+.pvm > .scroll { gap: 16px; }
+.two { flex-direction: row; gap: 16px; flex: 1; min-height: 0; }
+.two > .l { width: 32%; flex: none; gap: 8px; min-height: 0; }
+.two > .r2 { flex: 1; min-width: 0; gap: 12px; min-height: 0; }
+.row.gap { flex-direction: row; align-items: center; gap: 12px; flex: none; }
+.cols > .form { min-width: 0; }
+
+/* Settings: one row per switch. */
+.set { flex-direction: row; align-items: center; gap: 16px; min-height: 58px; padding: 8px 0; border-bottom: 1px solid var(--line); flex: none; }
+.set.last { border-bottom: 0; }
+.set .t { flex: 1; min-width: 0; gap: 3px; }
+.set .nm { font-size: 15px; font-weight: 700; }
+.set .sub { color: var(--mu); font-size: 12px; }
+.set .note { color: var(--warn); font-size: 12px; }
+.set .inp { flex: none; width: 46%; }
+
+/* A mod row: name and version, a state line, an action on the right. */
+.m { flex-direction: row; align-items: center; gap: 14px; min-height: 56px; padding: 8px 14px; border-radius: 12px; background: var(--s1); flex: none;
+  border: 2px solid rgba(0, 0, 0, 0); }
+.m.sel { border-color: var(--neon); }
+.m:hover { background: var(--s2); }
+.m.dep { background: var(--glass2); }
+.m.dep .nm { color: var(--mu); }
+.m .icon { width: 40px; height: 40px; border-radius: 9px; }
+.m .icon.mono { font-size: 14px; }
+.m .t { flex: 1; min-width: 0; gap: 2px; }
+.m .nl { flex-direction: row; align-items: center; min-width: 0; }
+.m .nm { font-size: 15px; font-weight: 700; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.m .sub { color: var(--mu); font-size: 12px; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.m .st { width: 30%; flex: none; font-size: 13px; font-weight: 600; color: var(--mu); }
+.m .st.ok { color: var(--cash); }
+.m .st.need { color: var(--warn); }
+.m .st.bad { color: var(--bad); }
+.m .st.now { color: var(--neontx); }
+.m .acts { flex-direction: row; gap: 8px; flex: none; }
+.m .bar { width: 100%; }
+.m .pr { width: 30%; flex: none; gap: 6px; }
+.m .pr .v { font-size: 12px; color: var(--mu); }
+.tag { height: 18px; padding: 0 6px; border-radius: 5px; background: var(--neonbg); color: var(--neontx); font-size: 11px; font-weight: 700;
+  justify-content: center; margin-left: 8px; flex: none; }
+
+/* Group header inside a list: what the rows have in common, and how many. */
+.gh { flex-direction: row; align-items: center; gap: 10px; padding: 8px 2px 2px 2px; flex: none; }
+.gh .lu { width: 16px; height: 16px; }
+.gh .c { color: var(--dim); font-size: 12px; font-weight: 700; }
+
+/* A strip that says what will happen, in the colour of its meaning. */
+.say { flex-direction: row; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 12px; background: var(--s1); flex: none; }
+.say > .lu { width: 22px; height: 22px; }
+.say .t { flex: 1; min-width: 0; gap: 3px; }
+.say .nm { font-size: 15px; font-weight: 700; }
+.say .sub { color: var(--mu); font-size: 13px; }
+.say .acts { flex-direction: row; gap: 8px; flex: none; }
+.say.need { background: #2B2414; }
+.say.bad { background: #2E1719; }
+.say.now { background: var(--neonbg); }
+.say.ok { background: #18241A; }
+
+.bigbar { height: 10px; border-radius: 5px; background: var(--s2); overflow: hidden; flex: none; }
+.bigbar .fill { height: 10px; width: 0; background: linear-gradient(90deg, var(--neon), #F07CF4); }
+.bigbar.done .fill { background: linear-gradient(90deg, var(--cash), var(--cashhi)); }
+.bigbar.bad .fill { background: var(--bad); }
+.bigbar.need .fill { background: var(--warn); }
+.prog { flex-direction: row; align-items: center; gap: 14px; flex: none; }
+.prog .v { color: var(--mu); font-size: 13px; flex: none; }
+.prog .bigbar { flex: 1; }
+.prog.w { width: 480px; }
+
+.foot { flex-direction: row; align-items: center; gap: 10px; flex: none; }
+.foot .quiet { flex: 1; min-width: 0; }
+.nm2 { font-size: 20px; font-weight: 800; flex: none; }
+.quiet.need { color: var(--warn); }
+.quiet.bad { color: var(--bad); }
+.quiet.ok { color: var(--cash); }
+
+/* The one centred moment of a screen. */
+.big { flex: 1; justify-content: center; align-items: center; gap: 18px; text-align: center; }
+.big .bigic { width: 56px; height: 56px; }
+.big .nm { font-size: 30px; font-weight: 800; }
+.big .sub { color: var(--mu); font-size: 15px; width: 480px; }
+.big .acts { flex-direction: row; gap: 10px; }
+
+/* Save picker cards. */
+.saves { gap: 8px; flex: none; }
+.sv { flex-direction: row; align-items: center; gap: 16px; height: 72px; padding: 0 16px; border-radius: 12px; background: var(--s1); flex: none;
+  border: 2px solid rgba(0, 0, 0, 0); }
+.sv:hover { background: var(--s2); }
+.sv.sel { border-color: var(--neon); }
+.sv .no { width: 34px; flex: none; font-size: 26px; font-weight: 800; color: var(--s4); }
+.sv .t { flex: 1; min-width: 0; gap: 2px; }
+.sv .nm { font-size: 17px; font-weight: 700; }
+.sv .sub { color: var(--mu); font-size: 12px; }
+.sv .cash { color: var(--cash); font-weight: 700; font-size: 15px; flex: none; }
+.sv.empty .nm { color: var(--dim); font-weight: 600; }
+
+/* Dialogs the mod asks through the page. */
+.dialog .row { flex-direction: row; align-items: center; }
+.dialog .di { color: var(--tx); font-size: 13px; padding-left: 10px; }
+.dialog .dis { gap: 4px; max-height: 220px; overflow-y: auto; }
+.xbtn { width: 32px; height: 32px; border-radius: 8px; background: var(--s2); justify-content: center; align-items: center; flex: none; }
+.xbtn:hover { background: var(--s3); }
+.xbtn .lu { width: 16px; height: 16px; }
+.toast.ok { color: var(--cash); }
+.toast.need { color: var(--warn); }
+.toast.bad { color: var(--bad); }
+.toast.info { color: var(--tx); }

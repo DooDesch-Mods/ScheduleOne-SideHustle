@@ -71,13 +71,7 @@ namespace SideHustle.Menu
                     return;
                 }
 
-                var q = Norm(query);
-                var filtered = index.Packages
-                    .Where(p => !p.IsDeprecated && p.Latest != null)
-                    // Essentials (Side Hustle / S1API) are in every profile already - never offer them for install.
-                    .Where(p => !Profiles.Essentials.IsEssentialPackageName(p.FullName))
-                    .Where(p => q.Length == 0 || Norm(p.Name).Contains(q) || Norm(p.Owner).Contains(q) || Norm(p.FullName).Contains(q));
-                var results = Sorted(filtered).Take(MaxResults).ToList();
+                var results = Search(index, query);
 #if DEBUG
                 Core.Log?.Msg($"[browser] sort={SortLabels[_sortMode]} top3: " + string.Join(" | ",
                     results.Take(3).Select(p => $"{p.FullName} (upd {p.DateUpdated}, dl {p.TotalDownloads}, rt {p.RatingScore})")));
@@ -227,7 +221,28 @@ namespace SideHustle.Menu
             rt.offsetMax = new Vector2(-TextRight, -topInset);
         }
 
-        private static string Downloads(long n) =>
+        /// <summary>The sort the browser uses, shared by the classic screen and the hub page.</summary>
+        internal static int SortMode
+        {
+            get => _sortMode;
+            set => _sortMode = Math.Max(0, Math.Min(SortLabels.Length - 1, value));
+        }
+
+        internal static IReadOnlyList<string> SortNames => SortLabels;
+
+        /// <summary>The packages a query shows, sorted, at most <see cref="MaxResults"/>.</summary>
+        internal static List<TsPackage> Search(TsIndex index, string query)
+        {
+            var q = Norm(query);
+            var filtered = index.Packages
+                .Where(p => !p.IsDeprecated && p.Latest != null)
+                // Essentials (Side Hustle / S1API) are in every profile already - never offer them for install.
+                .Where(p => !Profiles.Essentials.IsEssentialPackageName(p.FullName))
+                .Where(p => q.Length == 0 || Norm(p.Name).Contains(q) || Norm(p.Owner).Contains(q) || Norm(p.FullName).Contains(q));
+            return Sorted(filtered).Take(MaxResults).ToList();
+        }
+
+        internal static string Downloads(long n) =>
             n >= 1_000_000 ? (n / 1_000_000.0).ToString("0.#") + "M" : n >= 1_000 ? (n / 1_000.0).ToString("0.#") + "k" : n.ToString();
 
         private static string Norm(string s) =>

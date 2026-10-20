@@ -81,6 +81,7 @@ namespace SideHustle.Debugging
             new[] { "shgate", "shgate [load] - what the boot gate held back, and load it now" },
             new[] { "shpickgm", "shpickgm <name> - what clicking an unloaded gamemode row does" },
             new[] { "shmanual", "shmanual [steamid] - open the manual-install screen with sample rows" },
+            new[] { "shconsent", "shconsent [enforced] - open the sync check with sample rows" },
             new[] { "shresolve", "shresolve [file name version sha256|- [source]] - resolve a host mod and download it to the cache (default MoreGuns 1.6.6)" },
             new[] { "shmanifest", "shmanifest - print the mod list a hosted lobby would publish, with hashes" },
             new[] { "shscan", "shscan file name sha256 - scan Downloads once for a manual-install row with that hash" },
@@ -135,6 +136,7 @@ namespace SideHustle.Debugging
                     case "shgate": Gate(parts); break;
                     case "shpickgm": PickGamemode(parts); break;
                     case "shmanual": ManualDemo(parts); break;
+                    case "shconsent": ConsentDemo(parts); break;
                     case "shresolve": ResolveDemo(parts); break;
                     case "shmanifest": ManifestDump(); break;
                     case "shscan": ScanOnce(parts); break;
@@ -586,6 +588,36 @@ namespace SideHustle.Debugging
             Menu.Hub.OpenManualForTest(diff, peer, peer == 0UL ? "" : SideHustle.Phone.ChatRelay.NameOf(peer), peer != 0UL);
             Core.Log?.Msg("[dev] shmanual: checklist open with " + diff.Entries.Count + " sample row(s)"
                 + (peer != 0UL ? ", chat column for " + peer : ""));
+        }
+
+        /// <summary>The sync check on a made-up diff: one row of every kind, so the whole screen can be looked at.</summary>
+        private static void ConsentDemo(string[] parts)
+        {
+            bool enforced = parts.Length > 1 && parts[1].Equals("enforced", StringComparison.OrdinalIgnoreCase);
+            var diff = new Sync.SyncDiff();
+            void Row(string file, string name, string version, Sync.DiffStatus status, bool hashWarn = false, bool reuse = false, bool versionWarn = false)
+            {
+                diff.Entries.Add(new Sync.DiffEntry
+                {
+                    Mod = new Sync.ManifestMod { File = file, Name = name, Version = version, Source = "ts:Fake-" + name },
+                    Status = status,
+                    HashWarn = hashWarn,
+                    OwnCopyReuse = reuse,
+                    VersionWarn = versionWarn,
+                });
+            }
+            Row("MoreGuns.dll", "MoreGuns", "1.6.6", Sync.DiffStatus.Download);
+            Row("S1API.dll", "S1API", "2.4.0", Sync.DiffStatus.Cached);
+            Row("Siesta.dll", "Siesta", "1.2.0", Sync.DiffStatus.Download, hashWarn: true);
+            Row("WhatsDab.dll", "WhatsDab", "1.1.0", Sync.DiffStatus.Manual);
+            Row("Private.dll", "A Private Mod", "0.1.0", Sync.DiffStatus.Dropped);
+            Row("Snitch.dll", "Snitch", "1.0.3", Sync.DiffStatus.Present, reuse: true, versionWarn: true);
+            for (int i = 0; i < 6; i++) Row("Match" + i + ".dll", "Match" + i, "1.0.0", Sync.DiffStatus.Present);
+            diff.LocalOnly.Add("BreedToSeed.dll");
+            diff.LocalOnly.Add("Clipwise.dll");
+            var manifest = new Sync.SyncManifest { GameVersion = "0.4.0f1" };
+            Menu.Hub.OpenConsentForTest(manifest, diff, enforced);
+            Core.Log?.Msg($"[dev] shconsent: sync check open with {diff.Entries.Count} sample row(s), enforced={enforced}.");
         }
 
         /// <summary>
