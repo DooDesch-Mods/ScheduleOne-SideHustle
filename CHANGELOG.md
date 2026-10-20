@@ -3,6 +3,12 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [3.1.1] - 2026-10-21
+
+### Fixed
+- With `DeferModsUntilLobby` on, the game no longer crashes at startup when a mod in `AlwaysLoadMods` adds
+  commands to Hash.
+
 ## [3.1.0] - 2026-10-20
 
 ### Changed
