@@ -162,6 +162,10 @@
     <EmbeddedResource Include="Assets/hub/*" Exclude="Assets/hub/preview.html;Assets/hub/s1-mock.js">
       <LogicalName>SideHustle.Assets.hub.%(Filename)%(Extension)</LogicalName>
     </EmbeddedResource>
+    <!-- Lucide glyphs of the hub's sub-screens; the glob above does not reach into subfolders. -->
+    <EmbeddedResource Include="Assets/hub/icons/*.png">
+      <LogicalName>SideHustle.Assets.hub.icons.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
   <!-- Mod loader references -->

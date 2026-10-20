@@ -100,11 +100,12 @@ function act(name, arg) {
   return why;
 }
 
+// A refusal is red; the mod's own notes come with their tone ("ok", "need", "info").
 let toastNode = null;
-function toast(text) {
+function toast(text, tone) {
   if (toastNode) toastNode.remove();
-  toastNode = el('div', 'glass toast', text);
-  toastNode.style.cssText = 'position:fixed;left:40px;bottom:28px;padding:12px 18px;color:#F1707A;font-weight:700';
+  toastNode = el('div', 'glass toast ' + (tone || 'bad'), text);
+  toastNode.style.cssText = 'position:fixed;left:40px;bottom:28px;padding:12px 18px;font-weight:700';
   document.body.appendChild(toastNode);
   const mine = toastNode;
   setTimeout(() => { if (toastNode === mine) { mine.remove(); toastNode = null; } }, 4000);
@@ -124,11 +125,12 @@ function renderTop() {
     : live === 1 ? '1 lobby live' : live + ' lobbies live';
   ver.className = live > 0 ? 'ver' : 'ver off';
 
-  if (!changed('tabs', [ui.tab, live])) return;
+  const lock = !!(S && S.view && S.view.lock);
+  if (!changed('tabs', [ui.tab, live, lock])) return;
   const tabs = document.getElementById('tabs');
   tabs.replaceChildren();
   for (const [id, label] of TABS) {
-    const t = el('div', ui.tab === id ? 'tab on' : 'tab', label);
+    const t = el('div', ui.tab === id ? 'tab on' : lock ? 'tab off' : 'tab', label);
     if (id === 'lobbies' && live > 0) {
       t.textContent = '';
       t.appendChild(el('div', null, label));
@@ -140,8 +142,11 @@ function renderTop() {
 }
 
 function go(tab) {
-  // Profiles and Settings are still the uGUI screens; the mod swaps to them and back.
-  if (tab === 'profiles' || tab === 'settings') { act('hub.legacy', tab); return; }
+  // A download or a restart in progress keeps the screen until it is done or cancelled.
+  if (S && S.view && S.view.lock) { console.log('hub: tab ' + tab + ' ignored, ' + S.view.key + ' holds the screen'); return; }
+  // Profiles and Settings are screens the mod draws; so are the join checks, which a tab leaves.
+  if (tab === 'profiles' || tab === 'settings') { act('hub.legacy', tab); refresh(); return; }
+  if (S && S.view) { ui.tab = tab; act('hub.open', tab); refresh(); return; }
   if (ui.tab === tab) return;
   ui.tab = tab;
   invalidate();
@@ -753,6 +758,377 @@ function askPassword(l, anyway) {
 
 function closeDialog() { if (dialog) { sweepInputs(dialog); dialog.remove(); dialog = null; } }
 
+/* ---------- screens the mod draws: settings, profiles, the join checks, the vanilla host ---------- */
+
+// The mod sends such a screen as `view`: a list of parts and the ids of what each click runs. Each top-level part
+// is rebuilt only when its own JSON moved. The text of a field is left out of that comparison and the field node
+// is kept by its key, so typing never rebuilds a field and a rebuilt part takes the same field over.
+const pv = { key: null, frame: null, root: null, nodes: [], shapes: [], dialog: null, dialogShape: '' };
+const fields = new Map();     // field key -> { node, value, sent, act, commit, on }
+
+const shapeOf = v => JSON.stringify(v, (k, x) => (k === 'value' ? undefined : x));
+
+function viewCall(id, value) {
+  if (!id || !S || !S.view) return '';
+  return call('hub.view', { key: S.view.key, rev: S.view.rev, id, value: value === undefined || value === null ? '' : String(value) });
+}
+
+// A click: the mod's answer moves the state, so it is read now instead of on the next push.
+function viewAct(id, value) {
+  if (!id) return;
+  const why = viewCall(id, value);
+  if (why) toast(why);
+  refresh();
+}
+
+function lu(name, cls) {
+  const i = el('img', cls ? 'lu ' + cls : 'lu');
+  i.setAttribute('src', 'icons/' + name + '.png');
+  return i;
+}
+
+function dialogText() { const f = fields.get('dialog'); return f ? f.value : ''; }
+
+function vbtn(b) {
+  const n = el('div', 'btn' + (b.cls ? ' ' + b.cls : '') + (b.off ? ' off' : ''));
+  if (b.icon) n.appendChild(lu(b.icon));
+  n.appendChild(document.createTextNode(b.label));
+  n.addEventListener('click', e => {
+    e.stopPropagation();
+    if (b.off) return;
+    viewAct(b.act, S && S.view && S.view.dialog ? dialogText() : '');
+  });
+  return n;
+}
+
+function kids(box, list) {
+  for (const k of list || []) {
+    const n = k && k.t ? part(k) : k && k.label !== undefined ? vbtn(k) : null;
+    if (n) box.appendChild(n);
+  }
+  return box;
+}
+
+function acts(list, cls) { return kids(el('div', cls || 'acts'), list); }
+
+function textCol(name, sub, extra) {
+  const t = el('div', 't');
+  t.appendChild(el('div', 'nm', name));
+  if (sub) t.appendChild(el('div', 'sub', sub));
+  if (extra) t.appendChild(extra);
+  return t;
+}
+
+function vinput(p) {
+  let f = fields.get(p.key);
+  if (!f) {
+    const node = el('input', p.cls || 'inp');
+    if (p.pw) node.setAttribute('type', 'password');
+    node.value = p.value || '';
+    f = { node, value: p.value || '', sent: p.value || '' };
+    node.addEventListener('input', e => { f.value = valueOf(e); if (f.act) viewCall(f.act, f.value); });
+    node.addEventListener('keydown', e => { if (e.key === 'Enter') commitField(f, true); });
+    // `change` comes when the field loses focus with a new text: a setting is saved without an Enter.
+    node.addEventListener('change', () => { if (p.key !== 'dialog') commitField(f, false); });
+    fields.set(p.key, f);
+    if (p.key === 'dialog') node.focus();
+  }
+  f.act = p.act;
+  f.commit = p.commit;
+  f.node.setAttribute('placeholder', p.ph || '');
+  return f.node;
+}
+
+function commitField(f, enter) {
+  if (!f.commit) return;
+  if (!enter && f.value === f.sent) return;
+  f.sent = f.value;
+  viewAct(f.commit, f.value);
+}
+
+function bigbar(pct, tone) {
+  const b = el('div', 'bigbar' + (tone ? ' ' + tone : ''));
+  const fill = el('div', 'fill');
+  fill.style.width = Math.max(0, Math.min(100, pct)) + '%';
+  b.appendChild(fill);
+  return b;
+}
+
+function part(p) {
+  switch (p.t) {
+    case 'head': {
+      const n = el('div', 'vh');
+      if (p.back) {
+        const b = el('div', 'back');
+        b.appendChild(lu('back'));
+        b.appendChild(document.createTextNode(p.backLabel || 'Back'));
+        b.addEventListener('click', () => viewAct(p.back));
+        n.appendChild(b);
+      }
+      n.appendChild(textCol(p.name, p.sub));
+      if (p.acts && p.acts.length) n.appendChild(acts(p.acts));
+      return n;
+    }
+    case 'dhead': {
+      const n = el('div', 'dhead');
+      if (p.mono) n.appendChild(el('div', 'icon mono', p.mono));
+      n.appendChild(textCol(p.name, p.sub));
+      if (p.acts && p.acts.length) n.appendChild(acts(p.acts));
+      return n;
+    }
+    case 'card': {
+      const n = el('div', 'glass card' + (p.grow ? ' grow' : ''));
+      if (p.h) n.appendChild(el('div', 'h', p.h));
+      kids(n, p.kids);
+      const sets = n.querySelectorAll('.set');
+      if (sets.length) sets[sets.length - 1].classList.add('last');
+      return n;
+    }
+    case 'two': {
+      const n = el('div', 'two');
+      n.appendChild(kids(el('div', 'l'), p.l));
+      n.appendChild(kids(el('div', 'r2'), p.r));
+      return n;
+    }
+    case 'cols': {
+      const n = el('div', 'cols');
+      n.appendChild(kids(el('div', 'form'), p.l));
+      n.appendChild(kids(el('div', 'form'), p.r));
+      return n;
+    }
+    case 'scroll': return kids(el('div', 'scroll'), p.kids);
+    case 'line': return kids(el('div', 'row gap'), p.kids);
+    case 'set': {
+      const n = el('div', 'set');
+      const t = textCol(p.name, p.sub);
+      if (p.note) t.appendChild(el('div', 'note', p.note));
+      n.appendChild(t);
+      if (p.ctl) n.appendChild(part(p.ctl));
+      return n;
+    }
+    case 'tog': {
+      const n = el('div', 'tog');
+      const opts = [];
+      (p.opts || []).forEach((o, i) => {
+        const x = el('div', i === p.cur ? 'o on' : 'o', o.s);
+        x.addEventListener('click', () => {
+          if (i === p.cur) return;
+          for (const y of opts) y.classList.remove('on');
+          x.classList.add('on');
+          viewAct(p.act, i);
+        });
+        opts.push(x);
+        n.appendChild(x);
+      });
+      return n;
+    }
+    case 'input': return vinput(p);
+    case 'field': {
+      const n = el('div', 'f');
+      n.appendChild(el('div', 'lbl', p.label));
+      if (p.ctl) n.appendChild(part(p.ctl));
+      if (p.cap) n.appendChild(el('div', 'cap', p.cap));
+      return n;
+    }
+    case 'step': {
+      const n = el('div', 'step');
+      const minus = el('div', 'pm', '-');
+      const plus = el('div', 'pm', '+');
+      minus.addEventListener('click', () => { if (p.v > p.min) viewAct(p.act, p.v - 1); });
+      plus.addEventListener('click', () => { if (p.v < p.max) viewAct(p.act, p.v + 1); });
+      n.appendChild(minus);
+      n.appendChild(el('div', 'v', p.v));
+      n.appendChild(plus);
+      return n;
+    }
+    case 'gh': {
+      const n = el('div', 'gh');
+      if (p.icon) n.appendChild(lu(p.icon, p.tone));
+      n.appendChild(el('div', 'h', p.label));
+      if (p.count) n.appendChild(el('div', 'c', p.count));
+      return n;
+    }
+    case 'row': {
+      const n = el('div', 'm' + (p.dep ? ' dep' : '') + (p.sel ? ' sel' : ''));
+      if (p.act) n.addEventListener('click', () => viewAct(p.act));
+      if (p.icon) n.appendChild(lu(p.icon, p.itone ? 'ic ' + p.itone : 'ic'));
+      if (p.mono) n.appendChild(el('div', 'icon mono', p.mono));
+      const t = el('div', 't');
+      if (p.tag) {
+        const nl = el('div', 'nl');
+        nl.appendChild(el('div', 'nm', p.name));
+        nl.appendChild(el('div', 'tag', p.tag));
+        t.appendChild(nl);
+      } else t.appendChild(el('div', 'nm', p.name));
+      if (p.sub) t.appendChild(el('div', 'sub', p.sub));
+      n.appendChild(t);
+      if (p.pct >= 0) {
+        const pr = el('div', 'pr');
+        const b = el('div', 'bar');
+        const fill = el('div', 'fill');
+        fill.style.width = Math.max(0, Math.min(100, p.pct)) + '%';
+        b.appendChild(fill);
+        pr.appendChild(b);
+        pr.appendChild(el('div', 'v', p.st));
+        n.appendChild(pr);
+      } else if (p.live) {
+        const l = el('div', 'live');
+        l.appendChild(el('div', 'dot'));
+        l.appendChild(el('div', null, p.st));
+        n.appendChild(l);
+      } else if (p.st) n.appendChild(el('div', 'st' + (p.tone ? ' ' + p.tone : ''), p.st));
+      if (p.acts && p.acts.length) n.appendChild(acts(p.acts));
+      return n;
+    }
+    case 'say': {
+      const n = el('div', 'say' + (p.tone ? ' ' + p.tone : ''));
+      if (p.icon) n.appendChild(lu(p.icon, p.tone));
+      n.appendChild(textCol(p.name, p.sub));
+      if (p.acts && p.acts.length) n.appendChild(acts(p.acts));
+      return n;
+    }
+    case 'prog': {
+      const n = el('div', 'prog');
+      n.appendChild(bigbar(p.pct, p.tone));
+      if (p.label) n.appendChild(el('div', 'v', p.label));
+      return n;
+    }
+    case 'foot': {
+      const n = el('div', 'foot');
+      if (p.note) n.appendChild(el('div', 'quiet', p.note));
+      kids(n, p.l);
+      if (!p.note) n.appendChild(el('div', 'sp'));
+      kids(n, p.r);
+      return n;
+    }
+    case 'quiet': return el('div', p.tone ? 'quiet ' + p.tone : 'quiet', p.text);
+    case 'sp': return el('div', 'sp');
+    case 'title': return el('div', 'nm2', p.text);
+    case 'h': return el('div', 'h', p.text);
+    case 'fnote': return el('div', 'fnote', p.text);
+    case 'big': {
+      const n = el('div', 'big');
+      if (p.icon) n.appendChild(lu(p.icon, 'bigic now'));
+      n.appendChild(el('div', 'nm', p.name));
+      if (p.sub) n.appendChild(el('div', 'sub', p.sub));
+      if (p.pct >= 0) {
+        const pr = el('div', 'prog w');
+        pr.appendChild(bigbar(p.pct, p.tone));
+        if (p.label) pr.appendChild(el('div', 'v', p.label));
+        n.appendChild(pr);
+      }
+      if (p.acts && p.acts.length) n.appendChild(acts(p.acts));
+      return n;
+    }
+    case 'save': {
+      const n = el('div', 'sv' + (p.sel ? ' sel' : '') + (p.empty ? ' empty' : ''));
+      if (p.act) n.addEventListener('click', () => viewAct(p.act));
+      n.appendChild(el('div', 'no', p.no));
+      n.appendChild(textCol(p.name, p.sub));
+      if (p.cash) n.appendChild(el('div', 'cash', p.cash));
+      return n;
+    }
+    case 'saves': return kids(el('div', 'saves'), p.kids);
+    case 'facts': {
+      const n = el('div', 'facts');
+      n.appendChild(el('div', 'sp'));
+      return kids(n, p.kids);
+    }
+  }
+  console.warn('hub view: unknown part ' + p.t);
+  return el('div');
+}
+
+function frameClass(frame) {
+  return frame === 'board' ? 'glass board pv' : frame === 'detail' ? 'glass detail pv' : 'pvm';
+}
+
+function renderView(main) {
+  const v = S.view;
+  const key = v.key + '#' + v.seq;
+  if (pv.key !== key || !pv.root || !pv.root.parentElement || pv.frame !== v.frame) {
+    sweepInputs(main);
+    main.replaceChildren();
+    fields.clear();
+    pv.key = key;
+    pv.frame = v.frame;
+    pv.root = el('div', frameClass(v.frame));
+    pv.nodes = [];
+    pv.shapes = [];
+    main.appendChild(pv.root);
+  }
+
+  const parts = v.parts || [];
+  for (let i = 0; i < parts.length; i++) {
+    const shape = shapeOf(parts[i]);
+    if (pv.shapes[i] === shape && pv.nodes[i]) continue;
+    const fresh = part(parts[i]);
+    const old = pv.nodes[i];
+    if (old) { pv.root.insertBefore(fresh, old); sweepInputs(old); old.remove(); }
+    else pv.root.appendChild(fresh);
+    pv.nodes[i] = fresh;
+    pv.shapes[i] = shape;
+  }
+  while (pv.nodes.length > parts.length) {
+    const old = pv.nodes.pop();
+    pv.shapes.pop();
+    sweepInputs(old);
+    old.remove();
+  }
+  renderViewDialog(v.dialog);
+}
+
+function renderViewDialog(dlg) {
+  const shape = dlg ? shapeOf(dlg) : '';
+  if (shape === pv.dialogShape && (!dlg || pv.dialog)) return;
+  pv.dialogShape = shape;
+  const old = pv.dialog;
+  pv.dialog = null;
+  if (!dlg) {
+    fields.delete('dialog');
+    if (old) { sweepInputs(old); old.remove(); }
+    return;
+  }
+  closeDialog();
+  const scrim = el('div', 'scrim');
+  const box = el('div', 'glass dialog');
+  const head = el('div', 'row');
+  head.appendChild(el('div', 'nm', dlg.name));
+  head.appendChild(el('div', 'sp'));
+  const x = el('div', 'xbtn');
+  x.appendChild(lu('close'));
+  x.addEventListener('click', () => viewAct(dlg.cancel));
+  head.appendChild(x);
+  box.appendChild(head);
+  if (dlg.sub) box.appendChild(el('div', 'sub', dlg.sub));
+  if (dlg.items && dlg.items.length) {
+    const list = el('div', 'dis');
+    for (const it of dlg.items) list.appendChild(el('div', 'di', '- ' + it.s));
+    box.appendChild(list);
+  }
+  if (dlg.input) box.appendChild(part(dlg.input));
+  if (dlg.error) box.appendChild(el('div', 'ferr', dlg.error));
+  const row = el('div', 'acts');
+  row.appendChild(el('div', 'sp'));
+  kids(row, dlg.acts);
+  box.appendChild(row);
+  scrim.appendChild(box);
+  scrim.addEventListener('click', e => { if (e.target === scrim) viewAct(dlg.cancel); });
+  document.body.appendChild(scrim);
+  pv.dialog = scrim;
+  if (old) { sweepInputs(old); old.remove(); }
+}
+
+// The mod took the screen back (a tab, a session, a restart): the page draws its own tabs again.
+function leaveView() {
+  if (!pv.root && !pv.dialog) return;
+  if (pv.dialog) { sweepInputs(pv.dialog); pv.dialog.remove(); }
+  pv.key = null; pv.root = null; pv.nodes = []; pv.shapes = []; pv.dialog = null; pv.dialogShape = '';
+  fields.clear();
+  playTop = null; boardList = null; boardPass = null;
+  invalidate();
+}
+
 /* ---------- status panel ---------- */
 
 function renderStatus() {
@@ -808,6 +1184,11 @@ function applyOpen() {
 // Right-click steps back one level; the mod raises it because a surface has no back gesture of its own.
 function back() {
   if (dialog) { closeDialog(); return; }
+  if (S && S.view) {
+    if (S.view.dialog) viewAct(S.view.dialog.cancel);
+    else if (S.view.back) viewAct(S.view.back);
+    return;
+  }
   if (ui.form) { closeForm(); return; }
   if (ui.tab === 'lobbies' && ui.lobby) { selectLobby(ui.lobby); return; }
   if (ui.tab !== 'play') { go('play'); return; }
@@ -821,6 +1202,11 @@ function render() {
   renderStatus();
   if (!S) return;
   const main = document.getElementById('main');
+  const page = main.parentElement;
+  const want = S.view && S.view.chat ? 'page chat' : 'page';
+  if (page.className !== want) page.className = want;
+  if (S.view) { renderView(main); return; }
+  leaveView();
   if (ui.tab === 'lobbies') { playTop = null; renderLobbies(main); }
   else { boardList = null; boardPass = null; renderPlay(main); }
 }
@@ -830,9 +1216,14 @@ function refresh() {
   if (!next) return;
   S = next;
   applyOpen();
+  if (S.view) ui.tab = S.view.tab || ui.tab;
   render();
 }
 
 s1.on('hub.changed', refresh);
 s1.on('hub.back', back);
+s1.on('hub.toast', raw => {
+  try { const t = JSON.parse(raw); toast(t.text, t.tone || 'info'); }
+  catch (e) { console.error('unreadable hub toast: ' + e.message); }
+});
 refresh();

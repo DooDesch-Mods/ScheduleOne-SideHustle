@@ -192,10 +192,8 @@ namespace SideHustle.Menu
 
         private static void AskStopSyncDownload()
         {
-            var root = DialogRoot();
-            if (root == null) { Core.Log?.Warning("[sync] no canvas to ask 'Stop the download?' on."); return; }
-            DooDesch.UI.Components.ConfirmDialog(root, "Stop the download?", "Finished downloads are kept.", "Stop",
-                () => StopSyncDownload("confirmed in the dialog"));
+            AskConfirm("Stop the download?", "Finished downloads are kept.", "Stop",
+                () => StopSyncDownload("confirmed in the dialog"), danger: true);
         }
 
         /// <summary>Cancel the running sync download and go back to the screen it came from. No restart.</summary>
@@ -231,12 +229,29 @@ namespace SideHustle.Menu
             EnsureInit();
             EnsureClone();
             if (_cloneScreen == null) { Core.Log?.Warning("[hub] gamemode screen unavailable."); return; }
+            if (!_cloneScreen.IsOpen) _cloneScreen.Open();
+            if (ShowManualOnPage("lobbies", "Manual installs", diff, hostSteamId, hostName, hostAcceptsMessages, "Sync check",
+                    ShowGamemodeList, ShowGamemodeList)) return;
             ClearFormHost();
             SetTmp(_clone.transform, "Title", "Manual installs");
             var host = CreateFormHost("SH_ManualDemo");
             SyncManualInstallView.Build(host, diff, hostSteamId, hostName, hostAcceptsMessages,
                 onContinue: OpenScreen, onBack: OpenScreen);
-            _cloneScreen.Open();
+        }
+
+        /// <summary>The sync check on a made-up diff (shconsent). Sync and join opens the manual-install sample.</summary>
+        internal static void OpenConsentForTest(Sync.SyncManifest manifest, Sync.SyncDiff diff, bool enforced)
+        {
+            EnsureInit();
+            EnsureClone();
+            if (_cloneScreen == null) { Core.Log?.Warning("[hub] gamemode screen unavailable."); return; }
+            if (!_cloneScreen.IsOpen) _cloneScreen.Open();
+            Action again = () => OpenConsentForTest(manifest, diff, enforced);
+            if (!ShowConsentOnPage("lobbies", "A test lobby", manifest, diff, enforced, hasPrefs: true, 0UL, "", false,
+                    onSyncJoin: () => ShowManualOnPage("lobbies", "Manual installs", diff, 0UL, "", false, "Sync check", ShowGamemodeList, again),
+                    onPlainJoin: () => { Core.Log?.Msg("[dev] shconsent: join without syncing."); ShowGamemodeList(); },
+                    onBack: ShowGamemodeList, backLabel: "Lobbies"))
+                Core.Log?.Warning("[dev] shconsent: the hub page could not take the sync check.");
         }
 #endif
 
@@ -608,6 +623,7 @@ namespace SideHustle.Menu
             if (_clone == null) return;
             _mpDesc = null;
             _back = ShowGamemodeList;
+            if (ShowOnPage("settings", "settings", pv => SettingsView.BuildPage(pv, ShowGamemodeList), SettingsView.LeavePage)) return;
             ClearFormHost();
             SetTmp(_clone.transform, "Title", "Settings");
             var host = CreateFormHost("SH_Settings");
@@ -772,6 +788,7 @@ namespace SideHustle.Menu
             // (checklist -> Back -> consent), and taking the page down would throw away a half-typed reply.
             ChatPanel.MarkStale();
             SyncManualInstallView.Deactivate();
+            DropPageScreen();
             _hubView = false;   // a classic view is being built; RouteToHub sets it again for a view the page draws
 
             if (_formHost != null) { Safe.Try("destroying the old form", () => UnityEngine.Object.Destroy(_formHost)); _formHost = null; }

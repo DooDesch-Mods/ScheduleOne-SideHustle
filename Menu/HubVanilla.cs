@@ -444,32 +444,24 @@ namespace SideHustle.Menu
         private static void ShowVanillaSavePicker()
         {
             _back = ShowVanillaChoice;
-            var rows = new List<Row>();
+            var saves = new List<(int Slot, string Org, float Worth, Il2CppScheduleOne.Persistence.SaveInfo Save)>();
             try
             {
-                var saves = Il2CppScheduleOne.Persistence.LoadManager.SaveGames;
-                if (saves != null)
+                var games = Il2CppScheduleOne.Persistence.LoadManager.SaveGames;
+                if (games != null)
                 {
-                    for (int i = 0; i < saves.Length; i++)
+                    for (int i = 0; i < games.Length; i++)
                     {
-                        var info = saves[i];
+                        var info = games[i];
                         if (info == null) continue;
                         string org;
                         float worth = 0f;
-                        int slot = i;
                         try { org = info.OrganisationName; }
                         catch (Exception e) { org = null; Core.Log?.Warning($"[sync] save slot {i + 1}: could not read the organisation name: {e.Message}"); }
                         try { worth = info.Networth; }
                         catch (Exception e) { Core.Log?.Warning($"[sync] save slot {i + 1}: could not read the net worth: {e.Message}"); }
                         if (string.IsNullOrEmpty(org)) continue;   // empty slot
-                        var save = info;
-                        rows.Add(new Row
-                        {
-                            Name = org,
-                            Subtitle = $"Slot {slot + 1} - net worth ${worth:n0}",
-                            Corner = "Save",
-                            OnClick = () => ShowVanillaHostForm(save)
-                        });
+                        saves.Add((i, org, worth, info));
                     }
                 }
             }
@@ -478,7 +470,36 @@ namespace SideHustle.Menu
             // A fresh start, mirroring the main menu's "New Game": create a real save and host it directly. Offered
             // whenever a save slot is free (also the only action when the player has no saves yet, so "Host a save"
             // is never a dead end); hidden when all five slots are full, since a new save could not be created anyway.
-            if (FirstFreeSaveSlot() >= 0)
+            bool canCreate = FirstFreeSaveSlot() >= 0;
+
+            if (ShowOnPage("vanilla.saves", "play", pv =>
+            {
+                pv.Frame = "board";
+                pv.Add(pv.Head("Host a lobby", "Open one of your saves as a lobby.", "Play", ShowVanillaChoice));
+                var list = new List<SideHustle.Phone.Json>();
+                if (canCreate) list.Add(pv.Save("+", "New game", "Create a save and host it.", null, false, PromptNewGame));
+                foreach (var s in saves)
+                {
+                    var save = s.Save;
+                    list.Add(pv.Save((s.Slot + 1).ToString(), s.Org, $"Slot {s.Slot + 1}", $"${s.Worth:n0}", false, () => ShowVanillaHostForm(save)));
+                }
+                if (list.Count == 0) list.Add(pv.Quiet("All save slots are full. Delete a save in the main menu first."));
+                pv.Add(pv.Saves(list));
+            })) return;
+
+            var rows = new List<Row>();
+            foreach (var s in saves)
+            {
+                var save = s.Save;
+                rows.Add(new Row
+                {
+                    Name = s.Org,
+                    Subtitle = $"Slot {s.Slot + 1} - net worth ${s.Worth:n0}",
+                    Corner = "Save",
+                    OnClick = () => ShowVanillaHostForm(save)
+                });
+            }
+            if (canCreate)
                 rows.Insert(0, new Row
                 {
                     Name = "New game",
@@ -493,17 +514,12 @@ namespace SideHustle.Menu
         // Name the organisation (like the vanilla New Game setup screen), then create + host a fresh save.
         private static void PromptNewGame()
         {
-            var root = DialogRoot();
-            if (root == null) return;
-            DooDesch.UI.Components.PromptDialog(root, "New game",
-                "Name your organisation.",
-                "Organisation name", "Create and host",
-                name =>
-                {
-                    if (string.IsNullOrWhiteSpace(name)) return "Enter an organisation name.";
-                    HostNewGame(name.Trim());
-                    return null;
-                });
+            AskText("New game", "Name your organisation.", "Organisation name", "", "Create and host", name =>
+            {
+                if (string.IsNullOrWhiteSpace(name)) return "Enter an organisation name.";
+                HostNewGame(name.Trim());
+                return null;
+            });
         }
 
         private static void HostNewGame(string orgName)
@@ -533,17 +549,56 @@ namespace SideHustle.Menu
         {
             if (_clone == null) return;
             _back = ShowVanillaSavePicker;
-            ClearFormHost();
-            var rememberedVis = SideHustle.Config.Preferences.GetHost(SideHustle.Config.Preferences.VanillaHostKey)?.Visibility ?? 0;
-            SetTmp(_clone.transform, "Title", VanillaHostView.HostLabel(rememberedVis));
-            var host = CreateFormHost("SH_VanillaHost");
+            var prefsCats = PrefsCatalog.Enumerate();
+            var form = VanillaHostView.NewForm(prefsCats, LobbyCaps.MaxClients());
+            DescribeHostTarget(form, save, newGameOrg);
+
+            void Host(PublishPlan plan, HostOptions opts, bool enforce, List<string> syncedCats, Action<string> fail)
+            {
+                var target = save;
+                if (target == null && newGameOrg != null)
+                {
+                    // Create the fresh save now, at the moment of hosting, so an abandoned form leaves nothing.
+                    int slot = FirstFreeSaveSlot();
+                    target = slot >= 0 ? Multiplayer.WorldBoot.CreateNewSave(slot, newGameOrg) : null;
+                    if (target == null)
+                    {
+                        Core.Log?.Error(slot < 0 ? "[sync] new game: no free save slot." : $"[sync] new game: creating the save in slot {slot + 1} failed.");
+                        fail(slot < 0 ? "All save slots are full. Delete one to start a new game." : "Couldn't create the new save.");
+                        return;
+                    }
+                }
+                if (target == null) { Core.Log?.Warning("[sync] host form: there is no save to host."); return; }
+                RememberVanillaSave(target);
+                StartVanillaHost(target, opts, enforce, syncedCats, plan);
+            }
+
+            bool onPage = ShowOnPage("vanilla.host", "play", pv => VanillaHostView.BuildPage(pv, form, ShowVanillaSavePicker,
+                () => VanillaHostView.Submit(form, (opts, enforce, cats) => Host(form.Plan, opts, enforce, cats, why =>
+                {
+                    form.Error = why;
+                    _hubSinceState = 999f;
+                }))));
+            if (!onPage)
+            {
+                ClearFormHost();
+                SetTmp(_clone.transform, "Title", VanillaHostView.HostLabel(form.Visibility));
+                var host = CreateFormHost("SH_VanillaHost");
+                ProfilesViews.BuildInstalling(host, "Preparing your mod list...");
+            }
 
             // The mod list needs the Thunderstore index (source resolution) + a hash of every mod DLL - both off
             // the main thread; the form appears once it is ready.
-            ProfilesViews.BuildInstalling(host, "Preparing your mod list...");
-            var prefsCats = PrefsCatalog.Enumerate();
             BuildPublishPlanAsync(plan =>
             {
+                Core.Log?.Msg(plan == null ? "[sync] host form: the mod list could not be prepared." : "[sync] host form: mod list ready.");
+                if (onPage)
+                {
+                    form.Plan = plan;
+                    form.Failed = plan == null;
+                    _hubSinceState = 999f;
+                    return;
+                }
                 // Only rebuild if the host form is still the active view (the player may have navigated away
                 // during the async index fetch).
                 if (_cloneScreen == null || !_cloneScreen.IsOpen || _formHost == null || _formHost.name != "SH_VanillaHost") return;
@@ -557,28 +612,33 @@ namespace SideHustle.Menu
                 VanillaHostView.Build(h, plan, prefsCats, LobbyCaps.MaxClients(),
                     setTitle: title => { if (_clone != null) SetTmp(_clone.transform, "Title", title); },
                     onBack: ShowVanillaSavePicker,
-                    onHost: (opts, enforce, syncedCats) =>
-                    {
-                        var target = save;
-                        if (target == null && newGameOrg != null)
-                        {
-                            // Create the fresh save now, at the moment of hosting, so an abandoned form leaves nothing.
-                            int slot = FirstFreeSaveSlot();
-                            target = slot >= 0 ? Multiplayer.WorldBoot.CreateNewSave(slot, newGameOrg) : null;
-                            if (target == null)
-                            {
-                                Core.Log?.Error(slot < 0 ? "[sync] new game: no free save slot." : $"[sync] new game: creating the save in slot {slot + 1} failed.");
-                                ProfilesViews.BuildInstalling(CreateFormHost("SH_VanillaHost"),
-                                    slot < 0 ? "All save slots are full. Delete one to start a new game."
-                                             : "Couldn't create the new save.", ShowVanillaSavePicker);
-                                return;
-                            }
-                        }
-                        if (target == null) return;
-                        RememberVanillaSave(target);
-                        StartVanillaHost(target, opts, enforce, syncedCats, plan);
-                    });
+                    onHost: (opts, enforce, syncedCats) => Host(plan, opts, enforce, syncedCats,
+                        why => ProfilesViews.BuildInstalling(CreateFormHost("SH_VanillaHost"), why, ShowVanillaSavePicker)));
             });
+        }
+
+        // The name and line over the host form: the save's organisation, slot and net worth, or the new game's name.
+        private static void DescribeHostTarget(VanillaHostView.HostForm form, Il2CppScheduleOne.Persistence.SaveInfo save, string newGameOrg)
+        {
+            if (save == null)
+            {
+                form.Title = string.IsNullOrWhiteSpace(newGameOrg) ? "New game" : newGameOrg;
+                form.Sub = "New game";
+                form.Mono = Initials(form.Title);
+                return;
+            }
+            string org = null;
+            float worth = 0f;
+            int slot = -1;
+            try { org = save.OrganisationName; }
+            catch (Exception e) { Core.Log?.Warning("[sync] host form: could not read the organisation name: " + e.Message); }
+            try { worth = save.Networth; }
+            catch (Exception e) { Core.Log?.Warning("[sync] host form: could not read the net worth: " + e.Message); }
+            try { slot = save.SaveSlotNumber; }
+            catch (Exception e) { Core.Log?.Warning("[sync] host form: could not read the save slot: " + e.Message); }
+            form.Title = string.IsNullOrEmpty(org) ? "Your save" : org;
+            form.Sub = slot >= 0 ? $"Slot {slot + 1} - net worth ${worth:n0}" : $"Net worth ${worth:n0}";
+            form.Mono = Initials(form.Title);
         }
 
         // The row behind each browser card, so a card's Join can recover the full vanilla row (manifest hash,
@@ -859,20 +919,24 @@ namespace SideHustle.Menu
         {
             if (_clone == null) return;
             _back = ShowVanillaBrowser;
-            ClearFormHost();
-            SetTmp(_clone.transform, "Title", string.IsNullOrEmpty(row.LobbyName) ? "Sync check" : row.LobbyName);
-            var host = CreateFormHost("SH_SyncConsent");
+            Action onSyncJoin = () => StartSyncAndJoin(row, manifest, diff, mhash, hostPrefs);
+            Action onPlainJoin = () => { ChatPanel.Hide(); CloseHubScreen(); LobbyCoordinator.JoinLobby(row.LobbyId); };
+            Action onBack = () => { ChatPanel.Hide(); ShowVanillaBrowser(); };
+            string title = string.IsNullOrEmpty(row.LobbyName) ? "Sync check" : row.LobbyName;
+            bool onPage = ShowConsentOnPage("lobbies", title, manifest, diff, row.Enforced, !string.IsNullOrEmpty(hostPrefs),
+                row.OwnerSteamId, row.HostName, row.AcceptsMessages, onSyncJoin, onPlainJoin, onBack, "Lobbies");
 
             // The question this screen raises - "can I actually get all of that?" - has one answer nobody here can
             // give, and it belongs to the host. So the conversation is already open beside it rather than behind a
             // button on the NEXT screen, which is where it used to live.
             if (ChatPanel.Possible(row.OwnerSteamId, row.AcceptsMessages)) ChatPanel.Show(row.OwnerSteamId, row.HostName);
+            if (onPage) return;
 
+            ClearFormHost();
+            SetTmp(_clone.transform, "Title", title);
+            var host = CreateFormHost("SH_SyncConsent");
             SyncConsentView.Build(host, manifest, diff, row.Enforced, hasPrefs: !string.IsNullOrEmpty(hostPrefs),
-                row.OwnerSteamId, row.HostName, row.AcceptsMessages,
-                onSyncJoin: () => StartSyncAndJoin(row, manifest, diff, mhash, hostPrefs),
-                onPlainJoin: () => { ChatPanel.Hide(); CloseHubScreen(); LobbyCoordinator.JoinLobby(row.LobbyId); },
-                onBack: () => { ChatPanel.Hide(); ShowVanillaBrowser(); });
+                row.OwnerSteamId, row.HostName, row.AcceptsMessages, onSyncJoin, onPlainJoin, onBack);
         }
 
         private static void ShowUnsyncableJoin(VanillaLobbyRow row, string why)
@@ -912,15 +976,17 @@ namespace SideHustle.Menu
                 && _clone != null && _cloneScreen != null && _cloneScreen.IsOpen)
             {
                 _back = () => ShowVanillaConsent(row, manifest, diff, mhash, hostPrefs);
+                Action onContinue = () => BuildAndRestart(row, diff, mhash, hostPrefs, () => ShowVanillaConsent(row, manifest, diff, mhash, hostPrefs));
+                Action onBack = () => ShowVanillaConsent(row, manifest, diff, mhash, hostPrefs);
+                // The owner id the browser already read from the lobby - what turns "you cannot get this mod" into
+                // "ask the person who has it".
+                if (ShowManualOnPage("lobbies", "Manual installs", diff, row?.OwnerSteamId ?? 0UL, row?.HostName,
+                        row?.AcceptsMessages ?? false, "Sync check", onContinue, onBack)) return;
                 ClearFormHost();
                 SetTmp(_clone.transform, "Title", "Manual installs");
                 var mh = CreateFormHost("SH_ManualInstall");
-                // The owner id the browser already read from the lobby - what turns "you cannot get this mod" into
-                // "ask the person who has it".
                 SyncManualInstallView.Build(mh, diff,
-                    row?.OwnerSteamId ?? 0UL, row?.HostName, row?.AcceptsMessages ?? false,
-                    onContinue: () => BuildAndRestart(row, diff, mhash, hostPrefs, () => ShowVanillaConsent(row, manifest, diff, mhash, hostPrefs)),
-                    onBack: () => ShowVanillaConsent(row, manifest, diff, mhash, hostPrefs));
+                    row?.OwnerSteamId ?? 0UL, row?.HostName, row?.AcceptsMessages ?? false, onContinue, onBack);
                 return;
             }
             BuildAndRestart(row, diff, mhash, hostPrefs, () => ShowVanillaConsent(row, manifest, diff, mhash, hostPrefs));
@@ -939,12 +1005,17 @@ namespace SideHustle.Menu
             if (_clone != null && _cloneScreen != null && _cloneScreen.IsOpen)
             {
                 _back = null;
-                ClearFormHost();
-                SetTmp(_clone.transform, "Title", "Joining the host");
-                var host = CreateFormHost("SH_Syncing");
                 // Same reasoning as the gamemode join: the wait IS the download, so the screen shows the download.
-                _syncUi = InstallProgressView.Build(host, "Matching the host's mods",
-                    SyncDownloadProgress.PlanFrom(diff), diff.Unresolved, onCancel: () => StopSyncDownload("cancel button"));
+                _syncUi = ShowDownloadOnPage("lobbies", "Joining the host", LobbyLabel(row), "Matching the host's mods",
+                    SyncDownloadProgress.PlanFrom(diff), diff.Unresolved, () => StopSyncDownload("cancel button"));
+                if (_syncUi == null)
+                {
+                    ClearFormHost();
+                    SetTmp(_clone.transform, "Title", "Joining the host");
+                    var host = CreateFormHost("SH_Syncing");
+                    _syncUi = InstallProgressView.Build(host, "Matching the host's mods",
+                        SyncDownloadProgress.PlanFrom(diff), diff.Unresolved, onCancel: () => StopSyncDownload("cancel button"));
+                }
             }
 
             var sink = _syncUi != null ? new SyncDownloadProgress(_syncUi, diff) : null;
@@ -982,13 +1053,15 @@ namespace SideHustle.Menu
                         Core.Log?.Warning("[sync] not every mod could be fetched - showing what is still missing.");
                         SyncManualInstallView.PrefetchLinks(diff);
                         _back = null;
+                        Action retry = () => BuildAndRestart(row, diff, mhash, hostPrefs, cancelBack);
+                        if (ShowManualOnPage("lobbies", "Still missing", diff, row?.OwnerSteamId ?? 0UL, row?.HostName,
+                                row?.AcceptsMessages ?? false, "Lobbies", retry, ShowVanillaBrowser)) return;
                         ClearFormHost();
                         SetTmp(_clone.transform, "Title", "Still missing");
                         var mh = CreateFormHost("SH_SyncRetry");
                         SyncManualInstallView.Build(mh, diff,
                             row?.OwnerSteamId ?? 0UL, row?.HostName, row?.AcceptsMessages ?? false,
-                            onContinue: () => BuildAndRestart(row, diff, mhash, hostPrefs, cancelBack),
-                            onBack: ShowVanillaBrowser);
+                            onContinue: retry, onBack: ShowVanillaBrowser);
                         return;
                     }
                     if (!downloadsOk)

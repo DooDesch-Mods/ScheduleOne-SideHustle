@@ -263,17 +263,19 @@ namespace SideHustle.Menu
             if (_clone == null) return;
             _back = ShowGamemodeList;
             SyncManualInstallView.PrefetchLinks(diff);
+            Action onSyncJoin = () => GhostSyncAndJoin(g, row, manifest, diff, mhash, () => ShowGhostConsent(g, row, manifest, diff, mhash));
+            Action onBack = () => ShowGhostBrowser(g);
+            string note = $"You don't have {g.Name} yet. Side Hustle installs it, restarts and joins the lobby - your own mods stay untouched.";
+            // enforced: a gamemode session always runs the host's set - joining "as you are" is not on offer here,
+            // because without the gamemode's own mod there is nothing to join with.
+            if (ShowConsentOnPage("play", g.Name, manifest, diff, enforced: true, hasPrefs: false,
+                    row?.OwnerSteamId ?? 0UL, row?.HostName, row?.AcceptsMessages ?? false, onSyncJoin, null, onBack, "Back", note)) return;
             ClearFormHost();
             SetTmp(_clone.transform, "Title", g.Name);
             var host = CreateFormHost("SH_GhostConsent");
-            // enforced: a gamemode session always runs the host's set - joining "as you are" is not on offer here,
-            // because without the gamemode's own mod there is nothing to join with.
             SyncConsentView.Build(host, manifest, diff, enforced: true, hasPrefs: false,
                 row?.OwnerSteamId ?? 0UL, row?.HostName, row?.AcceptsMessages ?? false,
-                onSyncJoin: () => GhostSyncAndJoin(g, row, manifest, diff, mhash, () => ShowGhostConsent(g, row, manifest, diff, mhash)),
-                onPlainJoin: null,
-                onBack: () => ShowGhostBrowser(g),
-                enforcedNote: $"You don't have {g.Name} yet. Side Hustle installs it, restarts and joins the lobby - your own mods stay untouched.");
+                onSyncJoin: onSyncJoin, onPlainJoin: null, onBack: onBack, enforcedNote: note);
         }
 
         /// <summary>
@@ -392,12 +394,15 @@ namespace SideHustle.Menu
             if (_clone == null) return;
             _back = ShowGamemodeList;
             SyncManualInstallView.PrefetchLinks(diff);
+            Action onSyncJoin = () => GhostSyncAndJoin(g, row, manifest, diff, mhash, () => ShowInstalledConsent(g, row, manifest, diff, mhash, joinAnyway));
+            if (ShowConsentOnPage("play", g.Name, manifest, diff, enforced: false, hasPrefs: false,
+                    row?.OwnerSteamId ?? 0UL, row?.HostName, row?.AcceptsMessages ?? false, onSyncJoin, joinAnyway, ShowGamemodeList, "Play")) return;
             ClearFormHost();
             SetTmp(_clone.transform, "Title", g.Name);
             var host = CreateFormHost("SH_JoinModCheck");
             SyncConsentView.Build(host, manifest, diff, enforced: false, hasPrefs: false,
                 row?.OwnerSteamId ?? 0UL, row?.HostName, row?.AcceptsMessages ?? false,
-                onSyncJoin: () => GhostSyncAndJoin(g, row, manifest, diff, mhash, () => ShowInstalledConsent(g, row, manifest, diff, mhash, joinAnyway)),
+                onSyncJoin: onSyncJoin,
                 onPlainJoin: joinAnyway,
                 onBack: () => ShowGamemodeList(),
                 enforcedNote: null);
@@ -413,13 +418,15 @@ namespace SideHustle.Menu
                 && _clone != null && _cloneScreen != null && _cloneScreen.IsOpen)
             {
                 _back = () => ShowGhostConsent(g, row, manifest, diff, mhash);
+                Action onContinue = () => GhostBuildAndRestart(g, row, diff, mhash, consentBack);
+                Action onBack = () => ShowGhostConsent(g, row, manifest, diff, mhash);
+                if (ShowManualOnPage("play", "Manual installs", diff, row?.OwnerSteamId ?? 0UL, row?.HostName,
+                        row?.AcceptsMessages ?? false, "Sync check", onContinue, onBack)) return;
                 ClearFormHost();
                 SetTmp(_clone.transform, "Title", "Manual installs");
                 var mh = CreateFormHost("SH_GhostManual");
                 SyncManualInstallView.Build(mh, diff,
-                    row?.OwnerSteamId ?? 0UL, row?.HostName, row?.AcceptsMessages ?? false,
-                    onContinue: () => GhostBuildAndRestart(g, row, diff, mhash, consentBack),
-                    onBack: () => ShowGhostConsent(g, row, manifest, diff, mhash));
+                    row?.OwnerSteamId ?? 0UL, row?.HostName, row?.AcceptsMessages ?? false, onContinue, onBack);
                 return;
             }
             GhostBuildAndRestart(g, row, diff, mhash, consentBack);
@@ -433,13 +440,18 @@ namespace SideHustle.Menu
             if (_clone != null && _cloneScreen != null && _cloneScreen.IsOpen)
             {
                 _back = null;
-                ClearFormHost();
-                SetTmp(_clone.transform, "Title", "Installing " + g.Name);
-                var host = CreateFormHost("SH_GhostInstalling");
                 // The real progress view, not a static card: this is the part of the flow that takes time, so it is the
                 // part that has to show what is happening. The card said nothing while several megabytes came down.
-                _installUi = InstallProgressView.Build(host, "Installing " + g.Name,
-                    SyncDownloadProgress.PlanFrom(diff), diff.Unresolved, onCancel: () => StopSyncDownload("cancel button"));
+                _installUi = ShowDownloadOnPage("play", "Installing " + g.Name, row?.HostName, "Installing " + g.Name,
+                    SyncDownloadProgress.PlanFrom(diff), diff.Unresolved, () => StopSyncDownload("cancel button"));
+                if (_installUi == null)
+                {
+                    ClearFormHost();
+                    SetTmp(_clone.transform, "Title", "Installing " + g.Name);
+                    var host = CreateFormHost("SH_GhostInstalling");
+                    _installUi = InstallProgressView.Build(host, "Installing " + g.Name,
+                        SyncDownloadProgress.PlanFrom(diff), diff.Unresolved, onCancel: () => StopSyncDownload("cancel button"));
+                }
             }
 
             var sink = _installUi != null ? new SyncDownloadProgress(_installUi, diff) : null;
@@ -489,13 +501,16 @@ namespace SideHustle.Menu
                         Core.Log?.Warning("[mp] gamemode join: not every mod could be fetched - showing what is still missing.");
                         SyncManualInstallView.PrefetchLinks(diff);
                         _back = null;
+                        Action retry = () => GhostBuildAndRestart(g, row, diff, mhash, cancelBack);
+                        Action leave = () => ShowGhostBrowser(g);
+                        if (ShowManualOnPage("play", "Still missing", diff, row?.OwnerSteamId ?? 0UL, row?.HostName,
+                                row?.AcceptsMessages ?? false, "Back", retry, leave)) return;
                         ClearFormHost();
                         SetTmp(_clone.transform, "Title", "Still missing");
                         var mh2 = CreateFormHost("SH_GhostManualRetry");
                         SyncManualInstallView.Build(mh2, diff,
                             row?.OwnerSteamId ?? 0UL, row?.HostName, row?.AcceptsMessages ?? false,
-                            onContinue: () => GhostBuildAndRestart(g, row, diff, mhash, cancelBack),
-                            onBack: () => ShowGhostBrowser(g));
+                            onContinue: retry, onBack: leave);
                         return;
                     }
                     var token = ConfigCodec.Encode(new[]

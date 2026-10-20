@@ -1,8 +1,11 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using DooDesch.UI;
 using S1API.UI;
 using SideHustle.Config;
 using SideHustle.Multiplayer;
+using SideHustle.Phone;
 using SideHustle.Sync;
 using UnityEngine;
 using UnityEngine.UI;
@@ -19,16 +22,151 @@ namespace SideHustle.Menu
         /// <summary>The screen title and host button for a lobby that is, or is not, listed publicly.</summary>
         internal static string HostLabel(int visibility) => visibility == 1 ? "Host" : "Host publicly";
 
+        /// <summary>What the host form holds while the player fills it in, on the classic screen and on the hub page.</summary>
+        internal sealed class HostForm
+        {
+            public PublishPlan Plan;
+            public bool Failed;
+            public string Error;
+            public List<PrefsCategory> Cats = new List<PrefsCategory>();
+            public int Cap = 2;
+            public int Players = 4;
+            public int Visibility;   // 0 = Public, 1 = Private
+            public bool Enforce = true;
+            public string Name = "";
+            public string Password = "";
+            public string Discord = "";
+            public HashSet<string> SyncPrefs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            public string Mono = "";
+            public string Title = "";
+            public string Sub = "";
+        }
+
+        /// <summary>The form with what the host chose last time (never the password).</summary>
+        internal static HostForm NewForm(List<PrefsCategory> prefsCats, int maxClients)
+        {
+            int cap = Mathf.Max(2, maxClients);
+            var saved = Preferences.GetHost(Preferences.VanillaHostKey);
+            var f = new HostForm
+            {
+                Cats = prefsCats ?? new List<PrefsCategory>(),
+                Cap = cap,
+                Players = Mathf.Clamp(saved != null && saved.MaxPlayers >= 2 ? saved.MaxPlayers : 4, 2, cap),
+                Visibility = saved != null ? saved.Visibility : 0,
+                // Default ON: co-op is most stable when everyone runs the host's synced set.
+                Enforce = saved != null ? saved.Enforce : true,
+                Name = saved != null && !string.IsNullOrWhiteSpace(saved.LobbyName) ? saved.LobbyName : LobbyCoordinator.LocalPersonaName() + " Lobby",
+                Discord = saved != null && DiscordInvite.IsCode(saved.DiscordCode) ? DiscordInvite.LinkFor(saved.DiscordCode) : "",
+            };
+            foreach (var c in f.Cats.Where(c => c.SyncByDefault)) f.SyncPrefs.Add(c.Id);
+            return f;
+        }
+
+        /// <summary>Check the invite, remember the choices and host. False when the form refused.</summary>
+        internal static bool Submit(HostForm f, Action<HostOptions, bool, List<string>> onHost)
+        {
+            string discordCode = "";
+            string typedInvite = f.Discord ?? "";
+            if (typedInvite.Trim().Length > 0 && !DiscordInvite.TryParse(typedInvite, out discordCode))
+            {
+                Core.Log?.Msg("[hub] vanilla host form: the Discord invite field did not parse; not hosting.");
+                Hub.Notify(DiscordInvite.NotAnInvite, Severity.Warning);
+                return false;
+            }
+            var opts = new HostOptions
+            {
+                MaxPlayers = f.Players,
+                Visibility = f.Visibility == 1 ? LobbyVisibility.Private : LobbyVisibility.Public,
+                Password = f.Password,
+                LobbyName = f.Name,
+                DiscordCode = string.IsNullOrEmpty(discordCode) ? null : discordCode,
+            };
+            Preferences.SetHost(Preferences.VanillaHostKey, new Preferences.RememberedHost
+            {
+                MaxPlayers = f.Players,
+                Visibility = f.Visibility,
+                LobbyName = f.Name ?? "",
+                Enforce = f.Enforce,
+                DiscordCode = discordCode,
+            });
+            Core.Log?.Msg($"[hub] vanilla host form: hosting '{f.Name}' ({(f.Visibility == 1 ? "private" : "public")}, {f.Players} players).");
+            onHost?.Invoke(opts, f.Enforce, f.SyncPrefs.ToList());
+            return true;
+        }
+
+        private static string SyncSummary(PublishPlan plan)
+        {
+            int auto = plan.AutoCount + plan.GhCount;
+            int total = auto + plan.LinkCount + plan.DroppedCount;
+            return $"Joiners get your mod set: {auto} of {total} install automatically"
+                   + (plan.LinkCount > 0 ? $", {plan.LinkCount} need a download link" : "")
+                   + (plan.DroppedCount > 0 ? $", {plan.DroppedCount} cannot sync" : "") + ".";
+        }
+
+        private static string Clip(string s, int max) => s == null ? "" : s.Length <= max ? s : s.Substring(0, max);
+
+        /// <summary>The host form on the hub page: the lobby on the left, mod sync on the right, Host below.</summary>
+        internal static void BuildPage(PageView pv, HostForm f, Action onBack, Action onHost)
+        {
+            pv.Frame = "detail";
+            pv.OnBack(onBack);
+            pv.Add(pv.DHead(f.Mono, f.Title, f.Sub, pv.Btn("Saves", onBack, "sm", "back")));
+            if (f.Plan == null)
+            {
+                pv.Add(f.Failed
+                    ? pv.Say("bad", "bad", "Couldn't prepare your mod list.", null)
+                    : pv.Say("now", "busy", "Preparing your mod list...", null));
+                return;
+            }
+            if (!string.IsNullOrEmpty(f.Error)) pv.Add(pv.Say("bad", "bad", f.Error, null));
+
+            var left = new List<Json>
+            {
+                pv.Field("Lobby name", pv.Input("lobby", f.Name, "lobby name", v => f.Name = Clip(v, 40))),
+                pv.Field("Players", pv.Stepper(f.Players, 2, f.Cap, v => f.Players = v), $"2 to {f.Cap}."),
+                pv.Field("Visibility", pv.Seg(new[] { "Public", "Private" }, f.Visibility, i => f.Visibility = i)),
+            };
+            if (f.Visibility == 0)
+                left.Add(pv.Field("Password", pv.Input("password", f.Password, "no password", v => f.Password = Clip(v, 32)), "Empty = open lobby."));
+            left.Add(pv.Field("Discord invite", pv.Input("discord", f.Discord, "discord.gg/invite", v => f.Discord = Clip(v, 80)), "Optional."));
+
+            var right = new List<Json>
+            {
+                pv.Heading("MOD SYNC"),
+                pv.FNote(SyncSummary(f.Plan)),
+                pv.Set("Synced clients only", "Kick joiners whose mods don't match (friends included).", pv.Toggle(f.Enforce, v => f.Enforce = v)),
+            };
+            if (f.Cats.Count > 0)
+            {
+                right.Add(pv.Heading("MOD SETTINGS TO SYNC"));
+                right.Add(pv.FNote("Applied to joiners for this lobby only."));
+                foreach (var cat in f.Cats)
+                {
+                    var c = cat;
+                    right.Add(pv.Set(c.DisplayName, CategoryHint(c), pv.Toggle(f.SyncPrefs.Contains(c.Id), on =>
+                    {
+                        if (on) f.SyncPrefs.Add(c.Id); else f.SyncPrefs.Remove(c.Id);
+                    })));
+                }
+            }
+            pv.Add(pv.Cols(left, right));
+            pv.Add(pv.Facts(new[] { pv.Btn(HostLabel(f.Visibility), onHost, "go big") }));
+        }
+
+        private static string CategoryHint(PrefsCategory c) =>
+            !string.IsNullOrEmpty(c.Description) ? c.Description
+            : c.SecretRisk ? "Off by default - may contain secrets (lobby data is public)."
+            : "Apply your values to joiners.";
+
         internal static void Build(Transform formHost, PublishPlan plan, System.Collections.Generic.List<PrefsCategory> prefsCats,
             int maxClients, Action onBack, Action<HostOptions, bool, System.Collections.Generic.List<string>> onHost,
             Action<string> setTitle = null)
         {
-            int cap = Mathf.Max(2, maxClients);
-            // What the host chose last time (never the password).
-            var saved = Preferences.GetHost(Preferences.VanillaHostKey);
-            int players = Mathf.Clamp(saved != null && saved.MaxPlayers >= 2 ? saved.MaxPlayers : 4, 2, cap);
-            int visibility = saved != null ? saved.Visibility : 0;   // 0 = Public, 1 = Private
-            bool enforce = saved != null ? saved.Enforce : true;   // default ON: co-op is most stable when everyone runs the host's synced set
+            var form = NewForm(prefsCats, maxClients);
+            int cap = form.Cap;
+            int players = form.Players;
+            int visibility = form.Visibility;
+            bool enforce = form.Enforce;
             Button hostButton = null;
             Text hostLabel = null;
             void RefreshHostLabel()
@@ -37,9 +175,7 @@ namespace SideHustle.Menu
                 if (hostLabel != null) hostLabel.text = label;
                 setTitle?.Invoke(label);
             }
-            var syncPrefs = new System.Collections.Generic.HashSet<string>(
-                (prefsCats ?? new System.Collections.Generic.List<PrefsCategory>())
-                    .Where(c => c.SyncByDefault).Select(c => c.Id), StringComparer.OrdinalIgnoreCase);
+            var syncPrefs = form.SyncPrefs;
 
             var page = Scaffold.Create(formHost);
             var content = page.Content;
@@ -47,8 +183,7 @@ namespace SideHustle.Menu
             Components.SectionHeader(content, "Lobby");
 
             Components.FormRow(content, "Lobby name", "Shown to players in the lobby browser.", out var lnSlot, stacked: true);
-            string startName = saved != null && !string.IsNullOrWhiteSpace(saved.LobbyName) ? saved.LobbyName : LobbyCoordinator.LocalPersonaName() + " Lobby";
-            var lobbyName = Components.TextInput(lnSlot, startName, null, "lobby name", 40);
+            var lobbyName = Components.TextInput(lnSlot, form.Name, null, "lobby name", 40);
             Components.FillSlot(lobbyName.gameObject, 6f);
 
             Components.FormRow(content, "Players", $"2 to {cap}.", out var pSlot);
@@ -66,15 +201,11 @@ namespace SideHustle.Menu
             if (visibility == 1) passwordRow.SetActive(false);
 
             Components.FormRow(content, "Discord invite", "Optional. Shown with your lobby.", out var dcSlot, stacked: true);
-            var discordField = Components.TextInput(dcSlot, saved != null && DiscordInvite.IsCode(saved.DiscordCode) ? DiscordInvite.LinkFor(saved.DiscordCode) : "", null, "discord.gg/invite", 80);
+            var discordField = Components.TextInput(dcSlot, form.Discord, null, "discord.gg/invite", 80);
             Components.FillSlot(discordField.gameObject, 6f);
 
             Components.SectionHeader(content, "Mod sync");
-            int auto = plan.AutoCount + plan.GhCount;
-            int total = auto + plan.LinkCount + plan.DroppedCount;
-            Scaffold.Note(content, $"Joiners get your mod set: {auto} of {total} install automatically"
-                        + (plan.LinkCount > 0 ? $", {plan.LinkCount} need a download link" : "")
-                        + (plan.DroppedCount > 0 ? $", {plan.DroppedCount} cannot sync" : "") + ".");
+            Scaffold.Note(content, SyncSummary(plan));
 
             Components.FormRow(content, "Synced clients only", "Kick joiners whose mods don't match (friends included).", out var eSlot);
             Components.Toggle(eSlot, enforce, v => enforce = v);
@@ -86,10 +217,7 @@ namespace SideHustle.Menu
                 foreach (var cat in prefsCats)
                 {
                     var c = cat;
-                    string hint = !string.IsNullOrEmpty(c.Description) ? c.Description
-                                : c.SecretRisk ? "Off by default - may contain secrets (lobby data is public)."
-                                : "Apply your values to joiners.";
-                    Components.FormRow(content, c.DisplayName, hint, out var cSlot);
+                    Components.FormRow(content, c.DisplayName, CategoryHint(c), out var cSlot);
                     Components.Toggle(cSlot, c.SyncByDefault, on => { if (on) syncPrefs.Add(c.Id); else syncPrefs.Remove(c.Id); });
                 }
             }
@@ -102,32 +230,13 @@ namespace SideHustle.Menu
             setTitle?.Invoke(HostLabel(visibility));
             hostBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() =>
             {
-                string discordCode = "";
-                string typedInvite = (discordField != null ? discordField.text : "") ?? "";
-                if (typedInvite.Trim().Length > 0 && !DiscordInvite.TryParse(typedInvite, out discordCode))
-                {
-                    Core.Log?.Msg("[hub] vanilla host form: the Discord invite field did not parse; not hosting.");
-                    Hub.Notify(DiscordInvite.NotAnInvite, Severity.Warning);
-                    return;
-                }
-                string typedName = lobbyName != null ? lobbyName.text : null;
-                var opts = new HostOptions
-                {
-                    MaxPlayers = players,
-                    Visibility = visibility == 1 ? LobbyVisibility.Private : LobbyVisibility.Public,
-                    Password = password != null ? password.text : null,
-                    LobbyName = typedName,
-                    DiscordCode = string.IsNullOrEmpty(discordCode) ? null : discordCode,
-                };
-                Preferences.SetHost(Preferences.VanillaHostKey, new Preferences.RememberedHost
-                {
-                    MaxPlayers = players,
-                    Visibility = visibility,
-                    LobbyName = typedName ?? "",
-                    Enforce = enforce,
-                    DiscordCode = discordCode,
-                });
-                onHost?.Invoke(opts, enforce, syncPrefs.ToList());
+                form.Name = lobbyName != null ? lobbyName.text : null;
+                form.Password = password != null ? password.text : null;
+                form.Discord = discordField != null ? discordField.text : "";
+                form.Players = players;
+                form.Visibility = visibility;
+                form.Enforce = enforce;
+                Submit(form, onHost);
             }));
 
             Interactions.PolishButtons(formHost);

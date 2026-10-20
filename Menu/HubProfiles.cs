@@ -211,6 +211,7 @@ namespace SideHustle.Menu
             // Right-click at the profiles root returns to the hub page when it came from there; otherwise TickInput's
             // default closes back to the main menu.
             _back = _profilesFromHub ? ProfilesBack : (Action)null;
+            if (ShowProfilesPage(null)) return;
 
             ClearFormHost();
             SetTmp(_clone.transform, "Title", "Mod profiles");
@@ -228,9 +229,7 @@ namespace SideHustle.Menu
 
         private static void PromptNewProfile()
         {
-            var root = DialogRoot();
-            if (root == null) return;
-            Components.PromptDialog(root, "New profile", "Name the new mod profile.", "profile name", "Create", name =>
+            AskText("New profile", "Name the new mod profile.", "profile name", "", "Create", name =>
             {
                 if (string.IsNullOrWhiteSpace(name)) return "Enter a name.";
                 var def = ProfileEngine.CreateProfile(name.Trim());
@@ -269,9 +268,7 @@ namespace SideHustle.Menu
 
         private static void PromptRenameProfile(string profileId, string currentName)
         {
-            var root = DialogRoot();
-            if (root == null) return;
-            Components.PromptDialog(root, "Rename profile", "Give this profile a new name.", currentName ?? "profile name", "Rename", name =>
+            AskText("Rename profile", "Give this profile a new name.", "profile name", currentName, "Rename", name =>
             {
                 if (string.IsNullOrWhiteSpace(name)) return "Enter a name.";
                 if (!ProfileEngine.RenameProfile(profileId, name.Trim())) return "Couldn't rename the profile. The profile file isn't writable.";
@@ -283,10 +280,8 @@ namespace SideHustle.Menu
 
         private static void PromptEditDescription(string profileId, string currentNotes)
         {
-            var root = DialogRoot();
-            if (root == null) return;
-            Components.PromptDialog(root, "Edit description", "A short note about this profile. Empty clears it.",
-                string.IsNullOrEmpty(currentNotes) ? "e.g. lightweight co-op set" : currentNotes, "Save", notes =>
+            AskText("Edit description", "A short note about this profile. Empty clears it.",
+                "e.g. lightweight co-op set", currentNotes, "Save", notes =>
             {
                 if (!ProfileEngine.SetDescription(profileId, notes)) return "Couldn't save the description. The profile file isn't writable.";
                 ShowToast("Description saved.", Severity.Success);
@@ -337,6 +332,7 @@ namespace SideHustle.Menu
             if (_clone == null) return;
             _mpDesc = null;
             _back = ShowProfilesList;
+            if (ShowProfilesPage(profileId)) return;
 
             var doc = ProfileEngine.LoadStore(out bool writable);
             var p = doc.Profiles.FirstOrDefault(x => x.Id.Equals(profileId, StringComparison.OrdinalIgnoreCase));
@@ -376,17 +372,19 @@ namespace SideHustle.Menu
                 .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
+            Action<string> onAdd = f =>
+            {
+                if (AddBaseMod(profileId, f)) ShowToast("Added " + f + ".", Severity.Success);
+                else ShowToast("Couldn't add " + f + ". The profile file isn't writable.", Severity.Warning);
+                ShowProfileDetail(profileId);
+            };
+            string profileName = p.Name;
+            if (ShowOnPage("profiles.add", "profiles", pv => BuildAddBasePage(pv, profileId, profileName, candidates, onAdd))) return;
+
             ClearFormHost();
             SetTmp(_clone.transform, "Title", "Add an installed mod");
             var host = CreateFormHost("SH_AddBaseMod");
-            ProfilesViews.BuildAddBase(host, candidates,
-                onAdd: f =>
-                {
-                    if (AddBaseMod(profileId, f)) ShowToast("Added " + f + ".", Severity.Success);
-                    else ShowToast("Couldn't add " + f + ". The profile file isn't writable.", Severity.Warning);
-                    ShowProfileDetail(profileId);
-                },
-                onBack: () => ShowProfileDetail(profileId));
+            ProfilesViews.BuildAddBase(host, candidates, onAdd, onBack: () => ShowProfileDetail(profileId));
         }
 
         private static bool AddBaseMod(string profileId, string file) => ProfileEngine.AddBaseMod(profileId, file);
@@ -397,9 +395,6 @@ namespace SideHustle.Menu
         // only ever auto-installed and are no longer needed are offered for cleanup (apt-autoremove semantics).
         private static void ConfirmRemoveMod(string profileId, ProfileModRef mref)
         {
-            var root = DialogRoot();
-            if (root == null) return;
-
             var doc = ProfileEngine.LoadStore(out _);
             var p = doc.Profiles.FirstOrDefault(x => x.Id.Equals(profileId, StringComparison.OrdinalIgnoreCase));
             if (p == null) { ShowProfilesList(); return; }
@@ -409,22 +404,22 @@ namespace SideHustle.Menu
 
             if (dependants.Count == 0)
             {
-                Components.ConfirmDialog(root, "Remove from profile",
+                AskConfirm("Remove from profile",
                     $"Remove {what} from this profile? The files themselves are not deleted.", "Remove",
-                    () => ExecuteRemoval(profileId, new List<ProfileModRef> { mref }, what));
+                    () => ExecuteRemoval(profileId, new List<ProfileModRef> { mref }, what), danger: true);
                 return;
             }
 
             var items = dependants.Select(RefDisplayName).OrderBy(s => s, StringComparer.OrdinalIgnoreCase).ToList();
             string message = (dependants.Count == 1 ? "1 mod in this profile depends" : dependants.Count + " mods in this profile depend")
                              + $" on {what} and may break without it.";
-            Components.ChoiceDialog(root, "Other mods need " + what, message, items,
-                ("Remove all (recommended)", Theme.Danger, () =>
+            AskChoice("Other mods need " + what, message, items,
+                ("Remove all (recommended)", false, true, () =>
                 {
                     var all = new List<ProfileModRef>(dependants) { mref };
                     ExecuteRemoval(profileId, all, $"{what} and {Words.Plural(dependants.Count, "dependent mod", "dependent mods")}");
                 }),
-                ($"Remove only {what}", Theme.Button, () =>
+                ($"Remove only {what}", false, false, () =>
                     ExecuteRemoval(profileId, new List<ProfileModRef> { mref }, what)));
         }
 
@@ -451,14 +446,12 @@ namespace SideHustle.Menu
             if (p == null) return;
             var orphans = BuildGraph(p).Orphans();
             if (orphans.Count == 0) return;
-            var root = DialogRoot();
-            if (root == null) return;
 
             var items = orphans.Select(RefDisplayName).OrderBy(s => s, StringComparer.OrdinalIgnoreCase).ToList();
             string message = (orphans.Count == 1 ? "1 dependency was installed automatically and is" : orphans.Count + " dependencies were installed automatically and are")
                              + " no longer needed by any mod in this profile.";
-            Components.ChoiceDialog(root, "Unused dependencies", message, items,
-                ("Remove them (recommended)", Theme.Accent, () =>
+            AskChoice("Unused dependencies", message, items,
+                ("Remove them (recommended)", true, false, () =>
                 {
                     if (ProfileEngine.RemoveMods(profileId, orphans))
                     {
@@ -467,7 +460,7 @@ namespace SideHustle.Menu
                     }
                     ShowProfileDetail(profileId);
                 }),
-                ("Keep them", Theme.Button, () =>
+                ("Keep them", false, false, () =>
                 {
                     // Kept dependencies count as deliberately chosen from now on - they are never offered again.
                     ProfileEngine.PromoteToManual(profileId, orphans);
@@ -594,6 +587,7 @@ namespace SideHustle.Menu
 
         private static void ShowToast(string message, Severity sev)
         {
+            if (PageToast(message, sev)) return;
             try
             {
                 // The hub's own canvas while it exists, the overlay canvas otherwise (the screen can close under a toast).
@@ -605,21 +599,17 @@ namespace SideHustle.Menu
 
         private static void ConfirmDeleteProfile(string profileId, string name)
         {
-            var root = DialogRoot();
-            if (root == null) return;
-            Components.ConfirmDialog(root, "Delete profile", $"Delete '{name}'? Your Mods folder stays as it is.", "Delete", () =>
+            AskConfirm("Delete profile", $"Delete '{name}'? Your Mods folder stays as it is.", "Delete", () =>
             {
                 if (ProfileEngine.DeleteProfile(profileId)) ShowToast($"Deleted '{name}'.", Severity.Success);
                 else ShowToast("Couldn't delete the profile. The profile file isn't writable.", Severity.Warning);
                 ShowProfilesList();
-            });
+            }, danger: true);
         }
 
         private static void ConfirmSwitch(string profileId, string label)
         {
-            var root = DialogRoot();
-            if (root == null) return;
-            Components.ConfirmDialog(root, "Restart into " + label,
+            AskConfirm("Restart into " + label,
                 "The game restarts with this profile's mods.",
                 "Restart now", () => ProfileEngine.SwitchTo(profileId));
         }
@@ -629,10 +619,15 @@ namespace SideHustle.Menu
             if (_clone == null) return;
             _back = () => ShowProfileDetail(profileId);
 
-            ClearFormHost();
-            SetTmp(_clone.transform, "Title", "Updates");
-            var host = CreateFormHost("SH_Updates");
-            ProfilesViews.BuildUpdatesPending(host, () => ShowProfileDetail(profileId));
+            var page = new UpdatesPage { ProfileId = profileId, Name = ProfileName(profileId) };
+            bool onPage = ShowOnPage("profiles.updates", "profiles", pv => BuildUpdatesPage(pv, page));
+            if (!onPage)
+            {
+                ClearFormHost();
+                SetTmp(_clone.transform, "Title", "Updates");
+                var host = CreateFormHost("SH_Updates");
+                ProfilesViews.BuildUpdatesPending(host, () => ShowProfileDetail(profileId));
+            }
 
             System.Threading.Tasks.Task.Run(async () =>
             {
@@ -658,6 +653,15 @@ namespace SideHustle.Menu
 
                 MainThread.Post(() =>
                 {
+                    Core.Log?.Msg($"[profiles] update check: {(error != null ? "failed: " + error : Words.Plural(updates.Count, "update", "updates"))}.");
+                    if (onPage)
+                    {
+                        page.Updates = updates;
+                        page.Error = error;
+                        page.Done = true;
+                        _hubSinceState = 999f;
+                        return;
+                    }
                     if (_cloneScreen == null || !_cloneScreen.IsOpen) return;
                     ClearFormHost();
                     var h = CreateFormHost("SH_UpdateResults");
@@ -711,13 +715,19 @@ namespace SideHustle.Menu
             if (plan.Count == 0)   // no cached index: the engine still resolves on its own, show the root at least
                 plan.Add(new InstallPlanRow { FullName = fullName, Version = version, Key = $"{fullName} {version}" });
 
-            ClearFormHost();
-            SetTmp(_clone.transform, "Title", "Installing");
-            var host = CreateFormHost("SH_InstallProgress");
             var cts = new System.Threading.CancellationTokenSource();
+            Action cancel = () => { try { cts.Cancel(); } catch (Exception e) { Core.Log?.Warning("[profiles] install cancel threw: " + e.Message); } };
+            string headline = $"Installing {fullName} {version}";
+            InstallProgressView.Controller ui = InstallProgressView.Controller.ForPage(headline, plan, unresolved, cancel);
+            var pageUi = ui;
+            if (!ShowOnPage("profiles.install", "profiles", pv => pageUi.BuildPage(pv)))
+            {
+                ClearFormHost();
+                SetTmp(_clone.transform, "Title", "Installing");
+                var host = CreateFormHost("SH_InstallProgress");
+                ui = InstallProgressView.Build(host, headline, plan, unresolved, onCancel: cancel);
+            }
             _installCts = cts;
-            var ui = InstallProgressView.Build(host, $"Installing {fullName} {version}", plan, unresolved,
-                onCancel: () => { try { cts.Cancel(); } catch (Exception e) { Core.Log?.Warning("[profiles] install cancel threw: " + e.Message); } });
 
             var sink = new UiInstallProgress(ui);
             System.Threading.Tasks.Task.Run(async () =>
@@ -834,7 +844,8 @@ namespace SideHustle.Menu
         {
             yield return new UnityEngine.WaitForSeconds(seconds);
             if (_cloneScreen == null || !_cloneScreen.IsOpen) yield break;
-            if (_formHost == null || _formHost.name != "SH_InstallProgress") yield break;
+            bool stillThere = _pageKey == "profiles.install" || (_formHost != null && _formHost.name == "SH_InstallProgress");
+            if (!stillThere) yield break;
             ShowProfileDetail(profileId);
             // After an update the dependency closure can shrink (v2 drops a dependency v1 pulled in); offer to remove
             // the now-unused auto-installed dependencies, the same apt-autoremove flow a manual removal uses.
@@ -874,8 +885,6 @@ namespace SideHustle.Menu
             if (_clone == null) return;
             _mpDesc = null;
             _back = () => ShowProfileDetail(profileId);
-            ClearFormHost();
-            SetTmp(_clone.transform, "Title", "Thunderstore");
 
             // Snapshot the profile's Thunderstore packages so the browser can mark them as already installed.
             var doc = ProfileEngine.LoadStore(out _);
@@ -886,11 +895,26 @@ namespace SideHustle.Menu
                     .Select(m => m.FullName),
                 StringComparer.OrdinalIgnoreCase);
 
+            var browse = new BrowsePage { ProfileId = profileId, Name = p?.Name ?? "this profile", Installed = installed };
+            if (ShowOnPage("profiles.browse", "profiles", pv => BuildBrowsePage(pv, browse)))
+            {
+                LoadBrowseIndex(browse);
+                return;
+            }
+
+            ClearFormHost();
+            SetTmp(_clone.transform, "Title", "Thunderstore");
             var host = CreateFormHost("SH_PackageBrowser");
             PackageBrowserView.Build(host,
                 () => ShowProfileDetail(profileId),
                 (fullName, version) => InstallIntoProfile(profileId, fullName, version),
                 isInstalled: installed.Contains);
+        }
+
+        private static string ProfileName(string profileId)
+        {
+            var doc = ProfileEngine.LoadStore(out _);
+            return doc.Profiles.FirstOrDefault(x => x.Id.Equals(profileId, StringComparison.OrdinalIgnoreCase))?.Name ?? "this profile";
         }
 
         private static Transform DialogRoot()

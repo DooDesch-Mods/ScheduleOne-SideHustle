@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using DooDesch.UI;
 using S1API.UI;
+using SideHustle.Phone;
 using SideHustle.Sync;
 using UnityEngine;
 using UnityEngine.UI;
@@ -75,8 +76,11 @@ namespace SideHustle.Menu
         /// then joined a gamemode session got a column headed with the earlier host's name and sent their question
         /// to a stranger. On the signature the compiler asks every caller.
         /// </summary>
-        internal static void Build(Transform formHost, SyncDiff diff, ulong hostSteamId, string hostName,
-                                   bool hostAcceptsMessages, Action onContinue, Action onBack)
+        private static string _folders = "";
+
+        /// <summary>Start the checklist: the rows, the folder watch and the chat column. The classic screen and the
+        /// hub page both start here.</summary>
+        internal static void Begin(SyncDiff diff, ulong hostSteamId, string hostName, bool hostAcceptsMessages)
         {
             _pending.Clear();
             _pending.AddRange(diff.Entries.Where(Pending));
@@ -84,7 +88,9 @@ namespace SideHustle.Menu
             _notesSeen = ManualInstall.NotesVersion;
             _lookupsSeen = LookupsVersion;
             PrefetchLinks(diff);
+            _folders = ManualInstall.WatchedFoldersLabel();
             _active = true;
+            Core.Log?.Msg($"[sync] manual-install checklist open: {_pending.Count} mod(s) to install by hand.");
 
             // The conversation, as a column down the right rather than a button that could only ever send. This is
             // the screen where a mod nobody can download stops the whole thing, so the answer has to be readable
@@ -92,6 +98,72 @@ namespace SideHustle.Menu
             // The else is what stops a column mounted by an earlier screen riding along under a new host's name.
             if (ChatPanel.Possible(hostSteamId, hostAcceptsMessages)) ChatPanel.Show(hostSteamId, hostName);
             else ChatPanel.Hide();
+        }
+
+        /// <summary>The checklist on the hub page. The page redraws it on every state push, so a landed file or a
+        /// found Nexus page shows without a refresh of its own.</summary>
+        internal static void BuildPage(PageView pv, string title, ulong hostSteamId, string hostName, bool hostAcceptsMessages,
+            string backLabel, Action onContinue, Action onBack)
+        {
+            pv.Frame = "board";
+            int total = _pending.Count;
+            int done = _pending.Count(e => !Pending(e));
+            bool anyPending = _pending.Any(Pending);
+            var chat = ChatPanel.Possible(hostSteamId, hostAcceptsMessages)
+                ? pv.Btn("Chat", () => ChatPanel.Toggle(hostSteamId, hostName), "sm", "chat")
+                : null;
+            pv.Add(pv.Head(title, total > 0 ? $"Install these manually - {done} of {total} ready" : "Install these manually",
+                backLabel, onBack == null ? (Action)null : () => { _active = false; onBack(); }, chat));
+            pv.Add(pv.Quiet("Side Hustle picks up downloads from " + _folders + "."));
+            if (anyPending)
+                pv.Add(pv.Row(new[]
+                {
+                    pv.Btn("Open next link", OpenNext, "go", "link"),
+                    pv.Btn("Open all in browser", OpenAll),
+                    pv.Btn("Open the drop folder", OpenStaging, "", "folder"),
+                    pv.Sp(),
+                }));
+
+            var rows = new List<Json>();
+            foreach (var e in _pending)
+            {
+                var entry = e;
+                bool ready = !Pending(entry);
+                string state = ready ? "ready" : entry.ManualNote ?? "waiting for the download...";
+                string tone = ready ? "ok" : entry.ManualNote != null ? "need" : "";
+                Json link = null;
+                if (!ready)
+                {
+                    // Never a dead button: the host's exact link when it is a trusted URL, else the mod's own Nexus
+                    // page once the name lookup has identified it, else a Nexus search for the name.
+                    bool hasDirect = DownloadLink.IsAllowed(LinkUrl(entry));
+                    string page = hasDirect ? null : DownloadLink.PageFor(entry.Mod);
+                    string label = hasDirect ? "Open link"
+                        : page == null ? "Find online"
+                        : page.IndexOf("thunderstore.io", StringComparison.OrdinalIgnoreCase) >= 0 ? "Open page" : "Open Nexus";
+                    link = pv.Btn(label, () => OpenFor(entry), "sm", "link");
+                }
+                rows.Add(pv.Item(Label(entry), null, state, tone, acts: link != null ? new[] { link } : null));
+            }
+            pv.Add(pv.Scroll(rows));
+
+            // While anything is still missing, giving up is not the primary action - "Open next link" is.
+            pv.Add(pv.Foot(null, null, new[]
+            {
+                pv.Btn(anyPending ? "Skip missing and continue" : "Continue", () =>
+                {
+                    _active = false;
+                    ChatPanel.Hide();
+                    Core.Log?.Msg($"[sync] manual installs: continuing with {done} of {total} ready.");
+                    onContinue?.Invoke();
+                }, anyPending ? "" : "go"),
+            }));
+        }
+
+        internal static void Build(Transform formHost, SyncDiff diff, ulong hostSteamId, string hostName,
+                                   bool hostAcceptsMessages, Action onContinue, Action onBack)
+        {
+            Begin(diff, hostSteamId, hostName, hostAcceptsMessages);
 
             var page = Scaffold.Create(formHost);
             var content = page.Content;
@@ -105,7 +177,7 @@ namespace SideHustle.Menu
                 int total = _pending.Count;
                 int done = _pending.Count(e => !Pending(e));
                 Components.SectionHeader(content, total > 0 ? $"Install these manually - {done} of {total} ready" : "Install these manually");
-                Scaffold.Note(content, "Side Hustle picks up downloads from " + ManualInstall.WatchedFoldersLabel() + ".");
+                Scaffold.Note(content, "Side Hustle picks up downloads from " + _folders + ".");
 
                 if (_pending.Any(Pending))
                 {
@@ -254,6 +326,7 @@ namespace SideHustle.Menu
 
         private static void ShowToast(string message, Severity sev)
         {
+            if (Hub.PageToast(message, sev)) return;
             try
             {
                 Toast.Init(Hub.DialogRootStatic());
