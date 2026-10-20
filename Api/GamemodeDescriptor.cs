@@ -9,14 +9,39 @@ namespace SideHustle
     /// <see cref="DisplayName"/> and the launch callback for your <see cref="Support"/> mode are required;
     /// every multiplayer field is optional so a singleplayer-only mod registers minimally.
     /// </summary>
+    /// <example>
+    /// A multiplayer World gamemode with one host setting:
+    /// <code>
+    /// var d = new GamemodeDescriptor
+    /// {
+    ///     Id = "you.yourmode",
+    ///     DisplayName = "Your Mode",
+    ///     Support = GamemodeSupport.Multiplayer,
+    ///     Surface = GamemodeSurface.World,
+    ///     DownloadUrl = "https://github.com/you/yourmode",
+    ///     OnHostMultiplayer = Start,
+    ///     OnJoinMultiplayer = Start,
+    ///     OnExitToHub = Stop,
+    ///     HostSettings = new[]
+    ///     {
+    ///         new SettingDescriptor { Key = "len", Label = "Round length", Type = SettingType.Slider,
+    ///                                 Min = 10, Max = 120, Step = 10, WholeNumbers = true, Default = "30", Unit = "s" }
+    ///     }
+    /// };
+    /// API.Register(WorldHygiene.CleanWorld(d));
+    /// </code>
+    /// </example>
     public sealed class GamemodeDescriptor
     {
         // --- Identity (required) ---
 
         /// <summary>Stable, unique key (e.g. "doodesch.inkubator"). Used for de-duplication and, later, lobby filtering.</summary>
+        /// <value>3-48 characters of a-z, 0-9, '.', '_' or '-', e.g. "doodesch.prophunt". Another form logs a warning and
+        /// still registers. Compared exactly, case included. Required: null or empty makes <see cref="API.Register"/> throw.</value>
         public string Id;
 
         /// <summary>Name shown in the gamemode list.</summary>
+        /// <value>E.g. "PropHunt". Null or empty shows <see cref="Id"/> instead.</value>
         public string DisplayName;
 
         /// <summary>Short one-line description shown under the name.</summary>
@@ -59,6 +84,8 @@ namespace SideHustle
         /// gamemode's live public lobbies to players who do NOT have it installed, with a "Download Mod" button that
         /// opens this page. Null = still advertised by name (see <see cref="Advertise"/>) but with no download link.
         /// Only links on known mod hosts (Thunderstore, Nexus, GitHub) are opened.</summary>
+        /// <value>An absolute https link on thunderstore.io, nexusmods.com, github.com or doodesch.de, or a subdomain of
+        /// one, e.g. "https://github.com/you/yourmode". Any other link is shown but never opened.</value>
         public string DownloadUrl;
 
         /// <summary>When true (default), this gamemode's PUBLIC lobbies are advertised in the Side Hustle menu of
@@ -76,6 +103,8 @@ namespace SideHustle
 
         /// <summary>Quest titles EXEMPT from <see cref="BlockVanillaQuests"/> - e.g. a gamemode's own guide quest.
         /// Their <c>Quest.Begin</c> is allowed through even while vanilla quests are blocked. Default none.</summary>
+        /// <value>Each entry is compared exactly, case included, with the quest's <c>title</c>, e.g. "PropHunt" for
+        /// PropHunt's guide quest. Null or empty entries are skipped.</value>
         public string[] AllowedQuestTitles;
 
         /// <summary>When true, Side Hustle skips the new-game intro cutscene + character-creator (sets the player's
@@ -140,6 +169,8 @@ namespace SideHustle
         /// chosen values to your launch callbacks via <see cref="LaunchContext.Multiplayer"/>'s config blob. Null = none.
         /// See <see cref="SettingDescriptor"/>.
         /// </summary>
+        /// <value>Shown in array order. Each <see cref="SettingDescriptor.Key"/> must be unique; a repeated key logs a
+        /// warning and both controls write the same value.</value>
         public SettingDescriptor[] HostSettings;
 
         /// <summary>
@@ -147,6 +178,8 @@ namespace SideHustle
         /// selecting a preset cascades its values into the matching controls (the host can still tweak after).
         /// Null/empty = no picker. See <see cref="SettingPreset"/>.
         /// </summary>
+        /// <value>The form opens on the preset marked <see cref="SettingPreset.DefaultSelected"/>, else on the best fit for
+        /// the lobby size, else on the first entry.</value>
         public SettingPreset[] Presets;
 
         /// <summary>The assembly that registered this descriptor; its DLL is always kept by a mod policy. Set by

@@ -9,6 +9,8 @@ namespace SideHustle.Multiplayer
     public sealed class MultiplayerInfo
     {
         /// <summary>Maximum players the host opened the lobby for.</summary>
+        /// <value>The host form offers 2 up to the lobby cap. It starts at the host's last choice, else at 4 or
+        /// the cap, whichever is lower.</value>
         public int MaxPlayers { get; internal set; }
 
         /// <summary>Display name of the gamemode (lobby key <c>sh_gamemode_name</c>).</summary>
@@ -57,18 +59,29 @@ namespace SideHustle.Multiplayer
             _config ?? (_config = ConfigCodec.Decode(ConfigBlob));
 
         /// <summary>A host setting value by key (the gamemode's <see cref="SettingDescriptor.Key"/>), or <paramref name="fallback"/>.</summary>
+        /// <param name="key">A <see cref="SettingDescriptor.Key"/>, e.g. "len". Compared exactly, case included.</param>
+        /// <param name="fallback">Returned when the blob has no entry for the key. A key stored with an empty value
+        /// returns the empty string.</param>
+        /// <returns>The stored form described on <see cref="SettingDescriptor"/>, e.g. "30", "1" or "n".</returns>
         public string GetSetting(string key, string fallback = null) =>
             Config.TryGetValue(key, out var v) ? v : fallback;
 
         /// <summary>A host setting parsed as an integer (invariant culture), or <paramref name="fallback"/>.</summary>
+        /// <param name="key">A <see cref="SettingDescriptor.Key"/>, e.g. "len".</param>
+        /// <param name="fallback">Returned when the key is missing or its value is not an integer, e.g. "0.25".</param>
         public int GetInt(string key, int fallback = 0) =>
             int.TryParse(GetSetting(key), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : fallback;
 
         /// <summary>A host setting parsed as a float (invariant culture), or <paramref name="fallback"/>.</summary>
+        /// <param name="key">A <see cref="SettingDescriptor.Key"/>, e.g. "speed".</param>
+        /// <param name="fallback">Returned when the key is missing or its value is not a number.</param>
         public float GetFloat(string key, float fallback = 0f) =>
             float.TryParse(GetSetting(key), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : fallback;
 
         /// <summary>A host setting parsed as a bool ("1"/"true" = true), or <paramref name="fallback"/>.</summary>
+        /// <param name="key">A <see cref="SettingDescriptor.Key"/>, e.g. "ping".</param>
+        /// <param name="fallback">Returned when the key is missing or its value is empty. Any other value than "1" or
+        /// "true" (case ignored) is false.</param>
         public bool GetBool(string key, bool fallback = false)
         {
             var s = GetSetting(key);

@@ -11,6 +11,10 @@ namespace SideHustle
         /// A clean scratch world: vanilla quests blocked (except <paramref name="allowedQuestTitles"/>), the intro
         /// skipped and saving blocked for the session. Fits most World gamemodes.
         /// </summary>
+        /// <param name="descriptor">The descriptor to change. Null logs a warning and returns null.</param>
+        /// <param name="allowedQuestTitles">Quest titles that may still start, e.g. "PropHunt"; see
+        /// <see cref="GamemodeDescriptor.AllowedQuestTitles"/>. None keeps the titles already set.</param>
+        /// <returns>The same descriptor, so the call fits inside <see cref="API.Register"/>.</returns>
         public static GamemodeDescriptor CleanWorld(GamemodeDescriptor descriptor, params string[] allowedQuestTitles)
         {
             if (descriptor == null)
@@ -29,6 +33,10 @@ namespace SideHustle
         /// <see cref="CleanWorld"/> plus no NPC reactions to gunfire and no vanilla player death - for a gamemode
         /// whose players shoot and whose eliminations are its own (the set PropHunt uses).
         /// </summary>
+        /// <param name="descriptor">The descriptor to change. Null logs a warning and returns null.</param>
+        /// <param name="allowedQuestTitles">Quest titles that may still start, e.g. "PropHunt"; see
+        /// <see cref="GamemodeDescriptor.AllowedQuestTitles"/>. None keeps the titles already set.</param>
+        /// <returns>The same descriptor, so the call fits inside <see cref="API.Register"/>.</returns>
         public static GamemodeDescriptor Arena(GamemodeDescriptor descriptor, params string[] allowedQuestTitles)
         {
             if (CleanWorld(descriptor, allowedQuestTitles) == null) return null;
