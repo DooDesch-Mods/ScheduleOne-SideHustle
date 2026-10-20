@@ -212,6 +212,7 @@ namespace SideHustle.Menu
                         Core.Log?.Msg($"[scene] light '{P(2)}' set.");
                         break;
                     case "page": Hub.ShowPageCanvasForTest(parts.Length < 3 || parts[2] != "off"); break;
+                    case "fade": Hub.TraceFadeForTest(F(2, 2f)); break;
                     case "reset": Reset(); break;
                     case "preset": Reset(); Apply(P(2)); break;
                     case "res":
@@ -272,12 +273,13 @@ namespace SideHustle.Menu
         private static void Sizes()
         {
             Core.Log?.Msg($"[scene] screen {Screen.width}x{Screen.height}, current resolution {Screen.currentResolution.width}x{Screen.currentResolution.height}, fullscreen {Screen.fullScreen}.");
-            foreach (var c in UnityEngine.Object.FindObjectsOfType<Canvas>())
+            foreach (var c in UnityEngine.Object.FindObjectsOfType<Canvas>(true))
             {
                 if (c == null || !c.isRootCanvas) continue;
                 var rt = c.GetComponent<RectTransform>();
-                Core.Log?.Msg(string.Format(CultureInfo.InvariantCulture, "[scene] canvas '{0}' {1} rect {2:0}x{3:0} scale {4:0.###} pixelRect {5:0}x{6:0}",
-                    c.name, c.renderMode, rt.rect.width, rt.rect.height, c.scaleFactor, c.pixelRect.width, c.pixelRect.height));
+                Core.Log?.Msg(string.Format(CultureInfo.InvariantCulture, "[scene] canvas '{0}' {1} order {7} {8} rect {2:0}x{3:0} scale {4:0.###} pixelRect {5:0}x{6:0}",
+                    c.name, c.renderMode, rt.rect.width, rt.rect.height, c.scaleFactor, c.pixelRect.width, c.pixelRect.height,
+                    c.sortingOrder, c.isActiveAndEnabled ? "on" : "off"));
             }
             var page = FindAny("SideHustle_HubSurface/page");
             if (page == null) { Core.Log?.Warning("[scene] size: the hub page holder was not found."); return; }

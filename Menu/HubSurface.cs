@@ -55,6 +55,23 @@ namespace SideHustle.Menu
 
         private static bool _hubShown;
 
+        // --- fading with the vanilla main menu ---
+
+        /// <summary>On the page's root canvas: its alpha is <see cref="_hubFade"/> times what the vanilla covers
+        /// leave visible.</summary>
+        private static CanvasGroup _hubGroup;
+
+        /// <summary>The page's own open lerp, 0 to 1 at the speed of the vanilla menu screens.</summary>
+        private static float _hubFade;
+
+        /// <summary>The vanilla full-screen layer over the menu right now, for the log ("" when none).</summary>
+        private static string _hubCover = "";
+
+        private static Il2CppScheduleOne.UI.MainMenu.Disclaimer _disclaimer;
+        private static bool _disclaimerLooked;
+        private static Il2CppScheduleOne.UI.LoadingScreen _loading;
+        private static bool _hubFadeWarned;
+
         /// <summary>A nested canvas on the clone, disabled while the page draws: the clone keeps running as a screen
         /// but paints nothing and takes no clicks.</summary>
         private static Canvas _cloneCanvas;
@@ -145,6 +162,9 @@ namespace SideHustle.Menu
                 _hubCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
                 _hubCanvas.sortingOrder = 1000;
                 _hubRaycaster = _hubRoot.AddComponent<UnityEngine.UI.GraphicRaycaster>();
+                _hubGroup = _hubRoot.AddComponent<CanvasGroup>();
+                _hubGroup.alpha = 0f;
+                _hubFade = 0f;
 
                 var holder = new GameObject("page");
                 var rect = holder.AddComponent<RectTransform>();
@@ -191,6 +211,13 @@ namespace SideHustle.Menu
             _hubRoot = null;
             _hubCanvas = null;
             _hubRaycaster = null;
+            _hubGroup = null;
+            _hubFade = 0f;
+            _hubCover = "";
+            _disclaimer = null;
+            _disclaimerLooked = false;
+            // A wish left from the last menu visit would make the next menu skip reopening its home screen.
+            _homeWant = null;
             _hub = null;
             _hubShown = false;
             _hubView = false;
@@ -209,8 +236,9 @@ namespace SideHustle.Menu
         {
             if (_hubShown == on) return;
             _hubShown = on;
-            if (_hubCanvas != null) _hubCanvas.enabled = on;
-            if (_hubRaycaster != null) _hubRaycaster.enabled = on;
+            // The page's canvas and raycaster follow the fade in TickHubFade: it fades out with the vanilla menu
+            // instead of vanishing, and takes no clicks from the moment it is meant to be gone.
+            if (_hubRaycaster != null && !on) _hubRaycaster.enabled = false;
             EnsureCloneCanvas();
             if (_cloneCanvas != null) _cloneCanvas.enabled = !on;
             if (_cloneRaycaster != null) _cloneRaycaster.enabled = !on;
@@ -230,8 +258,32 @@ namespace SideHustle.Menu
         internal static void ShowPageCanvasForTest(bool on)
         {
             if (_hubCanvas == null) { Core.Log?.Warning("[scene] the hub page has no canvas yet."); return; }
-            _hubCanvas.enabled = on;
+            _pageOffForTest = !on;
             Core.Log?.Msg(on ? "[scene] page canvas on." : "[scene] page canvas off.");
+        }
+
+        private static bool _pageOffForTest;
+        private static float _fadeTraceLeft;
+
+        // shscene fade <seconds>: one log line per frame with the page's alpha beside the vanilla menu's.
+        internal static void TraceFadeForTest(float seconds)
+        {
+            _fadeTraceLeft = Mathf.Max(0.1f, seconds);
+            Core.Log?.Msg($"[fade] tracing for {_fadeTraceLeft:0.##}s.");
+        }
+
+        private static void TraceFade(float dt, float cover)
+        {
+            if (_fadeTraceLeft <= 0f) return;
+            _fadeTraceLeft -= dt;
+            float home = -1f;
+            try { if (_home != null && _home.Group != null) home = _home.gameObject.activeInHierarchy ? _home.Group.alpha : 0f; }
+            catch (Exception e) { Core.Log?.Warning("[fade] could not read the vanilla menu's alpha: " + e.Message); }
+            Core.Log?.Msg(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                "[fade] f{0} page {1:0.000} (own {2:0.000}, cover {3:0.000} {4}) home {5:0.000} shown {6} canvas {7} rays {8}",
+                Time.frameCount, _hubGroup != null ? _hubGroup.alpha : -1f, _hubFade, cover, string.IsNullOrEmpty(_hubCover) ? "-" : _hubCover,
+                home, _hubShown, _hubCanvas != null && _hubCanvas.enabled, _hubRaycaster != null && _hubRaycaster.enabled));
+            if (_fadeTraceLeft <= 0f) Core.Log?.Msg("[fade] trace done.");
         }
 
 #endif
@@ -398,6 +450,7 @@ namespace SideHustle.Menu
             bool want = HubWanted();
             if (want != _hubShown) SetHubShown(want);
             SyncHomeBesidePage();
+            TickHubFade(dt);
             if (!_hubShown) return;
 
             TickHubQueries(dt);
@@ -409,6 +462,101 @@ namespace SideHustle.Menu
             if (now == _hubPushed) return;
             _hubPushed = now;
             Safe.Try("telling the hub page its state moved", () => _hub.Emit("hub.changed", ""));
+        }
+
+        /// <summary>
+        /// The page fades like a vanilla menu screen: in and out over <c>MenuScreen.LerpTime</c> when it shows or
+        /// hides, so it goes with the vanilla menu beside it when a sub-screen (Continue, Settings) opens or closes.
+        /// On top of that, whatever vanilla lays over the whole menu hides the page too: the disclaimer at the first
+        /// menu load and the loading screen on the way into a save and back. The page's canvas sorts above both, so
+        /// without this it showed before the menu and stayed after it.
+        /// </summary>
+        private static void TickHubFade(float dt)
+        {
+            if (_hubCanvas == null || _hubGroup == null) return;
+            float lerp = MenuLerpTime();
+            float step = lerp > 0f ? dt / lerp : 1f;
+            _hubFade = _hubShown ? Mathf.Min(1f, _hubFade + step) : Mathf.Max(0f, _hubFade - step);
+
+            float cover = MenuCover();
+            float alpha = _hubFade * (1f - cover);
+#if DEBUG
+            if (_pageOffForTest) alpha = 0f;
+#endif
+            _hubGroup.alpha = alpha;
+            bool draw = alpha > 0.001f;
+            if (_hubCanvas.enabled != draw) _hubCanvas.enabled = draw;
+            // Clicks only while the page is meant to be up and no cover sits over most of it, the way the vanilla
+            // menu takes no clicks until the disclaimer lets go.
+            bool rays = _hubShown && cover < 0.5f;
+            if (_hubRaycaster != null && _hubRaycaster.enabled != rays) _hubRaycaster.enabled = rays;
+#if DEBUG
+            TraceFade(dt, cover);
+#endif
+        }
+
+        private static float _menuLerpTime = -1f;
+
+        private static float MenuLerpTime()
+        {
+            if (_menuLerpTime > 0f) return _menuLerpTime;
+            try { _menuLerpTime = Il2CppScheduleOne.UI.MainMenu.MenuScreen.LerpTime; }
+            catch (Exception e) { Core.Log?.Warning("[hub3] could not read the vanilla menu fade time, using 0.075s: " + e.Message); }
+            if (_menuLerpTime <= 0f) _menuLerpTime = 0.075f;
+            return _menuLerpTime;
+        }
+
+        /// <summary>Whether a vanilla layer draws below the page, so the page has to fade for it. One drawn above
+        /// already hides the page the way it hides the menu.</summary>
+        private static bool UnderPage(Canvas c)
+        {
+            if (c == null || _hubCanvas == null) return true;
+            var root = c.rootCanvas != null ? c.rootCanvas : c;
+            if (root.renderMode != RenderMode.ScreenSpaceOverlay) return true;   // every overlay canvas draws over it
+            return root.sortingOrder < _hubCanvas.sortingOrder;
+        }
+
+        /// <summary>How much of the menu a vanilla full-screen layer below the page hides right now, 0 to 1.</summary>
+        private static float MenuCover()
+        {
+            float cover = 0f;
+            string by = "";
+            try
+            {
+                if (!_disclaimerLooked)
+                {
+                    _disclaimerLooked = true;
+                    _disclaimer = UnityEngine.Object.FindObjectOfType<Il2CppScheduleOne.UI.MainMenu.Disclaimer>(true);
+                    Core.Log?.Msg(_disclaimer != null ? "[hub3] the menu disclaimer is in the scene; the page waits for it."
+                                                      : "[hub3] no menu disclaimer in this scene.");
+                }
+                if (_disclaimer != null && _disclaimer.gameObject.activeInHierarchy && _disclaimer.Group != null
+                    && _disclaimer.Group.alpha > cover && UnderPage(_disclaimer.GetComponentInParent<Canvas>()))
+                { cover = _disclaimer.Group.alpha; by = "disclaimer"; }
+
+                // Persistent across scenes, so one lookup holds until the game drops it.
+                if (_loading == null) _loading = UnityEngine.Object.FindObjectOfType<Il2CppScheduleOne.UI.LoadingScreen>(true);
+                if (_loading != null && _loading.Canvas != null && _loading.Canvas.enabled && _loading.Group != null
+                    && _loading.Group.alpha > cover && UnderPage(_loading.Canvas))
+                { cover = _loading.Group.alpha; by = "loading screen"; }
+            }
+            catch (Exception e)
+            {
+                if (!_hubFadeWarned)
+                {
+                    _hubFadeWarned = true;
+                    Core.Log?.Warning("[hub3] could not read the vanilla disclaimer or loading screen; the page ignores them: " + e.Message);
+                }
+                return 0f;
+            }
+
+            string now = cover >= 0.5f ? by : "";
+            if (now != _hubCover)
+            {
+                Core.Log?.Msg(now.Length > 0 ? $"[hub3] page under the vanilla {now}." : $"[hub3] page clear of the vanilla {_hubCover}.");
+                _hubCover = now;
+            }
+            return Mathf.Clamp01(cover);
         }
 
         // What the page last asked of the vanilla home screen; null while vanilla decides alone.
