@@ -3,6 +3,22 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [3.1.3] - 2026-10-21
+
+### Added
+- The Play tab lists gamemodes you do not have yet, Personify and Inkubator included, with Info and Add to a
+  profile.
+- Gamemodes you do not have are sorted by how often they were started this week, with the count on the tile.
+- `SharePlayCounts` setting: a host or solo start sends only the gamemode name. On by default.
+
+### Changed
+- With the chat column open, the hub moves left instead of squeezing its content.
+
+### Fixed
+- The Lobby app no longer traps you on the Chat tab: Escape, right-click and the phone key work again.
+- The chat no longer jumps to the bottom while you scroll up; it scrolls only for a new message.
+- Opening the Lobby app with an unread message shows that conversation.
+
 ## [3.1.2] - 2026-10-21
 
 ### Fixed
