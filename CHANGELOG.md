@@ -3,6 +3,18 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [3.1.2] - 2026-10-21
+
+### Fixed
+- The Lobbies tab has a Chat button again: select a lobby whose host takes messages, then Chat next to Join.
+- The Thunderstore browser in Profiles shows package icons again instead of initials.
+- Adding an installed mod to a profile keeps the list open, so several mods go in one after another.
+- Profiles without any profile shows one page with New profile instead of a narrow column and an empty half.
+- New profile and Activate stay inside their cards in Profiles.
+
+### For mod authors
+- License: DooDesch API License. Build on the API, copy only the API files; earlier releases stay MIT.
+
 ## [3.1.1] - 2026-10-21
 
 ### Fixed
