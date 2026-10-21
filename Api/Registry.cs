@@ -1,3 +1,4 @@
+// Copyright (c) 2026 DooDesch. DooDesch API License (see LICENSE.md): you may copy this file unchanged.
 using System.Collections.Generic;
 
 namespace SideHustle.Internal

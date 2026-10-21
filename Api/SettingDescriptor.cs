@@ -1,3 +1,4 @@
+// Copyright (c) 2026 DooDesch. DooDesch API License (see LICENSE.md): you may copy this file unchanged.
 namespace SideHustle
 {
     /// <summary>How a host setting is presented on the Host-config form and stored in the config blob.</summary>
