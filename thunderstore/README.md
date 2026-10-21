@@ -102,4 +102,4 @@ Open the **Settings** tab in the hub. Everything is stored in `UserData/MelonPre
 
 ## License
 
-MIT. See the included LICENSE.md.
+DooDesch API License - build on the API, do not copy the code. See [LICENSE.md](https://github.com/DooDesch-Mods/ScheduleOne-SideHustle/blob/main/LICENSE.md).
