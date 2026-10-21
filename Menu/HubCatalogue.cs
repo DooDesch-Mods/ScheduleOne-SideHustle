@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using DooDesch.UI;
 using SideHustle.Multiplayer;
+using SideHustle.Phone;
 using SideHustle.Profiles;
 using SideHustle.Shared;
 
@@ -57,6 +58,8 @@ namespace SideHustle.Menu
                 return;
             }
 
+            if (ShowOnPage("catalogue.profile", "play", pv => BuildCatalogueProfilePage(pv, entry, back))) return;
+
             var rows = profiles.Select(p =>
             {
                 string id = p.Id;
@@ -70,6 +73,20 @@ namespace SideHustle.Menu
             rows.Add(new Row { Name = "Back", Subtitle = "Back to " + entry.Name + ".", OnClick = back });
             _back = back;
             ShowRows("Install into a profile", rows);
+        }
+
+        private static void BuildCatalogueProfilePage(PageView pv, GamemodeCatalogue.Entry entry, Action back)
+        {
+            pv.Frame = "board";
+            pv.Add(pv.Head("Add " + entry.Name, "Installs into a profile, dependencies included.", "Play", back));
+            var rows = new List<Json>();
+            foreach (var p in ProfileEngine.LoadStore(out _).Profiles)
+            {
+                string id = p.Id;
+                rows.Add(pv.Item(p.Name, p.Mods.Count == 1 ? "1 mod" : $"{p.Mods.Count} mods",
+                    acts: new[] { pv.Btn("Install", () => InstallCatalogueEntry(id, entry), "sm go", "download") }));
+            }
+            pv.Add(pv.Scroll(rows));
         }
 
         private static void InstallCatalogueEntry(string profileId, GamemodeCatalogue.Entry entry)

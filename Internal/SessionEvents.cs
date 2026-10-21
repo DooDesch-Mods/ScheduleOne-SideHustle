@@ -108,6 +108,8 @@ namespace SideHustle.Internal
             PlayerTracker.Begin(ctx);
             Core.Log?.Msg($"[api] session started: '{id}' as {ctx.Role}, {PlayerTracker.Count} player(s), {Started.Count} handler(s).");
             Started.Raise(h => h(ctx));
+            if (ctx.Role != SessionRole.Client)
+                Sync.PlayCounts.Report(id, ctx.Role == SessionRole.Host ? "host" : "solo");
         }
 
         /// <summary>

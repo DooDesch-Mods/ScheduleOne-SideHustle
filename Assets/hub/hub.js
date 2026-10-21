@@ -1238,6 +1238,8 @@ function refresh() {
 
 s1.on('hub.changed', refresh);
 s1.on('hub.back', back);
+// The mod slid the page beside the chat column. A class flip rebuilds it, so the clip areas follow the new spot.
+s1.on('hub.moved', () => document.body.classList.toggle('moved'));
 s1.on('hub.toast', raw => {
   try { const t = JSON.parse(raw); toast(t.text, t.tone || 'info'); }
   catch (e) { console.error('unreadable hub toast: ' + e.message); }

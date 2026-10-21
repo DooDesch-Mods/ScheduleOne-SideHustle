@@ -31,6 +31,22 @@ namespace SideHustle.Menu
                 Package = "DooDesch-PropHunt",
                 Url = "https://thunderstore.io/c/schedule-i/p/DooDesch/PropHunt/",
             },
+            new Entry
+            {
+                Id = "doodesch.personify",
+                Name = "Personify",
+                Subtitle = "Design and export custom NPC packs.",
+                Package = "DooDesch-Personify",
+                Url = "https://thunderstore.io/c/schedule-i/p/DooDesch/Personify/",
+            },
+            new Entry
+            {
+                Id = "doodesch.inkubator",
+                Name = "Inkubator",
+                Subtitle = "Design and export custom tattoo mods.",
+                Package = "DooDesch-Inkubator",
+                Url = "https://thunderstore.io/c/schedule-i/p/DooDesch/Inkubator/",
+            },
         };
 
         internal static Entry Find(string gamemodeId)
