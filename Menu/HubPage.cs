@@ -170,10 +170,10 @@ namespace SideHustle.Menu
         /// <summary>A row: name and line on the left, a state or a bar in the middle, actions on the right.</summary>
         internal Json Item(string name, string sub = null, string state = null, string tone = null, IEnumerable<Json> acts = null,
             string icon = null, string iconTone = null, bool dep = false, bool sel = false, string tag = null,
-            string mono = null, Action onClick = null, int pct = -1, bool live = false) =>
+            string mono = null, Action onClick = null, int pct = -1, bool live = false, string pic = null) =>
             Part("row").Add("name", name ?? "").Add("sub", sub ?? "").Add("st", state ?? "").Add("tone", tone ?? "")
                 .Add("acts", Arr(acts)).Add("icon", icon ?? "").Add("itone", iconTone ?? "").Add("dep", dep).Add("sel", sel)
-                .Add("tag", tag ?? "").Add("mono", mono ?? "").Add("act", Act(onClick)).Add("pct", pct).Add("live", live);
+                .Add("tag", tag ?? "").Add("mono", mono ?? "").Add("pic", pic ?? "").Add("act", Act(onClick)).Add("pct", pct).Add("live", live);
 
         /// <summary>A strip that says what will happen, in the colour of its meaning ("now", "need", "bad", "ok").</summary>
         internal Json Say(string tone, string icon, string name, string sub, params Json[] acts) =>

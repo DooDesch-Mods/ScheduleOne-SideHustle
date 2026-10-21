@@ -148,6 +148,8 @@ function go(tab) {
   if (tab === 'profiles' || tab === 'settings') { act('hub.legacy', tab); refresh(); return; }
   if (S && S.view) { ui.tab = tab; act('hub.open', tab); refresh(); return; }
   if (ui.tab === tab) return;
+  // The chat column belongs to the lobby list; another tab takes it down.
+  if (ui.tab === 'lobbies' && S && S.chat) act('hub.chat', '');
   ui.tab = tab;
   invalidate();
   render();
@@ -670,17 +672,27 @@ function selectLobby(id) {
 function renderPass() {
   if (!boardPass) return;
   const l = ui.lobby ? (S.lobbies || []).find(x => x.id === ui.lobby) : null;
-  const data = l ? [l.id, l.modeName, l.host, l.members, l.max, l.before, l.canJoin, S.busy] : null;
+  const data = l ? [l.id, l.modeName, l.host, l.members, l.max, l.before, l.canJoin, l.chat, l.chatOpen, S.busy] : null;
   if (!changed('pass', data)) return;
   boardPass.replaceChildren();
   if (!l) return;
   const pass = el('div', 'pass');
-  pass.appendChild(seg('GAMEMODE', l.modeName));
+  const m = seg('GAMEMODE', l.modeName);
+  m.className = 'seg gm';
+  pass.appendChild(m);
   pass.appendChild(seg('HOST', l.host || 'Unknown'));
   pass.appendChild(seg('SEATS', l.max > 0 ? l.members + ' of ' + l.max : String(l.members)));
   const w = seg('BEFORE YOU JOIN', l.before);
   w.className = 'seg w';
   pass.appendChild(w);
+  // A host who takes messages can be asked first, for a password or a seat.
+  if (l.chat) {
+    const c = el('div', l.chatOpen ? 'ask on' : 'ask');
+    c.appendChild(lu('chat'));
+    c.appendChild(el('div', null, l.chatOpen ? 'Close chat' : 'Chat'));
+    c.addEventListener('click', () => act('hub.chat', l.id));
+    pass.appendChild(c);
+  }
   const j = el('div', l.canJoin && !S.busy ? 'join' : 'join off', 'Join');
   j.addEventListener('click', () => { if (l.canJoin && !S.busy) join(l); });
   pass.appendChild(j);
@@ -952,7 +964,11 @@ function part(p) {
       const n = el('div', 'm' + (p.dep ? ' dep' : '') + (p.sel ? ' sel' : ''));
       if (p.act) n.addEventListener('click', () => viewAct(p.act));
       if (p.icon) n.appendChild(lu(p.icon, p.itone ? 'ic ' + p.itone : 'ic'));
-      if (p.mono) n.appendChild(el('div', 'icon mono', p.mono));
+      if (p.pic) {
+        const img = el('img', 'icon');
+        img.setAttribute('src', pic(p.pic));
+        n.appendChild(img);
+      } else if (p.mono) n.appendChild(el('div', 'icon mono', p.mono));
       const t = el('div', 't');
       if (p.tag) {
         const nl = el('div', 'nl');
@@ -1203,7 +1219,7 @@ function render() {
   if (!S) return;
   const main = document.getElementById('main');
   const page = main.parentElement;
-  const want = S.view && S.view.chat ? 'page chat' : 'page';
+  const want = (S.view ? S.view.chat : S.chat) ? 'page chat' : 'page';
   if (page.className !== want) page.className = want;
   if (S.view) { renderView(main); return; }
   leaveView();

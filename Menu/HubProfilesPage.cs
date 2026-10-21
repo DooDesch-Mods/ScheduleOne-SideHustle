@@ -67,6 +67,21 @@ namespace SideHustle.Menu
             var left = new List<Json>();
             if (!s.Writable)
                 left.Add(pv.Say("need", "alert", "Profiles are read-only: the profile file is unreadable or newer than this Side Hustle.", null));
+
+            // Nothing to list and nothing to open: one empty state across the page instead of a narrow empty column
+            // beside an empty right half.
+            if (s.Doc.Profiles.Count == 0 && string.IsNullOrEmpty(s.Active))
+            {
+                var first = new List<Json>();
+                if (s.Writable) first.Add(pv.Btn("New profile", PromptNewProfile, "go", "plus"));
+                if (s.Writable && s.LastSync.HasValue) first.Add(pv.Btn("From " + s.LastSync.Value.Host, CreateFromLastSync, "", "restore"));
+                left.Add(pv.Card(null, true, pv.Big("package", "No profiles yet",
+                    "A profile is a mod set of its own. Switching to one restarts the game with only those mods.",
+                    -1, null, null, first.ToArray())));
+                pv.Add(left);
+                return;
+            }
+
             if (s.Writable && s.LastSync.HasValue)
                 left.Add(pv.Say("now", "plus", "From last lobby: " + s.LastSync.Value.Host,
                     $"Save the {Words.Plural(s.LastSync.Value.ModCount, "mod", "mods")} you synced there as a profile.",
@@ -91,9 +106,11 @@ namespace SideHustle.Menu
             }
             if (s.Doc.Profiles.Count == 0) list.Add(pv.Quiet("No profiles yet."));
 
+            // The button spans the card under the list: beside the heading it did not fit the narrow column.
             left.Add(pv.Card(null, true,
-                pv.Row(new[] { pv.Heading("MOD PROFILES"), pv.Sp(), s.Writable ? pv.Btn("New profile", PromptNewProfile, "sm", "plus") : null }),
-                pv.Scroll(list)));
+                pv.Heading("MOD PROFILES"),
+                pv.Scroll(list),
+                s.Writable ? pv.Btn("New profile", PromptNewProfile, "", "plus") : null));
 
             var right = new List<Json>();
             if (s.Selected != null) right.Add(ProfileDetailCard(pv, s));
@@ -187,7 +204,8 @@ namespace SideHustle.Menu
 
         // --- add an installed mod ---
 
-        private static void BuildAddBasePage(PageView pv, string profileId, string profileName, List<string> candidates, Action<string> onAdd)
+        private static void BuildAddBasePage(PageView pv, string profileId, string profileName, List<string> candidates,
+            HashSet<string> added, Action<string> onAdd)
         {
             pv.Frame = "board";
             pv.Add(pv.Head("Add an installed mod", profileName, "Profile", () => ShowProfileDetail(profileId)));
@@ -196,7 +214,10 @@ namespace SideHustle.Menu
             foreach (var file in candidates)
             {
                 string f = file;
-                rows.Add(pv.Item(StripDll(f), f, acts: new[] { pv.Btn("Add", () => onAdd(f), "sm go", "plus") }));
+                var act = added.Contains(f)
+                    ? pv.Btn("Added", null, "sm ok2", "check", off: true)
+                    : pv.Btn("Add", () => onAdd(f), "sm go", "plus");
+                rows.Add(pv.Item(StripDll(f), f, acts: new[] { act }));
             }
             pv.Add(pv.Scroll(rows));
         }
@@ -305,7 +326,7 @@ namespace SideHustle.Menu
                     : pv.Btn("Install", () => InstallIntoProfile(b.ProfileId, p.FullName, ver), "sm go", "download");
                 rows.Add(pv.Item(p.Name,
                     $"by {p.Owner} - v{ver} - {PackageBrowserView.Downloads(p.TotalDownloads)} {(p.TotalDownloads == 1 ? "download" : "downloads")}",
-                    mono: Initials(p.Name), tag: p.IsModpack ? "Modpack" : null, acts: new[] { info, main }));
+                    mono: Initials(p.Name), pic: HubPackageIcon(p.Latest.Icon), tag: p.IsModpack ? "Modpack" : null, acts: new[] { info, main }));
             }
             if (rows.Count == 0) rows.Add(pv.Quiet("No packages match."));
             pv.Add(pv.Scroll(rows));

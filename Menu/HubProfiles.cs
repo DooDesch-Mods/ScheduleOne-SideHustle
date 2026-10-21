@@ -372,14 +372,29 @@ namespace SideHustle.Menu
                 .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
+            // On the page the list stays open, so several mods go in one after another; the row says it is added.
+            var added = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            Action<string> onPageAdd = f =>
+            {
+                if (added.Contains(f)) return;
+                if (AddBaseMod(profileId, f))
+                {
+                    added.Add(f);
+                    Core.Log?.Msg($"[profiles] added {f} to '{profileId}', the list stays open.");
+                    _hubSinceState = 999f;
+                }
+                else ShowToast("Couldn't add " + f + ". The profile file isn't writable.", Severity.Warning);
+            };
+            string profileName = p.Name;
+            if (ShowOnPage("profiles.add", "profiles", pv => BuildAddBasePage(pv, profileId, profileName, candidates, added, onPageAdd))) return;
+
+            // The classic screen cannot redraw one row, so it goes back to the profile as before.
             Action<string> onAdd = f =>
             {
                 if (AddBaseMod(profileId, f)) ShowToast("Added " + f + ".", Severity.Success);
                 else ShowToast("Couldn't add " + f + ". The profile file isn't writable.", Severity.Warning);
                 ShowProfileDetail(profileId);
             };
-            string profileName = p.Name;
-            if (ShowOnPage("profiles.add", "profiles", pv => BuildAddBasePage(pv, profileId, profileName, candidates, onAdd))) return;
 
             ClearFormHost();
             SetTmp(_clone.transform, "Title", "Add an installed mod");
