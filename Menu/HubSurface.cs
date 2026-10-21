@@ -40,6 +40,12 @@ namespace SideHustle.Menu
         private const float HubMenuShare = 0.4f;
 
         private static GameObject _hubRoot;
+        private static RectTransform _hubRect;
+
+        /// <summary>How far the page sits left of its place, as a share of the screen width. It follows the chat
+        /// column's width while that column is open, so the page keeps its full width beside it instead of losing
+        /// a third of it under the column.</summary>
+        private static float _hubShift;
         private static Canvas _hubCanvas;
         private static UnityEngine.UI.GraphicRaycaster _hubRaycaster;
         private static SurfaceHandle _hub;
@@ -173,11 +179,15 @@ namespace SideHustle.Menu
                 rect.anchorMax = Vector2.one;
                 rect.offsetMin = Vector2.zero;
                 rect.offsetMax = Vector2.zero;
+                _hubRect = rect;
+                _hubShift = 0f;
 
                 _hub = Surfaces.Mount(rect, HubSurfaceId, "SideHustle.Assets.hub", HubDesignShortSide)
                     .OnCall("hub.state", _ => HubStateJson())
                     .OnCall("hub.hostAgain", HubCallHostAgain)
                     .OnCall("hub.play", HubCallPlay)
+                    .OnCall("hub.add", HubCallAdd)
+                    .OnCall("hub.info", HubCallInfo)
                     .OnCall("hub.load", HubCallLoad)
                     .OnCall("hub.vanillaHost", _ => HubCallVanillaHost())
                     .OnCall("hub.hostForm", HubCallHostForm)
@@ -212,6 +222,8 @@ namespace SideHustle.Menu
             Safe.Try("unmounting the hub surface", () => Surfaces.Unmount(HubSurfaceId));
             Safe.Try("destroying the hub canvas", () => { if (_hubRoot != null) UnityEngine.Object.Destroy(_hubRoot); });
             _hubRoot = null;
+            _hubRect = null;
+            _hubShift = 0f;
             _hubCanvas = null;
             _hubRaycaster = null;
             _hubGroup = null;
@@ -455,6 +467,7 @@ namespace SideHustle.Menu
             if (want != _hubShown) SetHubShown(want);
             SyncHomeBesidePage();
             TickHubFade(dt);
+            TickHubShift(dt);
             if (!_hubShown) return;
 
             TickHubQueries(dt);
@@ -497,6 +510,28 @@ namespace SideHustle.Menu
 #if DEBUG
             TraceFade(dt, cover);
 #endif
+        }
+
+        /// <summary>
+        /// Slides the page left by the chat column's width while the column is open, and back when it closes, at
+        /// the speed of the vanilla menu screens. Only the anchors move: the page keeps its size, so the engine
+        /// does not lay it out again. Its left edge then lands right of the vanilla menu buttons.
+        /// Sideload bakes every clip rectangle in canvas space when it paints, so a page that moved without a
+        /// rebuild still clips to where it stood before. Once the slide arrives the page is told to rebuild.
+        /// </summary>
+        private static void TickHubShift(float dt)
+        {
+            if (_hubRect == null) return;
+            float target = ChatPanel.ScreenShare;
+            if (Mathf.Approximately(_hubShift, target)) return;
+            float lerp = MenuLerpTime();
+            float step = lerp > 0f ? dt / lerp * Mathf.Max(target, _hubShift) : 1f;
+            _hubShift = Mathf.MoveTowards(_hubShift, target, step);
+            _hubRect.anchorMin = new Vector2(HubMenuShare - _hubShift, 0f);
+            _hubRect.anchorMax = new Vector2(1f - _hubShift, 1f);
+            if (!Mathf.Approximately(_hubShift, target)) return;
+            Core.Log?.Msg($"[hub3] page moved {(target > 0f ? "left of the chat column" : "back")}; repainting its clip areas.");
+            Safe.Try("telling the hub page it moved", () => _hub?.Emit("hub.moved", ""));
         }
 
         private static float _menuLerpTime = -1f;
@@ -914,25 +949,90 @@ namespace SideHustle.Menu
                     .Add("actions", Json.Array().Item(Json.Object().Add("id", "load").Add("label", "Start").Add("go", true))));
             }
 
-            // Gamemodes somebody is hosting that this player does not have.
-            if (Preferences.ShowUninstalledGamemodes)
+            if (!Preferences.ShowUninstalledGamemodes) return arr;
+            PlayCounts.RefreshIfStale();
+
+            // Gamemodes somebody is hosting that this player does not have, busiest first.
+            var ghosts = _hubGameLobbies.Where(l => !string.IsNullOrEmpty(l.GamemodeId) && !installed.Contains(l.GamemodeId))
+                                        .GroupBy(l => l.GamemodeId, StringComparer.OrdinalIgnoreCase)
+                                        .OrderByDescending(g => g.Count()).ThenByDescending(g => PlayCounts.Week(g.Key))
+                                        .ToList();
+            foreach (var g in ghosts)
             {
-                foreach (var g in _hubGameLobbies.Where(l => !string.IsNullOrEmpty(l.GamemodeId) && !installed.Contains(l.GamemodeId))
-                                                 .GroupBy(l => l.GamemodeId, StringComparer.OrdinalIgnoreCase))
-                {
-                    var first = g.First();
-                    arr.Item(Json.Object()
-                        .Add("id", g.Key)
-                        .Add("name", string.IsNullOrEmpty(first.GamemodeName) ? g.Key : first.GamemodeName)
-                        .Add("icon", "")
-                        .Add("sub", "Not installed")
-                        .Add("desc", "")
-                        .Add("kind", "ghost")
-                        .Add("live", g.Count())
-                        .Add("actions", Json.Array().Item(Json.Object().Add("id", "join").Add("label", "Join, installs the mod").Add("go", false))));
-                }
+                var first = g.First();
+                int plays = PlayCounts.Week(g.Key);
+                arr.Item(Json.Object()
+                    .Add("id", g.Key)
+                    .Add("name", string.IsNullOrEmpty(first.GamemodeName) ? g.Key : first.GamemodeName)
+                    .Add("icon", CatalogueIcon(GamemodeCatalogue.Find(g.Key)))
+                    .Add("sub", NotInstalledSub(plays))
+                    .Add("desc", GamemodeCatalogue.Find(g.Key)?.Subtitle ?? "")
+                    .Add("kind", "ghost")
+                    .Add("live", g.Count())
+                    .Add("actions", Json.Array().Item(Json.Object().Add("id", "join").Add("label", "Join, installs the mod").Add("go", false))));
+            }
+
+            // Released gamemodes nobody is hosting right now, most played this week first.
+            var waitingNames = new HashSet<string>(Mods.GamemodeProbe.Waiting().Select(w => w.Name ?? ""), StringComparer.OrdinalIgnoreCase);
+            var live = new HashSet<string>(ghosts.Select(g => g.Key), StringComparer.OrdinalIgnoreCase);
+            var catalogue = GamemodeCatalogue.All
+                .Where(e => !installed.Contains(e.Id) && !live.Contains(e.Id) && !waitingNames.Contains(e.Name))
+                .Select((e, i) => (Entry: e, Plays: PlayCounts.Week(e.Id), Order: i))
+                .OrderByDescending(x => x.Plays).ThenBy(x => x.Order);
+            foreach (var c in catalogue)
+            {
+                arr.Item(Json.Object()
+                    .Add("id", c.Entry.Id)
+                    .Add("name", c.Entry.Name)
+                    .Add("icon", CatalogueIcon(c.Entry))
+                    .Add("sub", NotInstalledSub(c.Plays))
+                    .Add("desc", c.Entry.Subtitle ?? "")
+                    .Add("kind", "ghost")
+                    .Add("live", 0)
+                    .Add("actions", Json.Array()
+                        .Item(Json.Object().Add("id", "info").Add("label", "Info").Add("go", false))
+                        .Item(Json.Object().Add("id", "add").Add("label", "Add to a profile").Add("go", true))));
             }
             return arr;
+        }
+
+        private static string NotInstalledSub(int plays) =>
+            plays <= 0 ? "Not installed" : "Not installed  -  " + (plays == 1 ? "1 play this week" : plays + " plays this week");
+
+        /// <summary>The package icon from the cached Thunderstore index, or "" (the page draws initials then). No
+        /// request of its own: the index is cached once the Profiles tab or an install has fetched it.</summary>
+        private static string CatalogueIcon(GamemodeCatalogue.Entry entry)
+        {
+            if (entry == null) return "";
+            try
+            {
+                var index = ThunderstoreClient.GetCachedIndexOrNull(ProfileEngine.GameRoot);
+                return HubPackageIcon(index?.Find(entry.Package)?.Latest?.Icon);
+            }
+            catch (Exception e)
+            {
+                Core.Log?.Warning($"[hub3] icon of {entry.Package} not read from the cached index: {e.Message}");
+                return "";
+            }
+        }
+
+        private static string HubCallAdd(string id)
+        {
+            var entry = GamemodeCatalogue.Find(id);
+            if (entry == null) { Core.Log?.Warning($"[hub3] add: '{id}' is not in the catalogue."); return RefuseGone; }
+            if (HubBusy()) { Core.Log?.Msg("[hub3] add refused: busy."); return RefuseBusy; }
+            Core.Log?.Msg($"[hub3] add '{entry.Id}' to a profile.");
+            StartCatalogueInstall(entry, ShowGamemodeList);
+            return "";
+        }
+
+        private static string HubCallInfo(string id)
+        {
+            var entry = GamemodeCatalogue.Find(id);
+            if (entry == null) { Core.Log?.Warning($"[hub3] info: '{id}' is not in the catalogue."); return RefuseGone; }
+            Core.Log?.Msg($"[hub3] info: opening the page of {entry.Package}.");
+            DownloadLink.Open(entry.Url);
+            return "";
         }
 
         private static Json GameLobbyJson(LobbyRow r, HashSet<string> installed)

@@ -30,6 +30,9 @@ namespace SideHustle.Menu
             Switch(content, "Show gamemodes you don't have", "Lists gamemodes that are not installed.",
                 Preferences.ShowUninstalledGamemodes, v => Preferences.ShowUninstalledGamemodes = v);
 
+            Switch(content, "Share play counts", "Sends which gamemode you start, nothing else.",
+                Preferences.SharePlayCounts, v => Preferences.SharePlayCounts = v);
+
             Components.SectionHeader(content, "Messages");
             Switch(content, "Let strangers message you", "Shown in the Lobby app on your phone.",
                 Preferences.AcceptStrangerMessages, v => Preferences.AcceptStrangerMessages = v);
@@ -71,7 +74,9 @@ namespace SideHustle.Menu
                     PageSwitch(pv, "Ask to host on Continue", "Offers to open the save as a public lobby.",
                         Preferences.AskHostOnContinue, v => Preferences.AskHostOnContinue = v),
                     PageSwitch(pv, "Show gamemodes you don't have", "Lists gamemodes that are not installed.",
-                        Preferences.ShowUninstalledGamemodes, v => Preferences.ShowUninstalledGamemodes = v)),
+                        Preferences.ShowUninstalledGamemodes, v => Preferences.ShowUninstalledGamemodes = v),
+                    PageSwitch(pv, "Share play counts", "Sends which gamemode you start, nothing else.",
+                        Preferences.SharePlayCounts, v => Preferences.SharePlayCounts = v)),
                 pv.Card("MESSAGES", false,
                     PageSwitch(pv, "Let strangers message you", "Shown in the Lobby app on your phone.",
                         Preferences.AcceptStrangerMessages, v => Preferences.AcceptStrangerMessages = v)),

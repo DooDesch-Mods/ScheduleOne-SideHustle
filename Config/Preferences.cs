@@ -39,6 +39,7 @@ namespace SideHustle.Config
         private static MelonPreferences_Entry<string> _aliases;
         private static MelonPreferences_Entry<string> _lastSessionError;
         private static MelonPreferences_Entry<bool> _acceptStrangerMessages;
+        private static MelonPreferences_Entry<bool> _sharePlayCounts;
         private static MelonPreferences_Entry<bool> _menuPanel;
         private static MelonPreferences_Entry<bool> _joinChatPanel;
         private static MelonPreferences_Entry<string> _hostConfigs;
@@ -59,8 +60,8 @@ namespace SideHustle.Config
                 "Turn OFF to hide it without uninstalling. Requires returning to the main menu to take effect.");
 
             _showUninstalled = _category.CreateEntry("ShowUninstalledGamemodes", true, "Show gamemodes you don't have",
-                "When ON, the Side Hustle menu also lists gamemodes you do not have that currently have live " +
-                "public lobbies, so you can discover them (with a Download link). Turn OFF to show only installed gamemodes.");
+                "When ON, the Side Hustle menu also lists gamemodes you do not have: released DooDesch gamemodes and " +
+                "any with live public lobbies, most played first. Turn OFF to show only installed gamemodes.");
 
             _askHostOnContinue = _category.CreateEntry("AskHostOnContinue", true, "Ask to host publicly on Continue",
                 "When ON, clicking Continue or a save slot asks whether to open it as a public Side Hustle lobby. " +
@@ -70,6 +71,10 @@ namespace SideHustle.Config
                 "Let strangers message you",
                 "When ON, anyone looking at your published lobby can send you a short message, and it appears in " +
                 "the Lobby app on your phone. Turn OFF to refuse them silently.");
+
+            _sharePlayCounts = _category.CreateEntry("SharePlayCounts", true, "Share play counts",
+                "When ON, starting a gamemode as host or solo tells the Side Hustle server which gamemode it was. " +
+                "Nothing else is sent: no Steam id, no name. The counts order the gamemodes you do not have yet.");
 
             _menuPanel = _category.CreateEntry("MenuStatePanel", true, "Show the info column in the main menu",
                 "When ON, a column down the right of the main menu says which mod set the game booted with, how " +
@@ -143,6 +148,13 @@ namespace SideHustle.Config
         /// <summary>Whether a stranger who cannot join this host's lobby may send them a short message. The one
         /// switch that turns the whole relay off - a host who does not want to be reached should not have to mute
         /// people one at a time.</summary>
+        /// <summary>Whether a started gamemode is reported to the play counter.</summary>
+        internal static bool SharePlayCounts
+        {
+            get => _sharePlayCounts?.Value ?? true;
+            set { if (_sharePlayCounts != null) _sharePlayCounts.Value = value; }
+        }
+
         internal static bool AcceptStrangerMessages
         {
             get => _acceptStrangerMessages?.Value ?? true;

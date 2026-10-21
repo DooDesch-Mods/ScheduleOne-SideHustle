@@ -120,6 +120,11 @@ namespace SideHustle.Menu
 
         internal static bool IsOpen => _panel != null;
 
+        /// <summary>The share of the screen width the open column covers, or 0 while it is closed. The hub page
+        /// moves left by this much so nothing of it sits under the column.</summary>
+        internal static float ScreenShare =>
+            _panel != null && Screen.width > 0 ? Width * Mathf.Max(0.5f, Screen.width / 1920f) / Screen.width : 0f;
+
         /// <summary>Which host the open column belongs to, or 0. The browser needs it to decide whether its Chat
         /// button closes this conversation or switches to another one.</summary>
         internal static ulong OpenPeer => _panel != null ? _peer : 0UL;
