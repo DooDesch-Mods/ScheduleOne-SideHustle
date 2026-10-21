@@ -16,7 +16,7 @@
 ![S1API](https://img.shields.io/badge/S1API-required-orange)
 [![Polyfill](https://polyfill.doomods.com/badge/side-hustle.svg)](https://polyfill.doomods.com/mod/side-hustle)
 
-[![MLVScan SideHustle.dll](https://mlvscan.com/attestations/att_7XU4tQc4P4Cz1BrpO0mSKr-k/badge.svg)](https://mlvscan.com/attestations/att_7XU4tQc4P4Cz1BrpO0mSKr-k)
+[![MLVScan SideHustle.dll](https://mlvscan.com/attestations/att_Wd7Eh1rKKWF1QSNL15UAbpt5/badge.svg)](https://mlvscan.com/attestations/att_Wd7Eh1rKKWF1QSNL15UAbpt5)
 
 ![Side Hustle 3.0](https://raw.githubusercontent.com/DooDesch-Mods/ScheduleOne-SideHustle/main/docs/img/header.jpg)
 
