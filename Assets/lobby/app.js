@@ -483,29 +483,9 @@ function renderPlayers(body) {
  * instead of never learning anyone tried.
  */
 let openThread = null;
+let pinned = null;      // thread, count and last line the log was last scrolled to the end for
 let muteArmed = null;   // die Person, fuer die gerade nachgefragt wird
 
-function renderChat(body) {
-  let threads = [];
-  const raw = ask('chat.threads');
-  if (raw) { try { threads = JSON.parse(raw); } catch (e) { console.error('unreadable threads:', e.message); } }
-
-  if (threads.length === 0) {
-    const wrap = el('div', 'one');
-    wrap.appendChild(emptyState('chat', 'Nobody has messaged you',
-      ask('chat.accepting') === '1'
-        ? 'Someone who finds your lobby but cannot get in can message you. It lands here.'
-        : 'You have messages from strangers switched off, so nothing reaches you here.'));
-    const mutedEmpty = mutedBlock();
-    if (mutedEmpty) wrap.appendChild(mutedEmpty);
-    wrap.appendChild(acceptingRow());
-    body.appendChild(wrap);
-    return;
-  }
-
-  if (!threads.some((t) => t.id === openThread)) openThread = threads[0].id;
-
-  const cols = el('div', 'cols tall');
 /** Everyone muted, with the way back. A mute is one click next to a thread, so it WILL be hit by accident -
  *  and once it is, the thread is gone and there is nothing left to undo it from. The name is kept for exactly
  *  this. The conversation itself does not come back; only the next thing they say. */
@@ -539,13 +519,33 @@ function composeInput() {
   composeField = el('input', 'field');
   composeField.setAttribute('maxlength', '240');
   composeField.setAttribute('placeholder', 'Write a reply');
-  // data-typing: while this is on screen the caret comes back here, so typing a reply does not walk the player
-  // through the game world. Correct on the PHONE - the player is standing in the world and loose letters are key
-  // bindings - and deliberately absent from the menu column, which would trap Escape instead.
-  composeField.setAttribute('data-typing', '');
+  // No data-typing. A field that takes the caret back on its own holds GameInput.IsTyping for as long as the Chat
+  // tab is open, and the game then ignores Escape, right-click and the phone key: the player is shut in the app.
+  // Without it the field holds the keyboard only after a click (and after a send), and Escape lets go of it first.
   return composeField;
 }
 
+function renderChat(body) {
+  let threads = [];
+  const raw = ask('chat.threads');
+  if (raw) { try { threads = JSON.parse(raw); } catch (e) { console.error('unreadable threads:', e.message); } }
+
+  if (threads.length === 0) {
+    const wrap = el('div', 'one');
+    wrap.appendChild(emptyState('chat', 'Nobody has messaged you',
+      ask('chat.accepting') === '1'
+        ? 'Someone who finds your lobby but cannot get in can message you. It lands here.'
+        : 'You have messages from strangers switched off, so nothing reaches you here.'));
+    const mutedEmpty = mutedBlock();
+    if (mutedEmpty) wrap.appendChild(mutedEmpty);
+    wrap.appendChild(acceptingRow());
+    body.appendChild(wrap);
+    return;
+  }
+
+  if (!threads.some((t) => t.id === openThread)) openThread = threads[0].id;
+
+  const cols = el('div', 'cols tall');
   const threadcol = el('div', 'col threadcol');
   const list = el('div', 'threadlist');
   for (const t of threads) {
@@ -601,7 +601,10 @@ function composeInput() {
     b.appendChild(el('div', 'bubble-text', m.text));
     log.appendChild(b);
   }
-  log.scrollToEnd();
+  // Only pin when the thread actually grew. The host restores every scroll offset across a rebuild, so a render
+  // that pins anyway yanks a player who scrolled up to re-read what the host said.
+  const mark = openThread + '|' + msgs.length + '|' + (msgs.length ? msgs[msgs.length - 1].text : '');
+  if (mark !== pinned) { pinned = mark; log.scrollToEnd(); }
   pane.appendChild(log);
 
   const compose = el('div', 'control');
@@ -723,10 +726,26 @@ document.addEventListener('back', (e) => {
   render();
 });
 
+/* The icon's badge says a message waits, so opening the app with one waiting goes to that conversation instead of
+ * the Lobby tab. The mod sends this when the app comes on screen; the first build of the page asks the state. */
+function openUnread() {
+  let threads = [];
+  const raw = ask('chat.threads');
+  if (raw) { try { threads = JSON.parse(raw); } catch (e) { console.error('unreadable threads:', e.message); } }
+  const first = threads.find((t) => t.unread);
+  if (!first) return false;
+  tab = 'chat';
+  if (first.id !== openThread) { openThread = first.id; if (composeField) composeField.value = ''; }
+  return true;
+}
+
+s1.on('lobby.opened', () => { if (openUnread()) render(); });
+
 document.addEventListener('orientationchange', render);
 
 // Somebody joined, left, or the session ended: re-read rather than guess. Any toast on screen stays - it is
 // still the answer to what the player just did, and a state change from somebody else does not make it wrong.
 s1.on('lobby.changed', render);
 
+openUnread();
 render();

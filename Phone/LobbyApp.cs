@@ -216,6 +216,7 @@ namespace SideHustle.Phone
         internal static void Tick()
         {
             if (_app == null) return;
+            TellPageItOpened();
             // Also for a client: their Players tab is the whole reason they opened this, and somebody arriving or
             // leaving is exactly what they want to see without poking at it.
             // Auch ausserhalb einer Lobby: eine Nachricht kann eintreffen, waehrend gar keine Sitzung laeuft.
@@ -233,6 +234,22 @@ namespace SideHustle.Phone
             Menu.Safe.Try("updating the Lobby app badge", () => _app.Badge(ChatRelay.UnreadCount));
 
             NotifyIfUnseen();
+        }
+
+        private static bool _wasOnScreen;
+
+        /// <summary>
+        /// The page hears no open or close of its own, so the frame the app comes on screen is told here. With a
+        /// message waiting, the page then shows that conversation: the badge on the icon is what the player tapped.
+        /// </summary>
+        private static void TellPageItOpened()
+        {
+            bool on = _app.IsOnScreen;
+            if (on == _wasOnScreen) return;
+            _wasOnScreen = on;
+            if (!on || ChatRelay.UnreadCount <= 0) return;
+            Core.Log?.Msg($"[lobby] app opened with {ChatRelay.UnreadCount} unread; showing the conversation.");
+            Menu.Safe.Try("sending the Lobby app to the unread conversation", () => _app.Emit("lobby.opened", ""));
         }
 
         /// <summary>
