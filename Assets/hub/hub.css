@@ -255,6 +255,15 @@ body {
 }
 .join:hover { background: linear-gradient(180deg, #B0EA94, var(--cashhi)); }
 .join.off { background: var(--s2); color: var(--dim); }
+.ask {
+  width: 116px; flex: none; justify-content: center; align-items: center; gap: 8px;
+  border-right: 2px solid var(--line); color: var(--tx); font-size: 14px; font-weight: 700;
+  transition: background-color .12s, color .12s;
+}
+.ask:hover { background: var(--s2); }
+.ask .lu { width: 22px; height: 22px; }
+.ask.on { background: var(--s2); color: var(--neontx); }
+.ask.on .lu { color: var(--neontx); }
 
 /* --- status panel: one row of stations under the content --- */
 
@@ -291,6 +300,17 @@ body {
 .board.pv, .detail.pv { flex: 1; min-height: 0; }
 /* The chat column (360 of 1920 px) covers the right of the page, which is 60% of the screen wide. */
 .page.chat { padding-right: 29vw; }
+/* The board is about 690 px wide beside the chat. Rows trade the fixed column widths for their content, and the lobby
+   strip drops its explanation, which the row's state text already carries. */
+.page.chat .r .c1 { width: 11vw; }
+.page.chat .r .c2 { white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.page.chat .r .c3 { width: auto; }
+.page.chat .r .c4 { width: auto; flex: none; white-space: nowrap; }
+.page.chat .seg { padding: 0 14px; }
+.page.chat .seg.w { display: none; }
+.page.chat .seg.gm { flex: 1; min-width: 0; }
+.page.chat .seg.gm .v { text-overflow: ellipsis; overflow: hidden; }
+.page.chat .join { width: 130px; }
 .board.pv > .row.gap { flex-wrap: wrap; }
 .detail.pv > .cols { flex: 1; min-height: 0; }
 .detail.pv > .cols > .form { overflow-y: auto; min-height: 0; }
@@ -394,7 +414,8 @@ body {
 .prog .bigbar { flex: 1; }
 .prog.w { width: 480px; }
 
-.foot { flex-direction: row; align-items: center; gap: 10px; flex: none; }
+.foot { flex-direction: row; align-items: center; gap: 8px; flex: none; }
+.foot .btn.sm { padding: 0 12px; }
 .foot .quiet { flex: 1; min-width: 0; }
 .nm2 { font-size: 20px; font-weight: 800; flex: none; }
 .quiet.need { color: var(--warn); }

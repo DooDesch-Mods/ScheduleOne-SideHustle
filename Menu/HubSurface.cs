@@ -183,6 +183,7 @@ namespace SideHustle.Menu
                     .OnCall("hub.hostForm", HubCallHostForm)
                     .OnCall("hub.host", HubCallHost)
                     .OnCall("hub.join", HubCallJoin)
+                    .OnCall("hub.chat", HubCallChat)
                     .OnCall("hub.status", HubCallStatus)
                     .OnCall("hub.legacy", HubCallLegacy)
                     .OnCall("hub.refresh", _ => { HubQueryNow("the player asked"); return ""; })
@@ -796,7 +797,8 @@ namespace SideHustle.Menu
                 var cont = ContinueJson();
                 if (cont != null) j.Add("cont", cont); else j.AddNull("cont");
                 j.Add("modes", ModesJson(installed, liveByMode))
-                 .Add("lobbies", lobbies);
+                 .Add("lobbies", lobbies)
+                 .Add("chat", ChatPanel.IsOpen);
                 var st = StatusJson();
                 if (st != null) j.Add("status", st); else j.AddNull("status");
                 j.Add("prefs", Json.Object()
@@ -963,7 +965,9 @@ namespace SideHustle.Menu
                 .Add("stateText", text)
                 .Add("before", before)
                 .Add("warn", "")
-                .Add("canJoin", !full);
+                .Add("canJoin", !full)
+                .Add("chat", ChatPanel.Possible(r.OwnerSteamId, r.AcceptsMessages))
+                .Add("chatOpen", r.OwnerSteamId != 0UL && ChatPanel.OpenPeer == r.OwnerSteamId);
         }
 
         private static Json VanillaLobbyJson(VanillaLobbyRow r)
@@ -998,7 +1002,9 @@ namespace SideHustle.Menu
                 .Add("stateText", text)
                 .Add("before", before)
                 .Add("warn", warn)
-                .Add("canJoin", !full);
+                .Add("canJoin", !full)
+                .Add("chat", ChatPanel.Possible(r.OwnerSteamId, r.AcceptsMessages))
+                .Add("chatOpen", r.OwnerSteamId != 0UL && ChatPanel.OpenPeer == r.OwnerSteamId);
         }
 
         private static Json StatusJson()
@@ -1093,6 +1099,76 @@ namespace SideHustle.Menu
             return name;
         }
 
+        // Thunderstore package icons for the browser page. Each URL is downloaded once per session and re-encoded at
+        // PkgIconPx, so the page gets a small PNG written by Unity whatever Thunderstore stored. The bytes outlive a
+        // remount of the page; only the publishing is repeated.
+        private const int PkgIconPx = 96;
+        private static readonly Dictionary<string, byte[]> _pkgIconPng = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        private static readonly Dictionary<string, string> _pkgIconName = new Dictionary<string, string>(StringComparer.Ordinal);
+        private static readonly HashSet<string> _pkgIconPending = new HashSet<string>(StringComparer.Ordinal);
+
+        /// <summary>The picture name of a package icon, or "" while it downloads or when it has none. A finished
+        /// download redraws the page, which then asks again.</summary>
+        private static string HubPackageIcon(string url)
+        {
+            if (string.IsNullOrEmpty(url) || _hub == null) return "";
+            if (!_pkgIconName.TryGetValue(url, out string name))
+            {
+                name = "pkg/" + (_pkgIconName.Count + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
+                _pkgIconName[url] = name;
+            }
+            if (_hubIcons.Contains(name)) return name;
+            if (_pkgIconPng.TryGetValue(url, out var png))
+            {
+                if (png == null) return "";
+                _hub.Image(name, png);
+                _hubIcons.Add(name);
+                return name;
+            }
+            if (_pkgIconPending.Add(url)) FetchPackageIcon(url);
+            return "";
+        }
+
+        private static void FetchPackageIcon(string url)
+        {
+            System.Threading.Tasks.Task.Run(async () =>
+            {
+                byte[] bytes = null;
+                try { bytes = await ThunderstoreClient.DownloadBytesAsync(url, System.Threading.CancellationToken.None).ConfigureAwait(false); }
+                catch (Exception e) { Core.Log?.Warning($"[hub3] package icon {url} could not be fetched: {e.Message}"); }
+                MainThread.Post(() =>
+                {
+                    _pkgIconPending.Remove(url);
+                    byte[] png = null;
+                    if (bytes != null && bytes.Length > 0) png = ShrinkPng(bytes, url);
+                    else Core.Log?.Msg($"[hub3] package icon {url}: no bytes, the row keeps its initials.");
+                    _pkgIconPng[url] = png;
+                    _hubSinceState = 999f;
+                });
+            });
+        }
+
+        private static byte[] ShrinkPng(byte[] bytes, string url)
+        {
+            Texture2D tex = null;
+            try
+            {
+                tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                if (!tex.LoadImage(bytes))
+                {
+                    Core.Log?.Warning($"[hub3] package icon {url} is not a readable picture ({bytes.Length} bytes).");
+                    return null;
+                }
+                return PngOf(tex, PkgIconPx);
+            }
+            catch (Exception e)
+            {
+                Core.Log?.Warning($"[hub3] package icon {url} could not be decoded: {e.Message}");
+                return null;
+            }
+            finally { if (tex != null) UnityEngine.Object.Destroy(tex); }
+        }
+
         // An embedded PNG is already what the page wants; no round trip through a texture. Without IconResource the
         // conventional "<AssemblyName>.hub-icon.png" is tried, the same name the boot gate reads from unloaded mods.
         private static byte[] IconResourceBytes(GamemodeDescriptor desc)
@@ -1114,9 +1190,10 @@ namespace SideHustle.Menu
 
         // A gamemode's own texture is usually not readable from script, so it is drawn into a temporary target and
         // read back from there.
-        private static byte[] PngOf(Texture tex)
+        private static byte[] PngOf(Texture tex, int max = 512)
         {
-            int w = Mathf.Clamp(tex.width, 1, 512), h = Mathf.Clamp(tex.height, 1, 512);
+            float scale = Mathf.Min(1f, (float)max / Mathf.Max(1, Mathf.Max(tex.width, tex.height)));
+            int w = Mathf.Clamp(Mathf.RoundToInt(tex.width * scale), 1, max), h = Mathf.Clamp(Mathf.RoundToInt(tex.height * scale), 1, max);
             var rt = RenderTexture.GetTemporary(w, h, 0, RenderTextureFormat.ARGB32);
             var prev = RenderTexture.active;
             Texture2D copy = null;
@@ -1370,6 +1447,39 @@ namespace SideHustle.Menu
             Core.Log?.Msg($"[hub3] join lobby {lobbyId} of '{desc.Id}' (host {row.HostName}).");
             FlowJoin(desc.DisplayName ?? desc.Id, row.HostName, "mp", desc.Surface == GamemodeSurface.World);
             JoinNow(desc, row);
+            return "";
+        }
+
+        // The Chat button of a lobby: opens the column for its host, or closes it when it is already theirs. An
+        // empty id closes whatever column is open; the page sends that when it leaves the Lobbies tab.
+        private static string HubCallChat(string id)
+        {
+            if (string.IsNullOrEmpty(id))
+            {
+                if (ChatPanel.IsOpen) Core.Log?.Msg("[hub3] chat: closed, the page left the lobby list.");
+                ChatPanel.Hide();
+                _hubSinceState = 999f;
+                return "";
+            }
+            if (!ulong.TryParse(id, out ulong lobbyId)) { Core.Log?.Warning($"[hub3] chat: '{id}' is not a lobby id."); return "That lobby is gone."; }
+
+            ulong owner;
+            string host;
+            bool accepts;
+            var vr = _hubVanillaLobbies.FirstOrDefault(r => r.LobbyId == lobbyId);
+            var gr = vr == null ? _hubGameLobbies.FirstOrDefault(r => r.LobbyId == lobbyId) : null;
+            if (vr != null) { owner = vr.OwnerSteamId; host = vr.HostName; accepts = vr.AcceptsMessages; }
+            else if (gr != null) { owner = gr.OwnerSteamId; host = gr.HostName; accepts = gr.AcceptsMessages; }
+            else { Core.Log?.Warning($"[hub3] chat: lobby {lobbyId} is not in the last result."); return "That lobby is gone. Refresh the list."; }
+
+            if (!ChatPanel.Possible(owner, accepts))
+            {
+                Core.Log?.Warning($"[hub3] chat: refused for lobby {lobbyId} (owner {owner}, takes messages {accepts}, JoinChatPanel {Preferences.JoinChatPanel}).");
+                return "This host does not take messages.";
+            }
+            ChatPanel.Toggle(owner, host);
+            Core.Log?.Msg($"[hub3] chat: {(ChatPanel.OpenPeer == owner ? "opened" : "closed")} for {host} ({owner}), lobby {lobbyId}.");
+            _hubSinceState = 999f;
             return "";
         }
 
