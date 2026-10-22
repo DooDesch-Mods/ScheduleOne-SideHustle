@@ -3,6 +3,11 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [3.2.1] - 2026-10-22
+
+### Fixed
+- Friends-only lobbies no longer show up on the public lobby website. Switching in the Lobby app updates the site.
+
 ## [3.2.0] - 2026-10-22
 
 ### Added
