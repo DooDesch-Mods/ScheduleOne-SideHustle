@@ -647,10 +647,12 @@ namespace SideHustle.Menu
             System.Threading.Tasks.Task.Run(async () =>
             {
                 List<(string FullName, string Pinned, string Latest)> updates = new();
+                List<EssentialUpdate> essentials = new();
                 string error = null;
+                TsIndex index = null;
                 try
                 {
-                    var index = await ThunderstoreClient.GetIndexAsync(ProfileEngine.GameRoot, true, System.Threading.CancellationToken.None);
+                    index = await ThunderstoreClient.GetIndexAsync(ProfileEngine.GameRoot, true, System.Threading.CancellationToken.None);
                     if (index == null) { error = "Mod index unavailable. Are you offline?"; }
                     else
                     {
@@ -666,11 +668,18 @@ namespace SideHustle.Menu
                 }
                 catch (Exception e) { error = e.Message; }
 
+                // Side Hustle and S1API come from the player's own Mods folder, not from the profile; asked apart so an
+                // index failure does not hide them.
+                try { essentials = await EssentialUpdates.CheckAsync(index, System.Threading.CancellationToken.None); }
+                catch (Exception e) { Core.Log?.Warning("[profiles] update check of Side Hustle and S1API failed: " + e.Message); }
+
                 MainThread.Post(() =>
                 {
-                    Core.Log?.Msg($"[profiles] update check: {(error != null ? "failed: " + error : Words.Plural(updates.Count, "update", "updates"))}.");
+                    Core.Log?.Msg($"[profiles] update check: {(error != null ? "failed: " + error : Words.Plural(updates.Count, "update", "updates"))}, "
+                        + $"{Words.Plural(essentials.Count, "essential update", "essential updates")}.");
                     if (onPage)
                     {
+                        page.Essentials = essentials;
                         page.Updates = updates;
                         page.Error = error;
                         page.Done = true;
@@ -680,7 +689,7 @@ namespace SideHustle.Menu
                     if (_cloneScreen == null || !_cloneScreen.IsOpen) return;
                     ClearFormHost();
                     var h = CreateFormHost("SH_UpdateResults");
-                    ProfilesViews.BuildUpdateResults(h, updates, error,
+                    ProfilesViews.BuildUpdateResults(h, essentials, updates, error,
                         onUpdate: u => InstallIntoProfile(profileId, u.FullName, u.Latest, fromUpdate: true),
                         onBack: () => ShowProfileDetail(profileId));
                 });
