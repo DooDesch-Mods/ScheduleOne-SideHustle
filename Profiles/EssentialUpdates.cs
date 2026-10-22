@@ -14,7 +14,7 @@ namespace SideHustle.Profiles
         public string FullName;   // Thunderstore package, e.g. "DooDesch-SideHustle"
         public string Installed;  // the running version
         public string Latest;
-        public string Url;        // the package page in the Schedule I community
+        public string Url;        // the package page, or the fallback page when the listing is not public
     }
 
     /// <summary>
@@ -26,10 +26,12 @@ namespace SideHustle.Profiles
     /// </summary>
     internal static class EssentialUpdates
     {
-        private static readonly (string Name, string Owner, string Package)[] Packages =
+        // Fallback: where the link goes when the package is missing from the community index (unlisted or rejected),
+        // because its Thunderstore page answers 404 then. Null keeps the Thunderstore page.
+        private static readonly (string Name, string Owner, string Package, string Fallback)[] Packages =
         {
-            ("Side Hustle", "DooDesch", "SideHustle"),
-            ("S1API", "ifBars", "S1API_Forked"),
+            ("Side Hustle", "DooDesch", "SideHustle", "https://github.com/DooDesch-Mods/ScheduleOne-SideHustle/releases/latest"),
+            ("S1API", "ifBars", "S1API_Forked", null),
         };
 
         /// <summary>Worker thread only. One entry per essential with a newer version; essentials whose running or
@@ -37,7 +39,7 @@ namespace SideHustle.Profiles
         internal static async Task<List<EssentialUpdate>> CheckAsync(TsIndex index, CancellationToken ct)
         {
             var result = new List<EssentialUpdate>();
-            foreach (var (name, owner, package) in Packages)
+            foreach (var (name, owner, package, fallback) in Packages)
             {
                 string fullName = owner + "-" + package;
                 string installed = InstalledVersion(name);
@@ -62,7 +64,7 @@ namespace SideHustle.Profiles
                 bool newer = TsIndex.CompareVersions(latest, installed) > 0;
                 Core.Log?.Msg($"[profiles] update check: {name} running {installed}, Thunderstore {latest}{(newer ? " - update available" : "")}.");
                 if (newer)
-                    result.Add(new EssentialUpdate { Name = name, FullName = fullName, Installed = installed, Latest = latest, Url = PageUrl(owner, package) });
+                    result.Add(new EssentialUpdate { Name = name, FullName = fullName, Installed = installed, Latest = latest, Url = LinkFor(index, fullName, owner, package, fallback) });
             }
             return result;
         }
@@ -79,6 +81,13 @@ namespace SideHustle.Profiles
                 return null;
             }
             return Mods.ModInventory.VersionOf(melon);
+        }
+
+        private static string LinkFor(TsIndex index, string fullName, string owner, string package, string fallback)
+        {
+            if (fallback == null || index?.Find(fullName) != null) return PageUrl(owner, package);
+            Core.Log?.Msg($"[profiles] update check: {fullName} is not in the community index ({(index == null ? "no index" : "unlisted or rejected")}); linking {fallback}.");
+            return fallback;
         }
 
         // The endpoint's own package_url has no community and lands on another game's page, so the link is built here.

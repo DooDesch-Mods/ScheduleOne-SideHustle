@@ -53,8 +53,8 @@ namespace SideHustle.Menu
         /// first, the external browser as a fallback. Never pass a URL that came off the network.</summary>
         internal static void Launch(string url)
         {
-            if (TryOverlay(url)) return;
-            try { Application.OpenURL(url); }
+            if (TryOverlay(url)) { Core.Log?.Msg("[hub] opened in the Steam overlay: " + url); return; }
+            try { Application.OpenURL(url); Core.Log?.Msg("[hub] opened in the browser: " + url); }
             catch (Exception e) { Core.Log?.Warning("[hub] could not open link: " + e.Message); }
         }
 
