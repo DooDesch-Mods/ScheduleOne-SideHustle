@@ -206,7 +206,11 @@ namespace SideHustle.Phone
             }
             catch (Exception e) { Core.Log?.Warning("[lobby] could not change the lobby type: " + e.Message); return false; }
             bool ok = Write(LobbyCoordinator.KeyVisibility, pub ? "pub" : "priv");
-            if (ok) Core.Log?.Msg($"[lobby] visibility is now {(pub ? "public" : "friends only")}.");
+            if (ok)
+            {
+                Core.Log?.Msg($"[lobby] visibility is now {(pub ? "public" : "friends only")}.");
+                Sync.VanillaLobby.RepublishDirectory("visibility changed");
+            }
             return ok;
         }
 
