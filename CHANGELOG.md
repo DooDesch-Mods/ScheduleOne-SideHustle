@@ -3,6 +3,15 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [3.2.0] - 2026-10-22
+
+### Added
+- "Check for updates" also tells you when Side Hustle or S1API has a newer version, with a link to its page.
+
+### Changed
+- Install in the Thunderstore browser keeps you in the list. More installs queue up, with progress in the row and
+  Cancel under the list.
+
 ## [3.1.3] - 2026-10-21
 
 ### Added
