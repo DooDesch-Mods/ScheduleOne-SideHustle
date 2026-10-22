@@ -775,7 +775,7 @@ function closeDialog() { if (dialog) { sweepInputs(dialog); dialog.remove(); dia
 // The mod sends such a screen as `view`: a list of parts and the ids of what each click runs. Each top-level part
 // is rebuilt only when its own JSON moved. The text of a field is left out of that comparison and the field node
 // is kept by its key, so typing never rebuilds a field and a rebuilt part takes the same field over.
-const pv = { key: null, frame: null, root: null, nodes: [], shapes: [], dialog: null, dialogShape: '' };
+const pv = { key: null, frame: null, root: null, nodes: [], shapes: [], kidShapes: [], dialog: null, dialogShape: '' };
 const fields = new Map();     // field key -> { node, value, sent, act, commit, on }
 
 const shapeOf = v => JSON.stringify(v, (k, x) => (k === 'value' ? undefined : x));
@@ -1059,6 +1059,22 @@ function frameClass(frame) {
   return frame === 'board' ? 'glass board pv' : frame === 'detail' ? 'glass detail pv' : 'pvm';
 }
 
+// Swap the rows of a mounted list that changed, add or drop rows at the end; the list node and its scroll stay.
+function patchScroll(box, shapes, list) {
+  const nodes = [].slice.call(box.children);
+  for (let j = 0; j < list.length; j++) {
+    const shape = shapeOf(list[j]);
+    if (shapes[j] === shape && nodes[j]) continue;
+    const fresh = list[j] && list[j].t ? part(list[j]) : vbtn(list[j]);
+    if (nodes[j]) { box.insertBefore(fresh, nodes[j]); sweepInputs(nodes[j]); nodes[j].remove(); }
+    else box.appendChild(fresh);
+    nodes[j] = fresh;
+    shapes[j] = shape;
+  }
+  for (let j = nodes.length - 1; j >= list.length; j--) { sweepInputs(nodes[j]); nodes[j].remove(); }
+  shapes.length = list.length;
+}
+
 function renderView(main) {
   const v = S.view;
   const key = v.key + '#' + v.seq;
@@ -1071,6 +1087,7 @@ function renderView(main) {
     pv.root = el('div', frameClass(v.frame));
     pv.nodes = [];
     pv.shapes = [];
+    pv.kidShapes = [];
     main.appendChild(pv.root);
   }
 
@@ -1078,16 +1095,26 @@ function renderView(main) {
   for (let i = 0; i < parts.length; i++) {
     const shape = shapeOf(parts[i]);
     if (pv.shapes[i] === shape && pv.nodes[i]) continue;
+    // A list whose rows moved keeps its node and swaps only the changed rows: replacing it would throw the scroll
+    // position away and drop a click that lands between press and release. A running install redraws its row
+    // every few hundred milliseconds.
+    if (parts[i].t === 'scroll' && pv.kidShapes[i] && pv.nodes[i]) {
+      patchScroll(pv.nodes[i], pv.kidShapes[i], parts[i].kids || []);
+      pv.shapes[i] = shape;
+      continue;
+    }
     const fresh = part(parts[i]);
     const old = pv.nodes[i];
     if (old) { pv.root.insertBefore(fresh, old); sweepInputs(old); old.remove(); }
     else pv.root.appendChild(fresh);
     pv.nodes[i] = fresh;
     pv.shapes[i] = shape;
+    pv.kidShapes[i] = parts[i].t === 'scroll' ? (parts[i].kids || []).map(shapeOf) : null;
   }
   while (pv.nodes.length > parts.length) {
     const old = pv.nodes.pop();
     pv.shapes.pop();
+    pv.kidShapes.pop();
     sweepInputs(old);
     old.remove();
   }

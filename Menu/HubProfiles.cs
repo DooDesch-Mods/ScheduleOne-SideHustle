@@ -703,9 +703,36 @@ namespace SideHustle.Menu
             }
             _back = null;   // no backing out mid-install; Cancel on the screen is the only escape
 
-            // Resolve the plan up front from the cached index so the screen shows every closure member immediately.
+            var plan = ResolveInstallPlan(fullName, version, out var unresolved);
+
+            var cts = new System.Threading.CancellationTokenSource();
+            Action cancel = () => { try { cts.Cancel(); } catch (Exception e) { Core.Log?.Warning("[profiles] install cancel threw: " + e.Message); } };
+            string headline = $"Installing {fullName} {version}";
+            InstallProgressView.Controller ui = InstallProgressView.Controller.ForPage(headline, plan, unresolved, cancel);
+            var pageUi = ui;
+            if (!ShowOnPage("profiles.install", "profiles", pv => pageUi.BuildPage(pv)))
+            {
+                ClearFormHost();
+                SetTmp(_clone.transform, "Title", "Installing");
+                var host = CreateFormHost("SH_InstallProgress");
+                ui = InstallProgressView.Build(host, headline, plan, unresolved, onCancel: cancel);
+            }
+
+            var finalUi = ui;
+            RunInstallWorker(profileId, fullName, version, fromUpdate, ui, cts, (status, built) =>
+            {
+                if (_cloneScreen == null || !_cloneScreen.IsOpen) return;
+                OnInstallFinished(profileId, fullName, version, status, built, finalUi, fromUpdate);
+            });
+        }
+
+        /// <summary>The dependency closure of one package as install rows, resolved from the cached index so a
+        /// progress view can list every member before the download starts. Essentials are left out, as the
+        /// engine never pins or downloads them.</summary>
+        private static List<InstallPlanRow> ResolveInstallPlan(string fullName, string version, out List<string> unresolved)
+        {
             var plan = new List<InstallPlanRow>();
-            List<string> unresolved = null;
+            unresolved = null;
             var index = ThunderstoreClient.GetCachedIndexOrNull(ProfileEngine.GameRoot);
             if (index != null)
             {
@@ -727,21 +754,18 @@ namespace SideHustle.Menu
                     });
                 }
             }
+            else
+                Core.Log?.Warning($"[profiles] no cached package index; the install plan for {fullName} shows only the package itself.");
             if (plan.Count == 0)   // no cached index: the engine still resolves on its own, show the root at least
                 plan.Add(new InstallPlanRow { FullName = fullName, Version = version, Key = $"{fullName} {version}" });
+            return plan;
+        }
 
-            var cts = new System.Threading.CancellationTokenSource();
-            Action cancel = () => { try { cts.Cancel(); } catch (Exception e) { Core.Log?.Warning("[profiles] install cancel threw: " + e.Message); } };
-            string headline = $"Installing {fullName} {version}";
-            InstallProgressView.Controller ui = InstallProgressView.Controller.ForPage(headline, plan, unresolved, cancel);
-            var pageUi = ui;
-            if (!ShowOnPage("profiles.install", "profiles", pv => pageUi.BuildPage(pv)))
-            {
-                ClearFormHost();
-                SetTmp(_clone.transform, "Title", "Installing");
-                var host = CreateFormHost("SH_InstallProgress");
-                ui = InstallProgressView.Build(host, headline, plan, unresolved, onCancel: cancel);
-            }
+        /// <summary>Download, pin and rebuild on a worker. <paramref name="finished"/> runs on the main thread after
+        /// the "an install is running" marker is cleared, whatever happened.</summary>
+        private static void RunInstallWorker(string profileId, string fullName, string version, bool fromUpdate,
+            InstallProgressView.Controller ui, System.Threading.CancellationTokenSource cts, Action<EnsureStatus, bool> finished)
+        {
             _installCts = cts;
 
             var sink = new UiInstallProgress(ui);
@@ -767,8 +791,7 @@ namespace SideHustle.Menu
                 MainThread.Post(() =>
                 {
                     _installCts = null;
-                    if (_cloneScreen == null || !_cloneScreen.IsOpen) return;
-                    OnInstallFinished(profileId, fullName, version, finalStatus, finalBuilt, ui, fromUpdate);
+                    Safe.Try($"finishing the install of {fullName} {version}", () => finished(finalStatus, finalBuilt));
                 });
             });
         }

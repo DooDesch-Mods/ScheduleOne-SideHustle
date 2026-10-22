@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using DooDesch.UI;
 using SideHustle.Phone;
 using SideHustle.Profiles;
 using SideHustle.Shared;
@@ -260,6 +261,124 @@ namespace SideHustle.Menu
             public string Query = "";
             public string ResultsFor;
             public List<TsPackage> Results = new List<TsPackage>();
+            // Installs started from this browser, oldest first. The player stays in the list while they run.
+            public List<BrowseJob> Jobs = new List<BrowseJob>();
+        }
+
+        private enum BrowseJobState { Queued, Running, Done, Warn, Failed }
+
+        private sealed class BrowseJob
+        {
+            public string FullName;
+            public string Version;
+            /// <summary>The package name as the list shows it: "Owner-Name" without the owner.</summary>
+            public string Name => FullName.IndexOf('-') is var i && i >= 0 ? FullName.Substring(i + 1) : FullName;
+            public BrowseJobState State;
+            public InstallProgressView.Controller Ui;
+            public System.Threading.CancellationTokenSource Cts;
+        }
+
+        private static bool BrowseBusy(BrowsePage b) =>
+            b.Jobs.Any(j => j.State == BrowseJobState.Queued || j.State == BrowseJobState.Running);
+
+        /// <summary>Install click in the browser: queue the package and start it when nothing else runs.</summary>
+        private static void QueueBrowseInstall(BrowsePage b, string fullName, string version)
+        {
+            if (b.Jobs.Any(j => (j.State == BrowseJobState.Queued || j.State == BrowseJobState.Running)
+                                && j.FullName.Equals(fullName, StringComparison.OrdinalIgnoreCase)))
+            {
+                Core.Log?.Msg($"[profiles] browser: {fullName} is already queued.");
+                return;
+            }
+            b.Jobs.RemoveAll(j => j.FullName.Equals(fullName, StringComparison.OrdinalIgnoreCase));
+            b.Jobs.Add(new BrowseJob { FullName = fullName, Version = version, State = BrowseJobState.Queued });
+            Core.Log?.Msg($"[profiles] browser: queued {fullName} {version} ({b.Jobs.Count(j => j.State == BrowseJobState.Queued)} waiting).");
+            RunNextBrowseJob(b);
+        }
+
+        private static void RunNextBrowseJob(BrowsePage b)
+        {
+            if (b.Jobs.Any(j => j.State == BrowseJobState.Running)) return;
+            var job = b.Jobs.FirstOrDefault(j => j.State == BrowseJobState.Queued);
+            if (job == null) return;
+            if (_installCts != null)
+            {
+                Core.Log?.Warning($"[profiles] browser: another install is running; {job.FullName} waits.");
+                return;
+            }
+
+            var plan = ResolveInstallPlan(job.FullName, job.Version, out var unresolved);
+            job.Cts = new System.Threading.CancellationTokenSource();
+            var cts = job.Cts;
+            Action cancel = () => { try { cts.Cancel(); } catch (Exception e) { Core.Log?.Warning("[profiles] install cancel threw: " + e.Message); } };
+            job.Ui = InstallProgressView.Controller.ForPage($"Installing {job.Name} {job.Version}", plan, unresolved, cancel);
+            job.State = BrowseJobState.Running;
+            _hubSinceState = 999f;
+            Core.Log?.Msg($"[profiles] browser: installing {job.FullName} {job.Version} ({plan.Count} package(s)).");
+            RunInstallWorker(b.ProfileId, job.FullName, job.Version, false, job.Ui, cts,
+                (status, built) => OnBrowseJobFinished(b, job, status, built));
+        }
+
+        /// <summary>Cancel in the browser's install strip: stops the running download and drops the queue.</summary>
+        private static void CancelBrowseInstalls(BrowsePage b)
+        {
+            int dropped = b.Jobs.RemoveAll(j => j.State == BrowseJobState.Queued);
+            var run = b.Jobs.FirstOrDefault(j => j.State == BrowseJobState.Running);
+            Core.Log?.Msg($"[profiles] browser: cancel ({(run != null ? run.FullName : "nothing running")}, {dropped} queued dropped).");
+            run?.Ui?.OnCancel?.Invoke();
+            _hubSinceState = 999f;
+        }
+
+        private static void OnBrowseJobFinished(BrowsePage b, BrowseJob job, EnsureStatus status, bool built)
+        {
+            switch (status)
+            {
+                case EnsureStatus.Ready:
+                {
+                    if (!built) Core.Log?.Warning($"[profiles] installed {job.FullName} {job.Version} but the rebuild reported problems.");
+                    var (allWrong, _) = PackageRuntimeSummary(job.FullName, job.Version);
+                    job.Ui.ShowSuccess("Installed.");
+                    // The whole closure is in the profile now, so its members read "Installed" in the list too.
+                    foreach (var row in job.Ui.Plan.Values) b.Installed.Add(row.FullName);
+                    b.Installed.Add(job.FullName);
+                    if (allWrong)
+                    {
+                        job.State = BrowseJobState.Warn;
+                        ShowToast($"{job.Name} is for another game version and stays disabled.", Severity.Warning);
+                    }
+                    else
+                    {
+                        job.State = BrowseJobState.Done;
+                        ShowToast($"Installed {job.Name} {job.Version}.", Severity.Success);
+                    }
+                    Core.Log?.Msg($"[profiles] browser: {job.FullName} {job.Version} {(allWrong ? "installed for another game version" : "installed")}.");
+                    break;
+                }
+                case EnsureStatus.Cancelled:
+                    b.Jobs.Remove(job);
+                    ShowToast("Install cancelled.", Severity.Info);
+                    Core.Log?.Msg($"[profiles] browser: {job.FullName} {job.Version} cancelled.");
+                    break;
+                default:
+                    job.State = BrowseJobState.Failed;
+                    job.Ui.ShowError(status == EnsureStatus.Blocked
+                        ? "The package was not found in the index."
+                        : "The install failed. Check your connection.", null, null);
+                    ShowToast(status == EnsureStatus.Blocked
+                        ? $"{job.Name} was not found in the index."
+                        : $"Couldn't install {job.Name}. Check your connection.", Severity.Danger);
+                    Core.Log?.Error($"[profiles] browser: install of {job.FullName} {job.Version} failed ({status}).");
+                    break;
+            }
+            _hubSinceState = 999f;
+
+            if (_cloneScreen == null || !_cloneScreen.IsOpen)
+            {
+                int dropped = b.Jobs.RemoveAll(j => j.State == BrowseJobState.Queued);
+                if (dropped > 0) Core.Log?.Warning($"[profiles] browser: the menu closed; {dropped} queued install(s) dropped.");
+                return;
+            }
+            RunNextBrowseJob(b);
         }
 
         private static void LoadBrowseIndex(BrowsePage b)
@@ -291,7 +410,12 @@ namespace SideHustle.Menu
         private static void BuildBrowsePage(PageView pv, BrowsePage b)
         {
             pv.Frame = "board";
-            pv.Add(pv.Head("Thunderstore", $"Installs into {b.Name}, dependencies included.", "Profile", () => ShowProfileDetail(b.ProfileId)));
+            // While installs run the browser holds the tabs and the way back, like the install screen did: the
+            // profile must not be switched, edited or deleted under a running download.
+            bool busy = BrowseBusy(b);
+            pv.Lock = busy;
+            pv.Add(pv.Head("Thunderstore", $"Installs into {b.Name}, dependencies included.",
+                busy ? null : "Profile", busy ? null : (Action)(() => ShowProfileDetail(b.ProfileId))));
             pv.Add(pv.Row(new[]
             {
                 pv.Input("search", b.Query, "Search packages", v => b.Query = v ?? "", cls: "search"),
@@ -319,17 +443,61 @@ namespace SideHustle.Menu
             {
                 var p = pkg;
                 string ver = p.Latest.VersionNumber;
-                bool installed = b.Installed.Contains(p.FullName);
+                var job = b.Jobs.LastOrDefault(j => j.FullName.Equals(p.FullName, StringComparison.OrdinalIgnoreCase));
                 var info = pv.Btn("Info", () => DownloadLink.Open(p.PackageUrl), "sm", "link");
-                var main = installed
-                    ? pv.Btn("Installed", null, "sm ok2", "check", off: true)
-                    : pv.Btn("Install", () => InstallIntoProfile(b.ProfileId, p.FullName, ver), "sm go", "download");
+                Json main;
+                string state = null, tone = null;
+                int pct = -1;
+                switch (job?.State)
+                {
+                    case BrowseJobState.Running:
+                        pct = job.Ui.BarPercent;
+                        state = pct + "%";
+                        main = pv.Btn("Installing", null, "sm", "download", off: true);
+                        break;
+                    case BrowseJobState.Queued:
+                        main = pv.Btn("Queued", null, "sm", "clock", off: true);
+                        break;
+                    case BrowseJobState.Failed:
+                        state = "Failed";
+                        tone = "bad";
+                        main = pv.Btn("Retry", () => QueueBrowseInstall(b, p.FullName, ver), "sm", "refresh");
+                        break;
+                    case BrowseJobState.Warn:
+                        state = "Other game version";
+                        tone = "need";
+                        main = pv.Btn("Installed", null, "sm ok2", "check", off: true);
+                        break;
+                    default:
+                        main = b.Installed.Contains(p.FullName)
+                            ? pv.Btn("Installed", null, "sm ok2", "check", off: true)
+                            : pv.Btn("Install", () => QueueBrowseInstall(b, p.FullName, ver), "sm go", "download");
+                        break;
+                }
                 rows.Add(pv.Item(p.Name,
                     $"by {p.Owner} - v{ver} - {PackageBrowserView.Downloads(p.TotalDownloads)} {(p.TotalDownloads == 1 ? "download" : "downloads")}",
-                    mono: Initials(p.Name), pic: HubPackageIcon(p.Latest.Icon), tag: p.IsModpack ? "Modpack" : null, acts: new[] { info, main }));
+                    state, tone, mono: Initials(p.Name), pic: HubPackageIcon(p.Latest.Icon), tag: p.IsModpack ? "Modpack" : null,
+                    pct: pct, acts: new[] { info, main }));
             }
             if (rows.Count == 0) rows.Add(pv.Quiet("No packages match."));
             pv.Add(pv.Scroll(rows));
+
+            var run = b.Jobs.FirstOrDefault(j => j.State == BrowseJobState.Running);
+            if (run != null) AddBrowseInstallStrip(pv, b, run);
+        }
+
+        /// <summary>The strip under the list while an install runs: what downloads, how far, what waits, Cancel.</summary>
+        private static void AddBrowseInstallStrip(PageView pv, BrowsePage b, BrowseJob run)
+        {
+            var ui = run.Ui;
+            int waiting = b.Jobs.Count(j => j.State == BrowseJobState.Queued);
+            var sub = new List<string> { ui.StatusText };
+            if (waiting > 0) sub.Add($"{waiting} queued");
+            Json cancel = ui.Cancelling
+                ? pv.Btn("Cancelling...", null, "sm")
+                : ui.CanCancel ? pv.Btn("Cancel", () => CancelBrowseInstalls(b), "sm", "close") : null;
+            pv.Add(pv.Say("now", "busy", $"Installing {run.Name} {run.Version}", string.Join(" - ", sub), cancel));
+            pv.Add(pv.Progress(ui.BarPercent, null, ui.BarTone));
         }
     }
 }
