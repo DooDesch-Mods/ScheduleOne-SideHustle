@@ -232,6 +232,7 @@ namespace SideHustle.Menu
             public bool Done;
             public string Error;
             public List<(string FullName, string Pinned, string Latest)> Updates = new List<(string, string, string)>();
+            public List<EssentialUpdate> Essentials = new List<EssentialUpdate>();
         }
 
         private static void BuildUpdatesPage(PageView pv, UpdatesPage u)
@@ -239,14 +240,39 @@ namespace SideHustle.Menu
             pv.Frame = "board";
             pv.Add(pv.Head("Updates", u.Name, "Profile", () => ShowProfileDetail(u.ProfileId)));
             if (!u.Done) { pv.Add(pv.Say("now", "busy", "Refreshing the Thunderstore index...", null)); return; }
-            if (u.Error != null) { pv.Add(pv.Say("bad", "bad", "Update check failed: " + u.Error, null)); return; }
-            if (u.Updates.Count == 0) { pv.Add(pv.Say("ok", "ok", "Everything is up to date.", null)); return; }
-            pv.Add(pv.Scroll(u.Updates.Select(x =>
+            if (u.Updates.Count == 0 && u.Essentials.Count == 0)
             {
-                var upd = x;
-                return pv.Item(upd.FullName, $"{upd.Pinned} -> {upd.Latest}",
-                    acts: new[] { pv.Btn("Update", () => InstallIntoProfile(u.ProfileId, upd.FullName, upd.Latest, fromUpdate: true), "sm go", "download") });
-            }).ToList()));
+                pv.Add(u.Error != null
+                    ? pv.Say("bad", "bad", "Update check failed: " + u.Error, null)
+                    : pv.Say("ok", "ok", "Everything is up to date.", null));
+                return;
+            }
+
+            var rows = new List<Json>();
+            if (u.Essentials.Count > 0)
+            {
+                // Every profile runs the copy from the player's Mods folder, so these update there, not here.
+                rows.Add(pv.Group("SIDE HUSTLE AND S1API", u.Essentials.Count.ToString()));
+                foreach (var e in u.Essentials)
+                {
+                    var ess = e;
+                    rows.Add(pv.Item(ess.Name, $"{ess.Installed} -> {ess.Latest} - update it in your mod manager",
+                        acts: new[] { pv.Btn("Open page", () => DownloadLink.Open(ess.Url), "sm", "link") }));
+                }
+            }
+            if (u.Error != null) rows.Add(pv.Say("bad", "bad", "Update check of the profile failed: " + u.Error, null));
+            else if (u.Updates.Count == 0) rows.Add(pv.Quiet("The mods in this profile are up to date."));
+            else
+            {
+                rows.Add(pv.Group("MODS IN THIS PROFILE", u.Updates.Count.ToString()));
+                foreach (var x in u.Updates)
+                {
+                    var upd = x;
+                    rows.Add(pv.Item(upd.FullName, $"{upd.Pinned} -> {upd.Latest}",
+                        acts: new[] { pv.Btn("Update", () => InstallIntoProfile(u.ProfileId, upd.FullName, upd.Latest, fromUpdate: true), "sm go", "download") }));
+                }
+            }
+            pv.Add(pv.Scroll(rows));
         }
 
         // --- Thunderstore ---

@@ -209,17 +209,24 @@ namespace SideHustle.Menu
             Interactions.PolishButtons(formHost);
         }
 
-        internal static void BuildUpdateResults(Transform formHost,
+        internal static void BuildUpdateResults(Transform formHost, List<EssentialUpdate> essentials,
             List<(string FullName, string Pinned, string Latest)> updates, string error,
             Action<(string FullName, string Pinned, string Latest)> onUpdate, Action onBack)
         {
             var page = Scaffold.Create(formHost);
             var content = page.Content;
             var footer = page.Footer;
+            foreach (var e in essentials ?? new List<EssentialUpdate>())
+            {
+                var ess = e;
+                Row(content, ess.Name, $"{ess.Installed} -> {ess.Latest} - update it in your mod manager", "Open page", Theme.Button,
+                    () => DownloadLink.Open(ess.Url));
+            }
+            bool anyEssential = essentials != null && essentials.Count > 0;
             if (error != null)
                 Scaffold.Note(content, "Update check failed: " + error);
             else if (updates == null || updates.Count == 0)
-                Scaffold.Note(content, "Everything is up to date.");
+                Scaffold.Note(content, anyEssential ? "The mods in this profile are up to date." : "Everything is up to date.");
             else
                 foreach (var u in updates)
                 {
