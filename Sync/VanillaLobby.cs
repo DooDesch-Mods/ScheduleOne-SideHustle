@@ -194,6 +194,7 @@ namespace SideHustle.Sync
                         HostName = LobbyCoordinator.LocalPersonaName(),
                         LobbyName = string.IsNullOrEmpty(opts.LobbyName) ? LobbyCoordinator.LocalPersonaName() : opts.LobbyName,
                         Kind = "vanilla",
+                        Visibility = DirVisibility(sid, priv),
                         Gamemode = "", GamemodeName = "",
                         Enforce = enforce,
                         MaxPlayers = Math.Max(2, opts.MaxPlayers),
@@ -291,6 +292,27 @@ namespace SideHustle.Sync
                 if (!await LobbyDirectory.PublishAsync(pub).ConfigureAwait(false))
                     Core.Log?.Warning($"[dir] lobby {lobbyId} is not listed on the web directory (see the line above); Steam discovery still works.");
             });
+        }
+
+        /// <summary>The directory visibility of a lobby we own, read from its live lobby data so a later switch in the
+        /// Lobby app reaches the next publish. <paramref name="fallbackPrivate"/> covers a key Steam has not stored.</summary>
+        internal static string DirVisibility(CSteamID sid, bool fallbackPrivate)
+        {
+            string v = SteamMatchmaking.GetLobbyData(sid, LobbyCoordinator.KeyVisibility);
+            bool priv = string.IsNullOrEmpty(v) ? fallbackPrivate : v == "priv";
+            return priv ? "private" : "public";
+        }
+
+        /// <summary>Publish the current entry again, e.g. after the host switched public/friends only. Main thread.</summary>
+        internal static void RepublishDirectory(string why)
+        {
+            if (_dirLobbyId == 0 || _dirBuild == null)
+            {
+                Core.Log?.Msg($"[dir] {why}: this lobby is not in the directory; nothing to update.");
+                return;
+            }
+            Core.Log?.Msg($"[dir] {why}: updating the directory entry of lobby {_dirLobbyId}.");
+            PublishDirectory(_dirLobbyId, _dirBuild);
         }
 
         /// <summary>Drop this host's directory entry (session over). Safe to call when nothing was published.</summary>

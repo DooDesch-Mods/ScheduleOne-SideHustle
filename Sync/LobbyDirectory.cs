@@ -61,7 +61,7 @@ namespace SideHustle.Sync
                     Log($"publish rejected with HTTP {(int)r.StatusCode} for lobby {p?.LobbyId}");
                     return false;
                 }
-                Core.Log?.Msg($"[dir] lobby {p?.LobbyId} published to the directory.");
+                Core.Log?.Msg($"[dir] lobby {p?.LobbyId} published to the directory ({p?.Visibility ?? "public"}).");
                 _heartbeatFailing = false;
                 return true;
             }
@@ -180,6 +180,7 @@ namespace SideHustle.Sync
         public string HostName { get; set; }
         public string LobbyName { get; set; }
         public string Kind { get; set; }          // "vanilla" | "gamemode"
+        public string Visibility { get; set; }    // "public" | "private"; the backend leaves private lobbies out of its list
         public string Gamemode { get; set; }
         public string GamemodeName { get; set; }
         public bool Enforce { get; set; }

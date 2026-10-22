@@ -306,6 +306,7 @@ namespace SideHustle.Multiplayer
                     HostName = LocalPersonaName(),
                     LobbyName = string.IsNullOrEmpty(opts.LobbyName) ? LocalPersonaName() : opts.LobbyName,
                     Kind = "gamemode",
+                    Visibility = Sync.VanillaLobby.DirVisibility(sid, opts.Visibility == LobbyVisibility.Private),
                     Gamemode = desc.Id ?? "",
                     GamemodeName = desc.DisplayName ?? desc.Id ?? "",
                     Enforce = false,
