@@ -3,6 +3,12 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [3.3.0] - 2026-10-31
+
+### Added
+- "Hub size" in the hub's Settings tab: 100, 90 or 80 %. Text and buttons shrink with it.
+- A grip on the right screen edge folds the hub away, and it stays folded between game starts. Esc folds it too.
+
 ## [3.2.1] - 2026-10-22
 
 ### Fixed
