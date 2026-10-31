@@ -39,6 +39,11 @@ namespace SideHustle.Menu
         /// <summary>The share of the screen width left to the vanilla main menu.</summary>
         private const float HubMenuShare = 0.4f;
 
+        /// <summary>The sizes the settings page offers, in percent. Index 0 is the default.</summary>
+        internal static readonly int[] HubSizes = { 100, 90, 80 };
+
+        private static bool _hubSizeWarned;
+
         private static GameObject _hubRoot;
         private static RectTransform _hubRect;
 
@@ -175,12 +180,11 @@ namespace SideHustle.Menu
                 var holder = new GameObject("page");
                 var rect = holder.AddComponent<RectTransform>();
                 rect.SetParent(_hubRoot.transform, false);
-                rect.anchorMin = new Vector2(HubMenuShare, 0f);
-                rect.anchorMax = Vector2.one;
                 rect.offsetMin = Vector2.zero;
                 rect.offsetMax = Vector2.zero;
                 _hubRect = rect;
                 _hubShift = 0f;
+                PlaceHubRect();
 
                 _hub = Surfaces.Mount(rect, HubSurfaceId, "SideHustle.Assets.hub", HubDesignShortSide)
                     .OnCall("hub.state", _ => HubStateJson())
@@ -221,6 +225,7 @@ namespace SideHustle.Menu
         {
             Safe.Try("unmounting the hub surface", () => Surfaces.Unmount(HubSurfaceId));
             Safe.Try("destroying the hub canvas", () => { if (_hubRoot != null) UnityEngine.Object.Destroy(_hubRoot); });
+            DestroyGrip();
             _hubRoot = null;
             _hubRect = null;
             _hubShift = 0f;
@@ -465,6 +470,7 @@ namespace SideHustle.Menu
 
             bool want = HubWanted();
             if (want != _hubShown) SetHubShown(want);
+            TickFold();
             SyncHomeBesidePage();
             TickHubFade(dt);
             TickHubShift(dt);
@@ -527,11 +533,56 @@ namespace SideHustle.Menu
             float lerp = MenuLerpTime();
             float step = lerp > 0f ? dt / lerp * Mathf.Max(target, _hubShift) : 1f;
             _hubShift = Mathf.MoveTowards(_hubShift, target, step);
-            _hubRect.anchorMin = new Vector2(HubMenuShare - _hubShift, 0f);
-            _hubRect.anchorMax = new Vector2(1f - _hubShift, 1f);
+            PlaceHubRect();
             if (!Mathf.Approximately(_hubShift, target)) return;
             Core.Log?.Msg($"[hub3] page moved {(target > 0f ? "left of the chat column" : "back")}; repainting its clip areas.");
             Safe.Try("telling the hub page it moved", () => _hub?.Emit("hub.moved", ""));
+        }
+
+        /// <summary>
+        /// Puts the page where the chat shift and the size setting say. The size is the rect's scale around its
+        /// centre rather than a smaller rect: the engine skips a rect that shrinks with the same proportions, since
+        /// its CSS size stays the same, and would keep drawing at the old scale. The layout stays the same either way.
+        /// </summary>
+        private static void PlaceHubRect()
+        {
+            if (_hubRect == null) return;
+            float size = HubSizes[HubSizeIndex] / 100f;
+            _hubRect.anchorMin = new Vector2(HubMenuShare - _hubShift, 0f);
+            _hubRect.anchorMax = new Vector2(1f - _hubShift, 1f);
+            _hubRect.localScale = new Vector3(size, size, 1f);
+        }
+
+        /// <summary>Which of <see cref="HubSizes"/> the preference names. A value edited to something else by hand
+        /// counts as the default.</summary>
+        internal static int HubSizeIndex
+        {
+            get
+            {
+                int percent = Preferences.HubSizePercent;
+                int index = Array.IndexOf(HubSizes, percent);
+                if (index >= 0) return index;
+                if (!_hubSizeWarned)
+                {
+                    _hubSizeWarned = true;
+                    Core.Log?.Warning($"[hub3] HubSizePercent {percent} is not one of 100, 90, 80; using 100.");
+                }
+                return 0;
+            }
+        }
+
+        internal static void SetHubSize(int index)
+        {
+            if (index < 0 || index >= HubSizes.Length)
+            {
+                Core.Log?.Warning($"[hub3] no hub size at index {index}.");
+                return;
+            }
+            Preferences.HubSizePercent = HubSizes[index];
+            PlaceHubRect();
+            // Clip rectangles are baked when the page paints, so a page that changed scale has to paint again.
+            Safe.Try("telling the hub page it changed size", () => _hub?.Emit("hub.moved", ""));
+            Core.Log?.Msg($"[hub3] hub size is now {HubSizes[index]} percent.");
         }
 
         private static float _menuLerpTime = -1f;
@@ -1704,6 +1755,7 @@ namespace SideHustle.Menu
                 return;
             }
             if (!EnsureHubSurfaceAfterClone()) { Core.Log?.Msg("[hub3] menu load: no surface, the main menu stays."); return; }
+            if (Preferences.HubFolded) { Core.Log?.Msg("[hub3] menu load: the hub stays folded away."); return; }
             Core.Log?.Msg("[hub3] menu load: opening the hub.");
             OpenScreen();
         }

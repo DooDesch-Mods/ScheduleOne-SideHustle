@@ -217,7 +217,7 @@ namespace SideHustle.Menu
             // Place the Side Hustle entry just above the template button in the nav column, and the separate
             // "Mod Profiles" entry directly below it.
             int idx = template.transform.GetSiblingIndex();
-            var main = CloneNavButton(template, MenuButtonName, "Side Hustle", (UnityAction)Hub.OpenScreen, idx);
+            var main = CloneNavButton(template, MenuButtonName, "Side Hustle", (UnityAction)Hub.OpenScreenByPlayer, idx);
             if (main == null) return false;
             CloneNavButton(template, ProfilesButtonName, "Mod profiles",
                 (UnityAction)Hub.OpenProfilesScreen, main.transform.GetSiblingIndex() + 1);
