@@ -27,6 +27,8 @@ namespace SideHustle.Config
         private static MelonPreferences_Entry<bool> _enabled;
         private static MelonPreferences_Entry<bool> _showUninstalled;
         private static MelonPreferences_Entry<bool> _askHostOnContinue;
+        private static MelonPreferences_Entry<int> _hubSizePercent;
+        private static MelonPreferences_Entry<bool> _hubFolded;
         private static MelonPreferences_Entry<string> _recent;
         private static MelonPreferences_Entry<string> _modNameMap;
         private static MelonPreferences_Entry<string> _pendingContinue;
@@ -66,6 +68,11 @@ namespace SideHustle.Config
             _askHostOnContinue = _category.CreateEntry("AskHostOnContinue", true, "Ask to host publicly on Continue",
                 "When ON, clicking Continue or a save slot asks whether to open it as a public Side Hustle lobby. " +
                 "Turn OFF to always just play the save.");
+
+            _hubSizePercent = _category.CreateEntry("HubSizePercent", 100, "Hub size (percent)",
+                "How large the Side Hustle hub draws in the main menu: 100, 90 or 80. Text and buttons scale with it.");
+            _hubFolded = _category.CreateEntry("HubFolded", false, "Hub folded away",
+                "When ON, the main menu starts with the hub folded away. The grip on the right screen edge sets this.");
 
             _acceptStrangerMessages = _category.CreateEntry("AcceptStrangerMessages", true,
                 "Let strangers message you",
@@ -143,6 +150,20 @@ namespace SideHustle.Config
         {
             get => _askHostOnContinue?.Value ?? true;
             set { if (_askHostOnContinue != null) _askHostOnContinue.Value = value; }
+        }
+
+        /// <summary>How large the hub page draws, in percent of the room it has in the main menu.</summary>
+        internal static int HubSizePercent
+        {
+            get => _hubSizePercent?.Value ?? 100;
+            set { if (_hubSizePercent != null) _hubSizePercent.Value = value; }
+        }
+
+        /// <summary>Whether the player folded the hub away, so the next menu starts without it.</summary>
+        internal static bool HubFolded
+        {
+            get => _hubFolded?.Value ?? false;
+            set { if (_hubFolded != null) _hubFolded.Value = value; }
         }
 
         /// <summary>Whether a stranger who cannot join this host's lobby may send them a short message. The one

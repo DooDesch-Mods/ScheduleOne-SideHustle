@@ -1351,6 +1351,7 @@ namespace SideHustle.Menu
         /// <summary>Close the gamemode screen without reopening the home menu (used when a session is launching).</summary>
         internal static void CloseHubScreen()
         {
+            _closedForLaunch = true;
             if (_cloneScreen != null) _cloneScreen.Close();
         }
 
@@ -1384,6 +1385,12 @@ namespace SideHustle.Menu
         /// <summary>The hub after a session that reloaded the menu scene (World gamemodes, vanilla co-op).</summary>
         internal static void OpenScreenAfterSession()
         {
+            if (Preferences.HubFolded)
+            {
+                MultiplayerCoordinator.TakeReturnGamemode();
+                Core.Log?.Msg("[hub3] back from a session: the hub stays folded away.");
+                return;
+            }
             OpenScreen();
             if (_cloneScreen != null && _cloneScreen.IsOpen) ShowReturnPage(MultiplayerCoordinator.TakeReturnGamemode());
         }
@@ -1411,7 +1418,7 @@ namespace SideHustle.Menu
                 return;
             }
             _activeCtx = new LaunchContext { Descriptor = desc, IsHost = null, LobbyId = 0 };
-            if (_cloneScreen != null) _cloneScreen.Close();
+            CloseHubScreen();
             Core.Log?.Msg($"Launching gamemode '{desc.DisplayName}' (singleplayer).");
             try { desc.OnLaunchSingleplayer(_activeCtx); SessionEvents.RaiseStarted(_activeCtx); }
             catch (Exception e)

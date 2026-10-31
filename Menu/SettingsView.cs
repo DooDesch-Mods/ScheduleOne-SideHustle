@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using DooDesch.UI;
 using S1API.UI;
 using SideHustle.Config;
@@ -67,6 +68,8 @@ namespace SideHustle.Menu
             pv.Add(pv.Scroll(new[]
             {
                 pv.Card("MENUS", false,
+                    pv.Set("Hub size", "Text and buttons scale with it.",
+                        pv.Seg(Hub.HubSizes.Select(p => p + " %").ToList(), Hub.HubSizeIndex, Hub.SetHubSize)),
                     PageSwitch(pv, "Info column in the main menu", "Mod set, open lobbies and messages.",
                         Preferences.MenuPanel, v => Preferences.MenuPanel = v),
                     PageSwitch(pv, "Chat column while joining", "Ask the host about a mod you cannot get.",
