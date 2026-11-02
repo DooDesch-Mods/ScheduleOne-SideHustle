@@ -3,6 +3,12 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [3.3.1] - 2026-11-02
+
+### Changed
+
+- Thunderstore and Nexus Mods may now review the mod files: the license names their package review as an exception.
+
 ## [3.3.0] - 2026-10-31
 
 ### Added
