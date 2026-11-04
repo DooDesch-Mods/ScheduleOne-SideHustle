@@ -2,8 +2,6 @@
 
 > 🛟 **Need help or found a bug?** Get support at [support.doodesch.de/sidehustle](https://support.doodesch.de/sidehustle).
 
-[![Discord](https://mods.doodesch.de/img/badge.svg)](https://mods.doodesch.de)
-
 > **One hub for every gamemode.** Side Hustle opens a hub beside the main menu that lists every installed
 > gamemode mod and launches it straight from the menu - no savegame required. It is the shared hub that
 > gamemode mods plug into.
@@ -16,7 +14,7 @@
 ![Game](https://img.shields.io/badge/game-Schedule%20I-purple)
 ![MelonLoader](https://img.shields.io/badge/MelonLoader-0.7.3+-green)
 ![S1API](https://img.shields.io/badge/S1API-required-orange)
-[![Polyfill](https://polyfill.doomods.com/badge/side-hustle.svg)](https://polyfill.doomods.com/mod/side-hustle)
+[![Discord](https://mods.doodesch.de/img/badge.svg)](https://mods.doodesch.de) [![Polyfill](https://polyfill.doomods.com/badge/side-hustle.svg)](https://polyfill.doomods.com/mod/side-hustle)
 
 [![MLVScan SideHustle.dll](https://mlvscan.com/attestations/att_TqZVQ125ZZVmFv4VWmlVRTEQ/badge.svg)](https://mlvscan.com/attestations/att_TqZVQ125ZZVmFv4VWmlVRTEQ)
 
