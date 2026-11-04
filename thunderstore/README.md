@@ -2,6 +2,8 @@
 
 > 🛟 **Need help or found a bug?** Get support at [support.doodesch.de/sidehustle](https://support.doodesch.de/sidehustle).
 
+[![Discord](https://mods.doodesch.de/img/badge.svg)](https://mods.doodesch.de)
+
 > **One hub for every gamemode.** Side Hustle opens a hub beside the main menu that lists every installed
 > gamemode mod and launches it straight from the menu - no savegame required. It is the shared hub that
 > gamemode mods plug into.
@@ -99,6 +101,12 @@ itself and shows up under the Side Hustle entry.
 
 Open the **Settings** tab in the hub. Everything is stored in `UserData/MelonPreferences.cfg` under `SideHustle_01_Main`;
 `Enabled` (default `true`) hides the hub without uninstalling and is only in the cfg.
+
+## Community
+
+[![DooDesch Mods on Discord](https://mods.doodesch.de/img/card.svg)](https://mods.doodesch.de)
+
+Join the DooDesch Mods Discord: update pings, polls on what comes next, and playtests of new mods.
 
 ## License
 
