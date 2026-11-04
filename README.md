@@ -4,8 +4,6 @@
 
 **Download:** [Nexus Mods](https://www.nexusmods.com/schedule1/mods/2232) · [Thunderstore](https://thunderstore.io/c/schedule-i/p/DooDesch/SideHustle/) · [GitHub Releases](https://github.com/DooDesch-Mods/ScheduleOne-SideHustle/releases)
 
-[![Discord](https://mods.doodesch.de/img/badge.svg)](https://mods.doodesch.de)
-
 > Side Hustle adds a single entry to the Schedule I main menu that lists every installed
 > "gamemode" mod and launches it straight from the menu - no savegame required. It is the
 > shared entry point that gamemode mods (like an in-game tattoo editor) plug into. Built on
@@ -20,7 +18,7 @@
 ![MelonLoader](https://img.shields.io/badge/MelonLoader-0.7.3+-green)
 ![S1API](https://img.shields.io/badge/S1API-required-orange)
 ![Status](https://img.shields.io/badge/status-working-brightgreen)
-[![Polyfill](https://polyfill.doomods.com/badge/side-hustle.svg)](https://polyfill.doomods.com/mod/side-hustle)
+[![Discord](https://mods.doodesch.de/img/badge.svg)](https://mods.doodesch.de) [![Polyfill](https://polyfill.doomods.com/badge/side-hustle.svg)](https://polyfill.doomods.com/mod/side-hustle)
 
 [![MLVScan SideHustle.dll](https://mlvscan.com/attestations/att_TqZVQ125ZZVmFv4VWmlVRTEQ/badge.svg)](https://mlvscan.com/attestations/att_TqZVQ125ZZVmFv4VWmlVRTEQ)
 
