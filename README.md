@@ -4,6 +4,8 @@
 
 **Download:** [Nexus Mods](https://www.nexusmods.com/schedule1/mods/2232) · [Thunderstore](https://thunderstore.io/c/schedule-i/p/DooDesch/SideHustle/) · [GitHub Releases](https://github.com/DooDesch-Mods/ScheduleOne-SideHustle/releases)
 
+[![Discord](https://mods.doodesch.de/img/badge.svg)](https://mods.doodesch.de)
+
 > Side Hustle adds a single entry to the Schedule I main menu that lists every installed
 > "gamemode" mod and launches it straight from the menu - no savegame required. It is the
 > shared entry point that gamemode mods (like an in-game tattoo editor) plug into. Built on
@@ -214,6 +216,12 @@ is a complete gamemode to start from. The full reference is on the
 - IL2CPP build only (current Steam public branch).
 - Works alongside any other MelonLoader/S1API mod. Side Hustle only adds a main-menu entry and the
   registration API; it does not touch gameplay or saves.
+
+## Community
+
+[![DooDesch Mods on Discord](https://mods.doodesch.de/img/card.svg)](https://mods.doodesch.de)
+
+Join the DooDesch Mods Discord: update pings, polls on what comes next, and playtests of new mods.
 
 ## Credits
 
