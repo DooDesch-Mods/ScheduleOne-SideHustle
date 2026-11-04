@@ -2,6 +2,8 @@
 
 > 🛟 **Need help or found a bug?** Get support at [support.doodesch.de/sidehustle](https://support.doodesch.de/sidehustle).
 
+**Download:** [Nexus Mods](https://www.nexusmods.com/schedule1/mods/2232) · [Thunderstore](https://thunderstore.io/c/schedule-i/p/DooDesch/SideHustle/) · [GitHub Releases](https://github.com/DooDesch-Mods/ScheduleOne-SideHustle/releases)
+
 > Side Hustle adds a single entry to the Schedule I main menu that lists every installed
 > "gamemode" mod and launches it straight from the menu - no savegame required. It is the
 > shared entry point that gamemode mods (like an in-game tattoo editor) plug into. Built on
@@ -127,15 +129,22 @@ mod registers itself and shows up under the Side Hustle entry.
 | Schedule I | IL2CPP (current Steam public build) |
 | MelonLoader | `0.7.3+` |
 | S1API | [ifBars/S1API_Forked](https://thunderstore.io/c/schedule-i/p/ifBars/S1API_Forked/) `3.1.15+` |
-| [Sideload](https://github.com/DooDesch-Mods/ScheduleOne-Sideload) | `1.33.1+` - draws the hub |
-| [WhatsDab](https://github.com/DooDesch-Mods/ScheduleOne-WhatsDab) | `1.0.2+` - the lobby chat app, pulled in as a dependency |
+| [Sideload](https://www.nexusmods.com/schedule1/mods/2360) | `1.33.1+` - draws the hub |
+| [WhatsDab](https://www.nexusmods.com/schedule1/mods/2361) | `1.0.2+` - the lobby chat app, pulled in as a dependency |
 
 ## Installation
 
-### Recommended: a Thunderstore mod manager
+### Recommended: Nexus Mods
+
+1. Install **MelonLoader 0.7.3** for Schedule I ([melonwiki.xyz](https://melonwiki.xyz/)).
+2. Download SideHustle from [Nexus Mods](https://www.nexusmods.com/schedule1/mods/2232) and install it with Vortex,
+   or put **`SideHustle.dll`** into your Schedule I `Mods/` folder.
+3. Get **S1API**, [Sideload](https://www.nexusmods.com/schedule1/mods/2360) and [WhatsDab](https://www.nexusmods.com/schedule1/mods/2361) the same way.
+
+### Thunderstore mod manager
 
 Install with a mod manager (r2modman / Gale) from the Schedule I community; the dependencies
-(MelonLoader, S1API) are pulled in automatically.
+(MelonLoader, S1API) are pulled in automatically. Find it on the [Thunderstore page](https://thunderstore.io/c/schedule-i/p/DooDesch/SideHustle/).
 
 ### Manual
 
