@@ -29,7 +29,7 @@ namespace SideHustle.Menu
                 Name = "PropHunt",
                 Subtitle = "Hiders disguise as props; hunters find them before the timer runs out.",
                 Package = "DooDesch-PropHunt",
-                Url = "https://thunderstore.io/c/schedule-i/p/DooDesch/PropHunt/",
+                Url = "https://www.nexusmods.com/schedule1/mods/2283",
             },
             new Entry
             {
@@ -37,7 +37,7 @@ namespace SideHustle.Menu
                 Name = "Personify",
                 Subtitle = "Design and export custom NPC packs.",
                 Package = "DooDesch-Personify",
-                Url = "https://thunderstore.io/c/schedule-i/p/DooDesch/Personify/",
+                Url = "https://www.nexusmods.com/schedule1/mods/2276",
             },
             new Entry
             {
@@ -45,7 +45,7 @@ namespace SideHustle.Menu
                 Name = "Inkubator",
                 Subtitle = "Design and export custom tattoo mods.",
                 Package = "DooDesch-Inkubator",
-                Url = "https://thunderstore.io/c/schedule-i/p/DooDesch/Inkubator/",
+                Url = "https://www.nexusmods.com/schedule1/mods/2233",
             },
         };
 
