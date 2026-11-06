@@ -2,6 +2,11 @@
 
 > 🛟 **Need help or found a bug?** Get support at [support.doodesch.de/sidehustle](https://support.doodesch.de/sidehustle).
 
+> ⚠️ **A required mod is missing on Thunderstore?** Thunderstore sometimes takes one of my library mods off its listing, and then r2modman and Gale can't install it. Get it from Nexus Mods or GitHub instead and put the DLL into the `Mods` folder of your profile. Stuck? Ask in the [Discord](https://mods.doodesch.de).
+>
+> - **Sideload:** [Nexus Mods](https://www.nexusmods.com/schedule1/mods/2360) · [GitHub](https://github.com/DooDesch-Mods/ScheduleOne-Sideload/releases/latest)
+> - **WhatsDab:** [Nexus Mods](https://www.nexusmods.com/schedule1/mods/2361) · [GitHub](https://github.com/DooDesch-Mods/ScheduleOne-WhatsDab/releases/latest)
+
 > **One hub for every gamemode.** Side Hustle opens a hub beside the main menu that lists every installed
 > gamemode mod and launches it straight from the menu - no savegame required. It is the shared hub that
 > gamemode mods plug into.
