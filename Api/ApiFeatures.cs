@@ -56,10 +56,14 @@ namespace SideHustle
         /// <summary>The <see cref="SideHustle.WorldHygiene"/> presets. Since 3.0.0.</summary>
         public const string WorldHygienePresets = "world-hygiene-presets";
 
+        /// <summary><see cref="GamemodeDescriptor.DiscordInvite"/>. Since 3.4.0.</summary>
+        public const string DiscordInvite = "discord-invite";
+
         private static readonly HashSet<string> Known = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             HostSettings, Presets, ModPolicy, WorldHygieneFlags, KickPlayer,
-            Validation, SessionEvents, SessionRole, Players, Notices, Messages, IconResource, WorldHygienePresets
+            Validation, SessionEvents, SessionRole, Players, Notices, Messages, IconResource, WorldHygienePresets,
+            DiscordInvite
         };
 
         internal static bool IsKnown(string feature) => !string.IsNullOrWhiteSpace(feature) && Known.Contains(feature.Trim());

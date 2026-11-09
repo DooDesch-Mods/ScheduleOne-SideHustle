@@ -190,6 +190,7 @@ namespace SideHustle.Menu
                     .OnCall("hub.state", _ => HubStateJson())
                     .OnCall("hub.hostAgain", HubCallHostAgain)
                     .OnCall("hub.play", HubCallPlay)
+                    .OnCall("hub.discord", HubCallDiscord)
                     .OnCall("hub.add", HubCallAdd)
                     .OnCall("hub.info", HubCallInfo)
                     .OnCall("hub.load", HubCallLoad)
@@ -980,6 +981,7 @@ namespace SideHustle.Menu
                     .Add("icon", HubIcon(desc))
                     .Add("sub", SupportBadge(desc.Support) + (author.Length > 0 ? "  " + author : ""))
                     .Add("desc", desc.Description ?? "")
+                    .Add("discord", DiscordInvite.CodeOf(desc))
                     .Add("kind", "mode")
                     .Add("join", desc.AllowsMultiplayer)
                     .Add("live", liveByMode.TryGetValue(desc.Id, out int n) ? n : 0)
@@ -1405,6 +1407,18 @@ namespace SideHustle.Menu
                 return mode == 1 ? "Required only" : "All installed";
             }
             catch (Exception e) { Core.Log?.Warning($"[hub3] mod check of '{desc.Id}' failed for the status note: {e.Message}"); return ""; }
+        }
+
+        // The gamemode's own Discord, from the Open button on its card.
+        private static string HubCallDiscord(string id)
+        {
+            var desc = FindMode(id);
+            if (desc == null) { Core.Log?.Warning($"[hub3] discord: '{id}' is not registered."); return RefuseGone; }
+            string code = DiscordInvite.CodeOf(desc);
+            if (code.Length == 0) { Core.Log?.Warning($"[hub3] discord: '{desc.Id}' has no usable invite."); return "This gamemode has no Discord invite."; }
+            Core.Log?.Msg($"[hub3] opening the Discord of '{desc.Id}'.");
+            DiscordInvite.Open(code);
+            return "";
         }
 
         private static string HubCallPlay(string id)

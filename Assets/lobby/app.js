@@ -369,6 +369,22 @@ function openDiscord() {
   toast('Opening Discord.', 'ok');
 }
 
+function openModeDiscord() {
+  if (ask('lobby.openModeDiscord') !== 'ok') { toast('Could not open the invite.', 'bad'); return; }
+  toast('Opening Discord.', 'ok');
+}
+
+/* The gamemode's own Discord, set by its author. Shown to the host and to every guest alike. */
+function modeDiscordRow(s) {
+  const row = el('div', 'row');
+  head(row, 'chat', 'Gamemode Discord');
+  const control = el('div', 'control');
+  control.appendChild(el('div', 'fact-val', 'discord.gg/' + s.modeDiscord));
+  control.appendChild(button('btn', 'Open', null, openModeDiscord));
+  row.appendChild(control);
+  return row;
+}
+
 function publishRow(s) {
   const row = el('div', 'row');
   const h = head(row, 'publish', 'Publish this lobby');
@@ -426,6 +442,7 @@ function renderLobby(body, s) {
   if (!s.gamemode) right.appendChild(enforceRow(s));
   right.appendChild(nameRow(s));
   right.appendChild(discordRow(s));
+  if (s.modeDiscord) right.appendChild(modeDiscordRow(s));
   cols.appendChild(left);
   cols.appendChild(right);
   body.appendChild(cols);
@@ -451,6 +468,10 @@ function renderSession(body, s) {
   if (s.discord) {
     fact(facts, 'chat', 'Discord', 'discord.gg/' + s.discord);
     facts.appendChild(button('btn wide', 'Open', null, openDiscord));
+  }
+  if (s.modeDiscord) {
+    fact(facts, 'chat', 'Gamemode Discord', 'discord.gg/' + s.modeDiscord);
+    facts.appendChild(button('btn wide', 'Open', null, openModeDiscord));
   }
   wrap.appendChild(facts);
   body.appendChild(wrap);

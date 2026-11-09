@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Il2CppSteamworks;
 using SideHustle.Multiplayer;
 using SideHustle.Sync;
@@ -130,6 +131,33 @@ namespace SideHustle.Phone
                 Core.Log?.Warning("[lobby] Open Discord was asked for but the lobby carries no invite.");
                 return "none";
             }
+            Menu.DiscordInvite.Open(code);
+            return "ok";
+        }
+
+        /// <summary>The Discord invite of the gamemode this lobby runs, or "". It comes from the gamemode's descriptor
+        /// on this machine, not from the lobby: everyone in a gamemode lobby has that gamemode installed.</summary>
+        internal static string GamemodeDiscordCode
+        {
+            get
+            {
+                string gm = Read(LobbyCoordinator.KeyGamemode);
+                if (string.IsNullOrEmpty(gm)) return "";
+                var desc = API.Registered.FirstOrDefault(d => string.Equals(d.Id, gm, StringComparison.OrdinalIgnoreCase));
+                return Menu.DiscordInvite.CodeOf(desc);
+            }
+        }
+
+        /// <summary>Open the Discord of the lobby's gamemode. A click handler only; "ok", or "none" without an invite.</summary>
+        internal static string OpenGamemodeDiscord()
+        {
+            string code = GamemodeDiscordCode;
+            if (code.Length == 0)
+            {
+                Core.Log?.Warning("[lobby] Open gamemode Discord was asked for but the gamemode has no invite.");
+                return "none";
+            }
+            Core.Log?.Msg("[lobby] opening the gamemode's Discord.");
             Menu.DiscordInvite.Open(code);
             return "ok";
         }

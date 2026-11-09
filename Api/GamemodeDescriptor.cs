@@ -89,6 +89,13 @@ namespace SideHustle
         /// one, e.g. "https://github.com/you/yourmode". Any other link is shown but never opened.</value>
         public string DownloadUrl;
 
+        /// <summary>An invite to the gamemode's Discord server. The hub card and the Lobby app of everyone in this
+        /// gamemode's lobby show it as a link with an Open button, which opens it in the Steam overlay. Null = none.
+        /// Since 3.4.0 (<see cref="ApiFeatures.DiscordInvite"/>).</summary>
+        /// <value>A discord.gg or discord.com/invite link, e.g. "https://discord.gg/abc123". Any other value is logged
+        /// as an error at <see cref="API.Register"/> and not shown.</value>
+        public string DiscordInvite;
+
         /// <summary>When true (default), this gamemode's PUBLIC lobbies are advertised in the Side Hustle menu of
         /// players who do not have it installed, so they can discover it. Set false to stay invisible to
         /// non-installers - e.g. a work-in-progress gamemode you do not want discovered during development. This only

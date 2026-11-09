@@ -44,6 +44,15 @@ namespace SideHustle.Menu
             return true;
         }
 
+        /// <summary>The invite code of a gamemode's own Discord (<see cref="GamemodeDescriptor.DiscordInvite"/>), or ""
+        /// when it has none or the value is not an invite link. The register check logs the second case.</summary>
+        internal static string CodeOf(GamemodeDescriptor desc)
+        {
+            string raw = desc?.DiscordInvite;
+            if (string.IsNullOrWhiteSpace(raw)) return "";
+            return TryParse(raw, out string code) ? code : "";
+        }
+
         /// <summary>The link a code stands for.</summary>
         internal static string LinkFor(string code) => "https://discord.gg/" + code;
 

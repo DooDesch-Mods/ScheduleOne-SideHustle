@@ -289,6 +289,14 @@ function buildTile(m) {
     box.appendChild(el('div', 'quiet', m.desc || (m.kind === 'mode' && m.join ? 'No lobbies' : ' ')));
   }
 
+  // The gamemode's own Discord: the link it opens, and the button. The card stays on its one row.
+  if (m.discord) {
+    const disc = el('div', 'disc');
+    disc.appendChild(el('div', 'lk', 'discord.gg/' + m.discord));
+    disc.appendChild(btn('Open', 'sm', () => act('hub.discord', m.id)));
+    box.appendChild(disc);
+  }
+
   box.appendChild(el('div', 'sp'));
   const acts = el('div', 'acts');
   const off = S.busy ? ' off' : '';
