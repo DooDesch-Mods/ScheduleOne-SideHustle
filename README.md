@@ -20,7 +20,7 @@
 ![Status](https://img.shields.io/badge/status-working-brightgreen)
 [![Discord](https://mods.doodesch.de/img/badge.svg)](https://mods.doodesch.de) [![Polyfill](https://polyfill.doomods.com/badge/side-hustle.svg)](https://polyfill.doomods.com/mod/side-hustle)
 
-[![MLVScan SideHustle.dll](https://mlvscan.com/attestations/att_TqZVQ125ZZVmFv4VWmlVRTEQ/badge.svg)](https://mlvscan.com/attestations/att_TqZVQ125ZZVmFv4VWmlVRTEQ)
+[![MLVScan SideHustle.dll](https://mlvscan.com/attestations/att_eVkVdNc3Ves_LfNupGlSjJC9/badge.svg)](https://mlvscan.com/attestations/att_eVkVdNc3Ves_LfNupGlSjJC9)
 
 ![Side Hustle 3.0](https://raw.githubusercontent.com/DooDesch-Mods/ScheduleOne-SideHustle/main/docs/img/header.jpg)
 
