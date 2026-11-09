@@ -50,6 +50,7 @@ namespace SideHustle.Internal
                 var keys = CheckSettings(d);
                 CheckPresets(d, keys);
                 CheckBlobSize(d);
+                CheckDiscordInvite(d);
 
                 if (d.Policy != null)
                 {
@@ -187,6 +188,16 @@ namespace SideHustle.Internal
 
         /// <summary>Estimate the largest blob the host form can produce: every setting at its longest value. Text
         /// settings count at their default, because free text has no upper bound to measure.</summary>
+        // Only the code is kept; the link a player opens is rebuilt as discord.gg/<code>, so no other host can be reached.
+        private static void CheckDiscordInvite(GamemodeDescriptor d)
+        {
+            if (string.IsNullOrWhiteSpace(d.DiscordInvite)) return;
+            if (Menu.DiscordInvite.TryParse(d.DiscordInvite, out _))
+                Core.Log?.Msg($"[api] gamemode '{d.Id}' DiscordInvite: shown on its hub card and in its lobbies.");
+            else
+                Error(d.Id, "DiscordInvite", $"\"{d.DiscordInvite}\" is not a discord.gg or discord.com/invite link; it is not shown.");
+        }
+
         private static void CheckBlobSize(GamemodeDescriptor d)
         {
             if (d.HostSettings == null || d.HostSettings.Length == 0) return;

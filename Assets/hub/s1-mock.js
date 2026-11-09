@@ -8,7 +8,7 @@
   const emit = (name, payload) => (listeners[name] || []).forEach(fn => fn({ type: name, value: payload }));
 
   const modes = [
-    { id: 'prophunt', name: 'PropHunt', icon: 'icon/prophunt', sub: 'Multiplayer', desc: '', kind: 'mode', live: 4,
+    { id: 'prophunt', name: 'PropHunt', icon: 'icon/prophunt', sub: 'Multiplayer', desc: '', discord: 'prophunt', kind: 'mode', live: 4,
       actions: [{ id: 'host', label: 'Host', go: true }, { id: 'join', label: 'Join' }] },
     { id: 'inkubator', name: 'Inkubator', icon: 'icon/inkubator', sub: 'Solo', desc: 'Tattoo editor', kind: 'mode', live: 0,
       actions: [{ id: 'play', label: 'Play', go: true }] },
@@ -73,6 +73,7 @@
       case 'hub.host':
         if (!a.players) return 'Pick a player count.';
         model.busy = true; model.status = hostStatus(); changed(); return '';
+      case 'hub.discord': return modes.find(m => m.id === a)?.discord ? '' : 'This gamemode has no Discord invite.';
       case 'hub.hostAgain': model.busy = true; model.status = hostStatus(); changed(); return '';
       case 'hub.join': {
         const l = lobbies.find(x => x.id === a.id);

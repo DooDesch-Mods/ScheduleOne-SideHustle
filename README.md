@@ -204,6 +204,9 @@ Since API version 3 (`API.ApiVersion`, `API.Has(...)`) a gamemode can also:
 - send its own messages to the other players with `API.SendToAll` / `API.SendTo` and receive them with
   `API.OnMessage`, without its own networking code.
 
+Since Side Hustle 3.4.0 (`API.Has(ApiFeatures.DiscordInvite)`) a gamemode can set `DiscordInvite` to its own
+`discord.gg` or `discord.com/invite` link. The hub card and the lobby show it with an Open button.
+
 `OnExitToHub` runs exactly once per session, also when Side Hustle aborts a session that failed to start.
 `Examples/SideHustleLink.cs` is a copy-in file that keeps Side Hustle optional, and `Examples/ExampleGamemode`
 is a complete gamemode to start from. The full reference is on the

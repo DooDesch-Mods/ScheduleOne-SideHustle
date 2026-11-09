@@ -44,6 +44,7 @@ namespace SideHustle.Phone
                     .OnCall("lobby.setEnforce", v => SetEnforce(v == "1"))
                     .OnCall("lobby.setDiscord", v => LobbyControls.SetDiscord(v))
                     .OnCall("lobby.openDiscord", _ => LobbyControls.OpenDiscord())
+                    .OnCall("lobby.openModeDiscord", _ => LobbyControls.OpenGamemodeDiscord())
                     .OnCall("lobby.republish", _ => Sync.SyncCoordinator.RepublishModList().Length > 0 ? "ok" : "error")
                     .OnCall("lobby.togglePublish", _ => TogglePublish())
                     .OnCall("lobby.players", _ => Players())
@@ -194,6 +195,7 @@ namespace SideHustle.Phone
                 // it for the same lobbies).
                 .Add("gamemode", LobbyControls.GamemodeLobby)
                 .Add("discord", LobbyControls.DiscordCode)
+                .Add("modeDiscord", LobbyControls.GamemodeDiscordCode)
                 // Whether a joiner can read this session's mod list: "ok" when the lobby advertises the hash they
                 // check it against, "missing" when this session holds a list the lobby is not carrying, "none" when
                 // there is no list in this process to publish. The middle case is a session nobody can join, and it

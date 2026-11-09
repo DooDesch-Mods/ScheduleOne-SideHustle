@@ -162,6 +162,8 @@ body {
 .tile .nm { font-size: 17px; font-weight: 700; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 .tile .sub { color: var(--mu); font-size: 12px; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 .tile .acts { flex-direction: row; gap: 8px; }
+.tile > .disc { flex-direction: row; align-items: center; gap: 8px; flex: none; }
+.tile .disc .lk { color: var(--mu); font-size: 12px; max-width: 14vw; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 
 /* --- Play: inline host form beside the chosen gamemode --- */
 

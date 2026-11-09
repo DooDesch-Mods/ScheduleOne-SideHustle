@@ -21,6 +21,7 @@ function base() {
     enforce: false,
     gamemode: false,
     discord: '',
+    modeDiscord: '',
     canPublish: true,
     published: false,
     inLobby: true,
@@ -71,6 +72,9 @@ export function call(name, argument = '') {
       model.discord = m[1];
       return 'ok';
     }
+
+    case 'lobby.openModeDiscord':
+      return model.modeDiscord ? 'ok' : 'none';
 
     case 'lobby.openDiscord':
       return model.discord ? 'ok' : 'none';
@@ -127,6 +131,10 @@ export const scenarios = {
   'hosting a gamemode, Discord set': () => enter({ ...base(), gamemode: true, discord: 'doodesch' }),
 
   'client, Discord invite': () => enter({ ...base(), host: false, hostName: 'fadestyle', gamemode: true, discord: 'doodesch' }),
+
+  'client, gamemode Discord': () => enter({ ...base(), host: false, hostName: 'fadestyle', gamemode: true, discord: 'doodesch', modeDiscord: 'prophunt' }),
+
+  'hosting a gamemode with its own Discord': () => enter({ ...base(), gamemode: true, modeDiscord: 'prophunt' }),
 
   'friends only, password set': () => enter({
     ...base(), public: false, hasPassword: true, password: 'kettle', members: 3,
