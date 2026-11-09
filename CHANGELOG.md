@@ -3,6 +3,17 @@
 All notable changes to Side Hustle are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [3.4.0] - 2026-11-09
+
+### Added
+
+- Gamemodes can show their own Discord invite on their hub card and in the lobby, with an Open button.
+
+### For mod authors
+
+- `GamemodeDescriptor.DiscordInvite` takes a `discord.gg` or `discord.com/invite` link; other links are
+  logged and not shown. Check for it with `ApiFeatures.DiscordInvite`.
+
 ## [3.3.1] - 2026-11-02
 
 ### Changed
